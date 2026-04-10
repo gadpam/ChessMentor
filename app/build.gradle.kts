@@ -8,6 +8,14 @@ plugins {
 android {
     namespace = "com.example.chessmentor"
     compileSdk = 34
+    ndkVersion = "21.4.7075529"
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
 
     defaultConfig {
         applicationId = "com.example.chessmentor"
@@ -19,6 +27,12 @@ android {
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+
+        externalNativeBuild {
+            cmake {
+                cppFlags += ""
+            }
         }
     }
 

@@ -20,7 +20,6 @@ import androidx.compose.ui.unit.sp
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.MistakeType
-import com.github.bhlangonijr.chesslib.move.Move
 
 /**
  * Горизонтальный скроллящийся список ходов с подсветкой ошибок
@@ -29,7 +28,7 @@ import com.github.bhlangonijr.chesslib.move.Move
  */
 @Composable
 fun HorizontalMoveList(
-    moves: List<Move>,
+    moves: List<String>,
     currentMoveIndex: Int,
     mistakes: List<Mistake>,
     onMoveClick: (Int) -> Unit,
@@ -59,7 +58,7 @@ fun HorizontalMoveList(
 
         Spacer(modifier = Modifier.width(6.dp))  // Уменьшили с 8dp до 6dp
 
-        moves.forEachIndexed { index, move ->
+        moves.forEachIndexed { index, san ->
             val moveNumber = (index / 2) + 1
             val isWhiteMove = index % 2 == 0
             val isSelected = index == currentMoveIndex
@@ -82,7 +81,7 @@ fun HorizontalMoveList(
 
             // Ход
             MoveChip(
-                san = move.san,
+                san = san,
                 isSelected = isSelected,
                 mistakeType = mistake?.mistakeType,
                 onClick = { onMoveClick(index) }

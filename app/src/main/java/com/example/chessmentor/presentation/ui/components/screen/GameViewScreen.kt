@@ -113,8 +113,11 @@ private fun GameViewScreenContent(
         }
     }
 
-    LaunchedEffect(Unit) {
-        Log.d(TAG, "Loading game ${game.id}")
+    LaunchedEffect(game.id, mistakes.size, analyzedMoves.size, gameEvaluations.size) {
+        Log.d(
+            TAG,
+            "Loading game ${game.id} with ${mistakes.size} mistakes, ${analyzedMoves.size} analyzed moves and ${gameEvaluations.size} evaluations"
+        )
         boardViewModel.loadGame(
             game = game,
             gameMistakes = mistakes.toList(),
@@ -132,7 +135,18 @@ private fun GameViewScreenContent(
     val currentMistake = boardViewModel.getCurrentMistake()
     val currentAnalyzedMove = boardViewModel.getCurrentAnalyzedMove()
     val moves = boardViewModel.moves
-    val totalMoves = moves.size
+    val displayedMoves = remember(moves.size, analyzedMoves.size) {
+        when {
+            moves.isNotEmpty() -> moves.map { it.san ?: it.toString() }
+
+            analyzedMoves.isNotEmpty() -> analyzedMoves
+                .sortedBy { it.moveIndex }
+                .map { it.san }
+
+            else -> emptyList()
+        }
+    }
+    val totalMoves = maxOf(displayedMoves.size, boardViewModel.getTotalMoves())
     val hasRealEvaluations = boardViewModel.hasRealEvaluations()
 
     // Формируем список стрелок
@@ -195,7 +209,7 @@ private fun GameViewScreenContent(
             modifier = Modifier.fillMaxWidth()
         ) {
             HorizontalMoveList(
-                moves = moves,
+                moves = displayedMoves,
                 currentMoveIndex = currentMoveIndex,
                 mistakes = mistakes.toList(),
                 onMoveClick = { index -> boardViewModel.goToMove(index) },

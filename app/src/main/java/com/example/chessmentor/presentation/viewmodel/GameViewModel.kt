@@ -339,6 +339,9 @@ class GameViewModel(
     fun selectGame(game: Game) {
         viewModelScope.launch {
             selectedGame.value = game
+            selectedGameMistakes.clear()
+            selectedGameAnalyzedMoves.clear()
+            selectedGameEvaluations.clear()
 
             if (game.id != null) {
                 try {

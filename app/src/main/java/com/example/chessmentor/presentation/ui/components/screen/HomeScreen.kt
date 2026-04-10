@@ -33,6 +33,7 @@ fun HomeScreen(
     currentUser: User?,
     gameViewModel: GameViewModel,
     onNavigateToSettings: () -> Unit,
+    onNavigateToTraining: () -> Unit,
     message: String,
     isLoading: Boolean,
     onMessageDismiss: () -> Unit,
@@ -79,7 +80,7 @@ fun HomeScreen(
             user = currentUser,
             gameViewModel = gameViewModel,
             onLogout = onLogout,
-            onNavigateToTraining = { },
+            onNavigateToTraining = onNavigateToTraining,
             onNavigateToSettings = onNavigateToSettings
         )
     }
