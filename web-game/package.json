@@ -1,0 +1,10 @@
+{
+  "name": "sysadmin-sim-web",
+  "private": true,
+  "type": "module",
+  "description": "Браузерная симуляция системного администратора (Canvas, без сборки)",
+  "scripts": {
+    "start": "python3 -m http.server 8080 --bind 0.0.0.0",
+    "test": "node --test tests/game.test.js"
+  }
+}
