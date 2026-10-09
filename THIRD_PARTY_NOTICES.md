@@ -16,3 +16,7 @@ JNI-обёртка (`app/src/main/cpp/stockfish_jni.cpp`, `stockfish_bridge.*`) 
 этого проекта.
 
 Исходный код Stockfish: https://github.com/official-stockfish/Stockfish
+
+## Лицензия проекта
+
+Проект ChessMentor распространяется под GNU GPL v3 (файл `LICENSE`), так как включает Stockfish (GPLv3).
