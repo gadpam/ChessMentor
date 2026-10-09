@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Системный администратор — симулятор офиса</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="hud">
+      <div class="hud-item">День <b id="hud-day">1</b></div>
+      <div class="hud-item">Смена <b id="hud-time">2:30</b></div>
+      <div class="hud-item">Деньги <b id="hud-money">300 ₽</b></div>
+      <div class="hud-item rep">
+        Репутация
+        <span class="bar wide"><span id="hud-rep"></span></span>
+        <b id="hud-rep-val">70/100</b>
+      </div>
+      <div class="grow"></div>
+      <button id="btn-new" class="ghost small">Новая игра</button>
+    </header>
+
+    <main>
+      <section class="stage">
+        <div class="canvas-wrap">
+          <canvas id="game" width="768" height="448" aria-label="Офис"></canvas>
+          <div id="hint" class="hint" hidden></div>
+        </div>
+        <div class="controls">
+          WASD / стрелки — ходить · E / Enter — осмотреть · Esc — закрыть окно
+        </div>
+      </section>
+
+      <aside class="side">
+        <h3>Звонки <span id="ticket-count" class="count">0/3</span></h3>
+        <div id="tickets" class="tickets"></div>
+        <p id="tickets-empty" class="muted">Звонков нет. Бродите по офису, пока кто-нибудь не позвонит.</p>
+
+        <h3>Журнал</h3>
+        <ol id="log" class="log"></ol>
+      </aside>
+    </main>
+
+    <div id="overlay" class="overlay" hidden>
+      <div id="modal" class="modal"></div>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
