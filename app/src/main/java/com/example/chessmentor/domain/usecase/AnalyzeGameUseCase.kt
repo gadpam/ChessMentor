@@ -213,13 +213,7 @@ class AnalyzeGameUseCase(
 
             val finalGame = gameRepository.update(analyzedGame)
 
-            withContext(Dispatchers.IO) {
-                try {
-                    chessEngine.destroy()
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error cleaning up engine", e)
-                }
-            }
+            // Движок общий для приложения (AppContainer), поэтому не уничтожаем его здесь.
 
             Log.i(TAG, "Final: accuracy=${"%.1f".format(accuracy)}%, " +
                     "blunders=$blunders, mistakes=$mistakesCount, inaccuracies=$inaccuracies, " +
@@ -233,14 +227,6 @@ class AnalyzeGameUseCase(
 
         } catch (e: Exception) {
             Log.e(TAG, "Analysis failed", e)
-
-            withContext(Dispatchers.IO) {
-                try {
-                    chessEngine.destroy()
-                } catch (ex: Exception) {
-                    Log.w(TAG, "Error cleaning up engine", ex)
-                }
-            }
 
             emit(AnalysisProgress.Failed("Ошибка анализа: ${e.message}"))
         }

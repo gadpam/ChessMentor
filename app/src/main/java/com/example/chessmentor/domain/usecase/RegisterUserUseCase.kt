@@ -2,6 +2,7 @@ package com.example.chessmentor.domain.usecase
 
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.repository.UserRepository
+import com.example.chessmentor.domain.security.PasswordHasher
 
 /**
  * Use Case: Регистрация нового пользователя
@@ -71,8 +72,8 @@ class RegisterUserUseCase(
             return Result.Error("Пользователь с таким никнеймом уже существует")
         }
 
-        // Хеширование пароля (пока простая имитация, позже добавим bcrypt)
-        val passwordHash = hashPassword(input.password)
+        // Хеширование пароля (PBKDF2-HMAC-SHA256)
+        val passwordHash = PasswordHasher.hash(input.password)
 
         // Создание пользователя
         val newUser = User(
@@ -86,15 +87,5 @@ class RegisterUserUseCase(
         val savedUser = userRepository.save(newUser)
 
         return Result.Success(savedUser)
-    }
-
-    /**
-     * Хеширование пароля
-     * TODO: Заменить на настоящий bcrypt
-     */
-    private fun hashPassword(password: String): String {
-        // Временная простая реализация
-        // В реальном приложении использовать BCrypt
-        return "hashed_$password"
     }
 }

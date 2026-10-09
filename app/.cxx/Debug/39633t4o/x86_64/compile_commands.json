@@ -1,7 +1,0 @@
-[
-{
-  "directory": "D:/projects/ChessMentor/app/.cxx/Debug/39633t4o/x86_64",
-  "command": "D:\\Users\\gadpa\\AppData\\Local\\Android\\Sdk\\ndk\\25.1.8937393\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang++.exe --target=x86_64-none-linux-android26 --sysroot=D:/Users/gadpa/AppData/Local/Android/Sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/windows-x86_64/sysroot -Dstockfish_lib_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-limit-debug-info  -fPIC -o CMakeFiles\\stockfish-lib.dir\\stockfish_jni.cpp.o -c D:\\projects\\ChessMentor\\app\\src\\main\\cpp\\stockfish_jni.cpp",
-  "file": "D:\\projects\\ChessMentor\\app\\src\\main\\cpp\\stockfish_jni.cpp"
-}
-]

@@ -65,6 +65,13 @@ data class User(
     }
 
     /**
+     * Копирование с новым хешем пароля (например, при миграции на PBKDF2)
+     */
+    fun withPasswordHash(newHash: String): User {
+        return copy(passwordHash = newHash)
+    }
+
+    /**
      * Активировать Premium
      */
     fun toPremium(): User {
