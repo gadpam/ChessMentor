@@ -1,3 +1,0 @@
-D:/projects/ChessMentor/app/.cxx/Debug/39633t4o/x86/CMakeFiles/stockfish-lib.dir
-D:/projects/ChessMentor/app/.cxx/Debug/39633t4o/x86/CMakeFiles/edit_cache.dir
-D:/projects/ChessMentor/app/.cxx/Debug/39633t4o/x86/CMakeFiles/rebuild_cache.dir

@@ -2,6 +2,7 @@ package com.example.chessmentor.domain.usecase
 
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.repository.UserRepository
+import com.example.chessmentor.domain.security.PasswordHasher
 
 /**
  * Use Case: Вход пользователя в систему
@@ -48,24 +49,28 @@ class LoginUserUseCase(
         val user = userRepository.findByEmail(input.email)
             ?: return Result.Error("Пользователь с таким email не найден")
 
-        // Проверка пароля
-        val passwordHash = hashPassword(input.password)
-        if (user.passwordHash != passwordHash) {
+        // Проверка пароля: новый формат PBKDF2 или старый "hashed_" (для миграции)
+        val legacy = PasswordHasher.isLegacyHash(user.passwordHash)
+        val passwordOk = if (legacy) {
+            PasswordHasher.verifyLegacy(input.password, user.passwordHash)
+        } else {
+            PasswordHasher.verify(input.password, user.passwordHash)
+        }
+        if (!passwordOk) {
             return Result.Error("Неверный пароль")
         }
 
+        // Старые записи переписываем в новом формате
+        val rehashedUser = if (legacy) {
+            user.withPasswordHash(PasswordHasher.hash(input.password))
+        } else {
+            user
+        }
+
         // Обновление времени последнего входа
-        val updatedUser = user.withLogin()
+        val updatedUser = rehashedUser.withLogin()
         userRepository.update(updatedUser)
 
         return Result.Success(updatedUser)
-    }
-
-    /**
-     * Хеширование пароля (должно совпадать с RegisterUserUseCase)
-     * TODO: Заменить на настоящий bcrypt
-     */
-    private fun hashPassword(password: String): String {
-        return "hashed_$password"
     }
 }

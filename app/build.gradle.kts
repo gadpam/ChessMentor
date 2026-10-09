@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.example.chessmentor"
     compileSdk = 34
-    ndkVersion = "21.4.7075529"
+    ndkVersion = "26.1.10909125"
 
     externalNativeBuild {
         cmake {
@@ -19,14 +19,14 @@ android {
 
     defaultConfig {
         applicationId = "com.example.chessmentor"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters += listOf("arm64-v8a")
         }
 
         externalNativeBuild {
