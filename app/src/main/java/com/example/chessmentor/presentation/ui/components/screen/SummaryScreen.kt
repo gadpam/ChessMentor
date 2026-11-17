@@ -18,8 +18,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.chessmentor.domain.analysis.GameMoveClassifier
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.KeyMoment
@@ -61,6 +63,45 @@ fun SummaryScreen(
 
     val hasRealEvaluations = evaluations.size > 1 && (game.hasEvaluations() || gameViewModel.hasEvaluations())
 
+    val opponentSummary = remember(
+        game.id,
+        game.analyzedAt,
+        boardViewModel.analyzedMoves.size,
+        boardViewModel.evaluations.size,
+        game.playerColor
+    ) {
+        boardViewModel.getSideSummary(game.playerColor.opposite())
+    }
+
+    val phaseAccuracy = remember(
+        game.id,
+        game.analyzedAt,
+        boardViewModel.analyzedMoves.size,
+        boardViewModel.moveNotations.size,
+        game.playerColor
+    ) {
+        boardViewModel.getPhaseAccuracy(game.playerColor)
+    }
+
+    val openingLabel = remember(game.id, boardViewModel.moveNotations.size) {
+        boardViewModel.getDetectedOpeningLabel()
+    }
+
+    // На графике отмечаем только действительно значимые моменты, не загромождая линию рутинными ходами
+    val graphMoments = remember(keyMoments) {
+        keyMoments.filter { moment ->
+            when (moment.quality) {
+                MoveQuality.BRILLIANT,
+                MoveQuality.GREAT_MOVE,
+                MoveQuality.BLUNDER,
+                MoveQuality.MISSED_WIN,
+                MoveQuality.MISTAKE -> true
+                MoveQuality.INACCURACY -> moment.isPlayerMove
+                else -> false
+            }
+        }
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -68,23 +109,27 @@ fun SummaryScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Заголовок
+        // Заголовок + распознанный дебют
         item {
-            SummaryHeader(game = game)
+            SummaryHeader(game = game, openingLabel = openingLabel)
         }
 
-        // Основные метрики
+        // Основные метрики (точность игрока vs соперника + точность по фазам)
         if (game.isAnalyzed()) {
             item {
-                GameMetricsCard(game = game)
+                GameMetricsCard(
+                    game = game,
+                    opponentSummary = opponentSummary,
+                    phaseAccuracy = phaseAccuracy
+                )
             }
         }
 
-        // ✅ ОБНОВЛЕНО: График оценки с проверкой данных
+        // График оценки со значимыми маркерами
         item {
             EvaluationGraphCard(
                 evaluations = evaluations,
-                keyMoments = keyMoments,
+                keyMoments = graphMoments,
                 currentMoveIndex = currentMoveIndex,
                 playerColor = game.playerColor,
                 hasRealData = hasRealEvaluations,
@@ -345,7 +390,10 @@ private fun ReanalyzeHint(
 // ==================== СУЩЕСТВУЮЩИЕ КОМПОНЕНТЫ (без изменений) ====================
 
 @Composable
-private fun SummaryHeader(game: Game) {
+private fun SummaryHeader(
+    game: Game,
+    openingLabel: String? = null
+) {
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer
@@ -359,18 +407,31 @@ private fun SummaryHeader(game: Game) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "📊 Сводка анализа",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Партия #${game.id ?: "?"}",
+                    text = "Партия #${game.id ?: "?"} · Вы играете ${if (game.playerColor == ChessColor.WHITE) "белыми" else "чёрными"}",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
                 )
+                if (!openingLabel.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "📖 $openingLabel",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
+
+            Spacer(modifier = Modifier.width(12.dp))
 
             Box(
                 modifier = Modifier
@@ -385,7 +446,11 @@ private fun SummaryHeader(game: Game) {
 }
 
 @Composable
-private fun GameMetricsCard(game: Game) {
+private fun GameMetricsCard(
+    game: Game,
+    opponentSummary: GameMoveClassifier.SideAnalysisSummary? = null,
+    phaseAccuracy: GameMoveClassifier.PhaseAccuracyBreakdown? = null
+) {
     val accuracy = game.accuracy ?: 0.0
 
     Card(
@@ -402,8 +467,19 @@ private fun GameMetricsCard(game: Game) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Точность — большой индикатор
+            // Точность игрока — главный круговой индикатор
             AccuracyIndicator(accuracy = accuracy)
+
+            // Сравнение точности и средней потери: Вы vs Соперник
+            if (opponentSummary != null) {
+                Spacer(modifier = Modifier.height(14.dp))
+                SideComparisonStrip(
+                    playerAccuracy = accuracy,
+                    playerAcpl = game.averageEvaluationLoss ?: 0,
+                    opponentAccuracy = opponentSummary.accuracy,
+                    opponentAcpl = opponentSummary.averageCpLoss
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -411,16 +487,16 @@ private fun GameMetricsCard(game: Game) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                // Средняя потеря
+                // Средняя потеря (ACPL)
                 MetricItem(
-                    label = "Ср. потеря",
-                    value = String.format(java.util.Locale.US, "%.1f", (game.averageEvaluationLoss ?: 0) / 100.0),
+                    label = "Ср. потеря (сП)",
+                    value = "${game.averageEvaluationLoss ?: 0}",
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
-                // Всего ошибок
+                // Всего ошибок игрока
                 MetricItem(
-                    label = "Ошибок",
+                    label = "Ваших ошибок",
                     value = "${game.totalMistakes}",
                     color = when {
                         game.totalMistakes > 5 -> Color(0xFFE53935)
@@ -430,11 +506,46 @@ private fun GameMetricsCard(game: Game) {
                 )
             }
 
+            // Точность по фазам партии: Дебют / Миттельшпиль / Эндшпиль
+            if (phaseAccuracy != null && phaseAccuracy.hasAnyPhase) {
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "Точность по фазам",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    PhaseAccuracyItem(
+                        label = "Дебют",
+                        accuracy = phaseAccuracy.opening,
+                        movesCount = phaseAccuracy.openingMoves
+                    )
+                    PhaseAccuracyItem(
+                        label = "Миттельшпиль",
+                        accuracy = phaseAccuracy.middlegame,
+                        movesCount = phaseAccuracy.middlegameMoves
+                    )
+                    PhaseAccuracyItem(
+                        label = "Эндшпиль",
+                        accuracy = phaseAccuracy.endgame,
+                        movesCount = phaseAccuracy.endgameMoves
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Детализация ошибок
+            // Детализация ошибок игрока
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
@@ -458,6 +569,109 @@ private fun GameMetricsCard(game: Game) {
                     color = Color(0xFFFBC02D)
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun SideComparisonStrip(
+    playerAccuracy: Double,
+    playerAcpl: Int,
+    opponentAccuracy: Double,
+    opponentAcpl: Int
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(horizontalAlignment = Alignment.Start) {
+                Text(
+                    text = "Вы",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = String.format(java.util.Locale.US, "%.1f%%", playerAccuracy),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = getAccuracyColor(playerAccuracy)
+                )
+                Text(
+                    text = "$playerAcpl сП",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Text(
+                text = "VS",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = "Соперник",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = String.format(java.util.Locale.US, "%.1f%%", opponentAccuracy),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = getAccuracyColor(opponentAccuracy)
+                )
+                Text(
+                    text = "$opponentAcpl сП",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhaseAccuracyItem(
+    label: String,
+    accuracy: Double?,
+    movesCount: Int
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = if (accuracy != null) {
+                String.format(java.util.Locale.US, "%.0f%%", accuracy)
+            } else {
+                "—"
+            },
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = if (accuracy != null) {
+                getAccuracyColor(accuracy)
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            }
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (movesCount >= 2) {
+            Text(
+                text = "$movesCount х.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+            )
         }
     }
 }
@@ -587,15 +801,27 @@ fun KeyMomentsCard(
     keyMoments: List<KeyMoment>,
     onMomentClick: (KeyMoment) -> Unit
 ) {
-    // Считаем статистику из keyMoments
-    val brilliantCount = keyMoments.count { it.quality == MoveQuality.BRILLIANT }
-    val greatCount = keyMoments.count { it.quality == MoveQuality.GREAT_MOVE }
-    val bestCount = keyMoments.count { it.quality == MoveQuality.BEST_MOVE }
-    val excellentCount = keyMoments.count { it.quality == MoveQuality.EXCELLENT }
-    val goodCount = keyMoments.count { it.quality == MoveQuality.GOOD }
-    val inaccuracyCount = keyMoments.count { it.quality == MoveQuality.INACCURACY }
-    val mistakeCount = keyMoments.count { it.quality == MoveQuality.MISTAKE }
-    val blunderCount = keyMoments.count { it.quality == MoveQuality.BLUNDER }
+    // Статистика качества считается строго по ходам игрока
+    val playerMoments = keyMoments.filter { it.isPlayerMove }
+    val opponentMoments = keyMoments.filter { !it.isPlayerMove }
+
+    val brilliantCount = playerMoments.count { it.quality == MoveQuality.BRILLIANT }
+    val greatCount = playerMoments.count { it.quality == MoveQuality.GREAT_MOVE }
+    val bestCount = playerMoments.count { it.quality == MoveQuality.BEST_MOVE }
+    val bookCount = playerMoments.count { it.quality == MoveQuality.BOOK }
+    val solidCount = playerMoments.count {
+        it.quality == MoveQuality.GOOD || it.quality == MoveQuality.EXCELLENT
+    }
+    val inaccuracyCount = playerMoments.count { it.quality == MoveQuality.INACCURACY }
+    val mistakeCount = playerMoments.count { it.quality == MoveQuality.MISTAKE }
+    val missedWinCount = playerMoments.count { it.quality == MoveQuality.MISSED_WIN }
+    val blunderCount = playerMoments.count { it.quality == MoveQuality.BLUNDER }
+
+    val oppBlunders = opponentMoments.count { it.quality == MoveQuality.BLUNDER }
+    val oppMistakes = opponentMoments.count {
+        it.quality == MoveQuality.MISTAKE || it.quality == MoveQuality.MISSED_WIN
+    }
+    val oppInaccuracies = opponentMoments.count { it.quality == MoveQuality.INACCURACY }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -605,14 +831,14 @@ fun KeyMomentsCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "⭐ Качество ходов",
+                text = "⭐ Качество ваших ходов",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
 
             Spacer(Modifier.height(16.dp))
 
-            // Хорошие ходы
+            // Сильные и теоретические ходы
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
@@ -629,17 +855,24 @@ fun KeyMomentsCard(
                     quality = MoveQuality.BEST_MOVE,
                     count = bestCount
                 )
-                KeyMomentItemCompact(
-                    quality = MoveQuality.GOOD,
-                    count = goodCount + excellentCount
-                )
+                if (bookCount > 0) {
+                    KeyMomentItemCompact(
+                        quality = MoveQuality.BOOK,
+                        count = bookCount
+                    )
+                } else {
+                    KeyMomentItemCompact(
+                        quality = MoveQuality.GOOD,
+                        count = solidCount
+                    )
+                }
             }
 
             Spacer(Modifier.height(12.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             Spacer(Modifier.height(12.dp))
 
-            // Ошибки
+            // Ошибки и упущенные возможности
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
@@ -652,14 +885,37 @@ fun KeyMomentsCard(
                     quality = MoveQuality.MISTAKE,
                     count = mistakeCount
                 )
+                if (missedWinCount > 0) {
+                    KeyMomentItemCompact(
+                        quality = MoveQuality.MISSED_WIN,
+                        count = missedWinCount
+                    )
+                }
                 KeyMomentItemCompact(
                     quality = MoveQuality.BLUNDER,
                     count = blunderCount
                 )
             }
 
-            // Список ключевых моментов
-            val significantMoments = keyMoments.filter {
+            // Краткая строка ошибок соперника (если выполнен двусторонний анализ)
+            if (opponentMoments.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Ошибки соперника: ?? $oppBlunders · ? $oppMistakes · ?! $oppInaccuracies",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+            }
+
+            // Список ключевых моментов (ваши критические ходы + грубые зевки соперника)
+            val significantMoments = playerMoments.filter {
                 it.quality in listOf(
                     MoveQuality.BRILLIANT,
                     MoveQuality.GREAT_MOVE,
@@ -682,7 +938,7 @@ fun KeyMomentsCard(
                 Spacer(Modifier.height(8.dp))
 
                 significantMoments
-                    .take(5)
+                    .take(6)
                     .forEach { moment ->
                         KeyMomentRow(moment = moment, onClick = onMomentClick)
                     }
@@ -767,7 +1023,7 @@ fun KeyMomentRow(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Ход ${moment.moveIndex / 2 + 1}",
+                    text = "Ход ${moment.moveIndex / 2 + 1} · ${moment.quality.getDisplayName()}",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -776,6 +1032,15 @@ fun KeyMomentRow(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
+                moment.comment?.takeIf { it.isNotBlank() }?.let { comment ->
+                    Text(
+                        text = comment,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
             Text(

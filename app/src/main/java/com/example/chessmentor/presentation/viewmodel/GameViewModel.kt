@@ -242,10 +242,23 @@ class GameViewModel(
                                         evaluations = result.evaluations
                                     )
 
-                                    val errorsCount = result.analyzedMoves.count { it.isMistake() }
-                                    val goodMovesCount = result.analyzedMoves.count { it.isGoodMove() }
-                                    message.value =
-                                        "✅ Анализ завершён! Ошибок: $errorsCount, хороших ходов: $goodMovesCount"
+                                    val pColor = result.game.playerColor
+                                    val playerMoves = result.analyzedMoves.filter { it.color == pColor }
+                                    val opponentMoves = result.analyzedMoves.filter { it.color == pColor.opposite() }
+                                    val errorsCount = playerMoves.count { it.isMistake() }
+                                    val playerAcc = result.game.accuracy
+                                    val oppAccText = if (opponentMoves.isNotEmpty()) {
+                                        val oppAcc = com.example.chessmentor.domain.analysis.GameMoveClassifier
+                                            .calculateGameAccuracy(result.analyzedMoves, pColor.opposite())
+                                        " · соперник: ${String.format(java.util.Locale.US, "%.1f", oppAcc)}%"
+                                    } else {
+                                        ""
+                                    }
+                                    message.value = if (playerAcc != null) {
+                                        "✅ Точность: ${String.format(java.util.Locale.US, "%.1f", playerAcc)}%$oppAccText (ошибок: $errorsCount)"
+                                    } else {
+                                        "✅ Анализ завершён! Ошибок: $errorsCount"
+                                    }
 
                                     Log.i(
                                         TAG,

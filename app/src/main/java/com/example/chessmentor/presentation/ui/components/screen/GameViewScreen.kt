@@ -124,7 +124,7 @@ private fun GameViewScreenContent(
         BoardThemes.getByName(user?.preferredTheme)
     }
 
-    LaunchedEffect(game.id, mistakes.size, analyzedMoves.size, gameEvaluations.size) {
+    LaunchedEffect(game.id, game.analyzedAt, mistakes.size, analyzedMoves.size, gameEvaluations.size) {
         boardViewModel.loadGame(
             game = game,
             gameMistakes = mistakes.toList(),
@@ -313,6 +313,7 @@ private fun GameBoardWithBadgeAndArrow(
                     MoveQuality.BRILLIANT,
                     MoveQuality.GREAT_MOVE,
                     MoveQuality.BEST_MOVE,
+                    MoveQuality.BOOK,
                     MoveQuality.BLUNDER,
                     MoveQuality.MISTAKE,
                     MoveQuality.INACCURACY,
@@ -358,62 +359,92 @@ private fun MoveAnalysisCard(
     ) {
         when {
             currentMistake != null -> CompactMistakeCard(mistake = currentMistake)
-            currentAnalyzedMove != null && currentAnalyzedMove.isGoodMove() ->
-                GoodMoveCard(analyzedMove = currentAnalyzedMove)
+            currentAnalyzedMove != null -> AnalyzedMoveInfoCard(
+                analyzedMove = currentAnalyzedMove,
+                isPlayerMove = currentAnalyzedMove.color == playerColor
+            )
             else -> CompactPositionCard(evaluation = currentEvaluation, playerColor = playerColor)
         }
     }
 }
 
 @Composable
-private fun GoodMoveCard(analyzedMove: AnalyzedMove, modifier: Modifier = Modifier) {
+private fun AnalyzedMoveInfoCard(
+    analyzedMove: AnalyzedMove,
+    isPlayerMove: Boolean,
+    modifier: Modifier = Modifier
+) {
     val quality = analyzedMove.quality
-    val playerDelta = analyzedMove.playerEvalChange
-    val isMateDelta = ChessEngine.isMateScore(playerDelta) || abs(playerDelta) > 50_000
+    val moverDelta = analyzedMove.playerEvalChange
+    // Изменение оценки показываем с точки зрения самого пользователя (если зевнул соперник — плюс для игрока)
+    val userDelta = if (isPlayerMove) moverDelta else -moverDelta
+    val isMateDelta = ChessEngine.isMateScore(userDelta) || abs(userDelta) > 50_000
+    val moveLabel = if (analyzedMove.color == ChessColor.WHITE) {
+        "${analyzedMove.moveNumber}. ${analyzedMove.san}"
+    } else {
+        "${analyzedMove.moveNumber}... ${analyzedMove.san}"
+    }
+    val titleText = if (isPlayerMove) {
+        quality.getDisplayName()
+    } else {
+        "${quality.getDisplayName()} соперника"
+    }
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = quality.getColor().copy(alpha = 0.1f))
+        colors = CardDefaults.cardColors(containerColor = quality.getColor().copy(alpha = 0.12f))
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(text = quality.getEmoji(), style = MaterialTheme.typography.headlineLarge)
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = quality.getDisplayName(),
-                    style = MaterialTheme.typography.titleMedium,
+                    text = titleText,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = quality.getColor()
                 )
-                Text(
-                    text = analyzedMove.san,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                analyzedMove.comment?.let {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = moveLabel,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (!analyzedMove.bestMove.isNullOrBlank() && quality.isBad()) {
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Лучше: ${analyzedMove.bestMove}",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF4CAF50)
+                        )
+                    }
+                }
+                analyzedMove.comment?.takeIf { it.isNotBlank() }?.let { comment ->
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = it,
+                        text = comment,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-            if (playerDelta != 0) {
+            if (userDelta != 0 && quality != MoveQuality.BOOK) {
+                Spacer(modifier = Modifier.width(8.dp))
                 Column(horizontalAlignment = Alignment.End) {
                     val text = when {
-                        isMateDelta -> if (playerDelta > 0) "+Мат" else "-Мат"
-                        playerDelta > 0 -> String.format(Locale.US, "+%.1f", playerDelta / 100.0)
-                        else -> String.format(Locale.US, "%.1f", playerDelta / 100.0)
+                        isMateDelta -> if (userDelta > 0) "+Мат" else "-Мат"
+                        userDelta > 0 -> String.format(Locale.US, "+%.1f", userDelta / 100.0)
+                        else -> String.format(Locale.US, "%.1f", userDelta / 100.0)
                     }
                     Text(
                         text = text,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (playerDelta > 0) Color(0xFF4CAF50) else Color(0xFFF44336)
+                        color = if (userDelta > 0) Color(0xFF4CAF50) else Color(0xFFF44336)
                     )
                     if (!isMateDelta) {
                         Text(

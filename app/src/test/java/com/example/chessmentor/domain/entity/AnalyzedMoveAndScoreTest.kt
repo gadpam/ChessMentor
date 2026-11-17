@@ -1,8 +1,11 @@
 package com.example.chessmentor.domain.entity
 
 import com.example.chessmentor.data.engine.ChessEngine
-import com.example.chessmentor.presentation.ui.components.util.AccuracyCalculator
+import com.example.chessmentor.domain.analysis.GameMoveClassifier
+import com.example.chessmentor.domain.opening.BookMoveMatch
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -81,15 +84,56 @@ class AnalyzedMoveAndScoreTest {
     }
 
     @Test
-    fun accuracyCalculator_classifyMoveCanReturnBookInOpening() {
-        val quality = AccuracyCalculator.classifyMove(
-            cpBefore = 20,
-            cpAfter = 15,
-            bestMoveCp = 20,
-            playerColor = ChessColor.WHITE,
-            isPlayerMove = true,
-            moveNumber = 3
+    fun analyzedMove_toKeyMomentMarksPlayerVsOpponentAccurately() {
+        val opponentBlunder = AnalyzedMove(
+            gameId = 1L,
+            moveIndex = 9,
+            moveNumber = 5,
+            color = ChessColor.BLACK,
+            quality = MoveQuality.BLUNDER,
+            san = "Nf6",
+            bestMove = "Be7",
+            evalBefore = 30,
+            evalAfter = 340,
+            evalLoss = 310
         )
-        assertEquals(MoveQuality.BOOK, quality)
+
+        val forWhitePlayer = opponentBlunder.toKeyMoment(ChessColor.WHITE)
+        val forBlackPlayer = opponentBlunder.toKeyMoment(ChessColor.BLACK)
+
+        assertFalse(forWhitePlayer.isPlayerMove)
+        assertTrue(forBlackPlayer.isPlayerMove)
+        assertEquals(-310, forWhitePlayer.evaluationChange)
+    }
+
+    @Test
+    fun gameMoveClassifier_returnsBookOnlyWhenMatchedInOpeningTree() {
+        val matchedBook = GameMoveClassifier.classifyMove(
+            evalBefore = 20,
+            evalAfter = 15,
+            movingColor = ChessColor.WHITE,
+            moveNumber = 3,
+            inBookSequence = true,
+            bookMatch = BookMoveMatch(
+                opening = null,
+                eco = "C50",
+                openingName = "Итальянская партия",
+                isTabiya = true
+            )
+        )
+        assertEquals(MoveQuality.BOOK, matchedBook.quality)
+        assertEquals(100.0, matchedBook.moveAccuracy, 0.001)
+
+        // Вне дебютной книги ход 3-го номера НЕ должен автоматически считаться теорией
+        val offBookEarlyMove = GameMoveClassifier.classifyMove(
+            evalBefore = 20,
+            evalAfter = -55,
+            movingColor = ChessColor.WHITE,
+            moveNumber = 3,
+            inBookSequence = false,
+            bookMatch = null
+        )
+        assertNotEquals(MoveQuality.BOOK, offBookEarlyMove.quality)
+        assertEquals(MoveQuality.INACCURACY, offBookEarlyMove.quality)
     }
 }

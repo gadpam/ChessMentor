@@ -31,17 +31,22 @@ fun MoveQualityBadge(
 ) {
     // Определяем что показывать: ошибку или качество хода
     val badgeInfo = when {
-        mistakeType == MistakeType.BLUNDER -> BadgeInfo(
+        mistakeType == MistakeType.BLUNDER || moveQuality == MoveQuality.BLUNDER -> BadgeInfo(
             backgroundColor = Color(0xFFE53935),
             symbol = "??",
             textColor = Color.White
         )
-        mistakeType == MistakeType.MISTAKE -> BadgeInfo(
+        moveQuality == MoveQuality.MISSED_WIN -> BadgeInfo(
+            backgroundColor = Color(0xFFE91E63),
+            symbol = "?!",
+            textColor = Color.White
+        )
+        mistakeType == MistakeType.MISTAKE || moveQuality == MoveQuality.MISTAKE -> BadgeInfo(
             backgroundColor = Color(0xFFFF9800),
             symbol = "?",
             textColor = Color.White
         )
-        mistakeType == MistakeType.INACCURACY -> BadgeInfo(
+        mistakeType == MistakeType.INACCURACY || moveQuality == MoveQuality.INACCURACY -> BadgeInfo(
             backgroundColor = Color(0xFFFFC107),
             symbol = "?!",
             textColor = Color.Black

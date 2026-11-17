@@ -90,17 +90,19 @@ data class AnalyzedMove(
         MoveQuality.GOOD
     )
 
+    fun isBookMove(): Boolean = quality == MoveQuality.BOOK
+
     /**
-     * Конвертация в KeyMoment для UI
+     * Конвертация в KeyMoment для UI с честным признаком хода игрока / соперника.
      */
-    fun toKeyMoment(): KeyMoment = KeyMoment(
+    fun toKeyMoment(playerColor: ChessColor = color): KeyMoment = KeyMoment(
         moveIndex = moveIndex,
         san = san,
         quality = quality,
         evaluationBefore = evalBefore,
         evaluationAfter = evalAfter,
         evaluationChange = playerEvalChange,
-        isPlayerMove = true,
+        isPlayerMove = color == playerColor,
         comment = comment
     )
 

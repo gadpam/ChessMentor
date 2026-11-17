@@ -14,6 +14,9 @@ interface ChessEngine {
     suspend fun getBestMove(fen: String, depthLimit: Int = 15): String?
     suspend fun getBestMoveWithLine(fen: String, depthLimit: Int = 15): AnalysisLine?
     suspend fun setOption(name: String, value: String)
+    suspend fun clearHash() {
+        setOption("Clear Hash", "")
+    }
     fun stop()
     fun destroy()
 

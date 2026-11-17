@@ -400,7 +400,7 @@ private fun NavigationHost(
                 val analyzedMoves = gameViewModel.selectedGameAnalyzedMoves
                 val evaluations = gameViewModel.selectedGameEvaluations
 
-                LaunchedEffect(game.id, mistakes.size, analyzedMoves.size, evaluations.size) {
+                LaunchedEffect(game.id, game.analyzedAt, mistakes.size, analyzedMoves.size, evaluations.size) {
                     boardViewModel.loadGame(
                         game = game,
                         gameMistakes = mistakes.toList(),
@@ -410,7 +410,7 @@ private fun NavigationHost(
                     )
                 }
 
-                val keyMoments = remember(game.id, boardViewModel.analyzedMoves.size) {
+                val keyMoments = remember(game.id, game.analyzedAt, boardViewModel.analyzedMoves.size) {
                     boardViewModel.getKeyMoments()
                 }
 

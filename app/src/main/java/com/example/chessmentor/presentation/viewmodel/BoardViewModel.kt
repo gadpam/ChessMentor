@@ -305,7 +305,7 @@ class BoardViewModel : ViewModel() {
     fun hasRealEvaluations(): Boolean = evaluations.size > 1
 
     fun getKeyMoments(): List<KeyMoment> {
-        return analyzedMoves.map { it.toKeyMoment() }.sortedWith(
+        return analyzedMoves.map { it.toKeyMoment(playerColor) }.sortedWith(
             compareBy(
                 {
                     when (it.quality) {
@@ -326,8 +326,105 @@ class BoardViewModel : ViewModel() {
         )
     }
 
-    fun getMoveQualityStats(): Map<MoveQuality, Int> =
-        analyzedMoves.groupBy { it.quality }.mapValues { it.value.size }
+    fun getMoveQualityStats(color: ChessColor = playerColor): Map<MoveQuality, Int> =
+        analyzedMoves
+            .filter { it.color == color }
+            .groupBy { it.quality }
+            .mapValues { it.value.size }
+
+    /**
+     * Сводка точности, ACPL и качества ходов для указанной стороны (игрока или соперника).
+     * Возвращает null, если по этой стороне нет данных (например, партия анализировалась старой версией).
+     */
+    fun getSideSummary(color: ChessColor): com.example.chessmentor.domain.analysis.GameMoveClassifier.SideAnalysisSummary? {
+        val sideMoves = analyzedMoves.filter { it.color == color }
+        if (sideMoves.isNotEmpty()) {
+            return com.example.chessmentor.domain.analysis.GameMoveClassifier.summarizeSide(analyzedMoves, color)
+        }
+        // Резервный расчёт точности соперника по сохранённым оценкам для ранее проанализированных партий
+        if (evaluations.size > 2) {
+            val acc = com.example.chessmentor.domain.analysis.GameMoveClassifier.calculateGameAccuracyFromEvaluations(
+                evaluations = evaluations,
+                color = color,
+                firstMoveIsWhite = firstMoveIsWhite
+            )
+            var totalLoss = 0
+            var count = 0
+            for (i in 1 until evaluations.size) {
+                val idx = i - 1
+                val isWhite = if (firstMoveIsWhite) idx % 2 == 0 else idx % 2 != 0
+                val moveColor = if (isWhite) ChessColor.WHITE else ChessColor.BLACK
+                if (moveColor == color) {
+                    totalLoss += com.example.chessmentor.domain.analysis.GameMoveClassifier
+                        .calculateCappedCpLoss(evaluations[i - 1], evaluations[i], color)
+                    count++
+                }
+            }
+            if (count > 0) {
+                return com.example.chessmentor.domain.analysis.GameMoveClassifier.SideAnalysisSummary(
+                    color = color,
+                    accuracy = acc,
+                    averageCpLoss = totalLoss / count,
+                    moveCount = count,
+                    blunders = 0,
+                    mistakes = 0,
+                    missedWins = 0,
+                    inaccuracies = 0,
+                    qualityCounts = emptyMap()
+                )
+            }
+        }
+        return null
+    }
+
+    /**
+     * Точность указанной стороны по трём фазам партии (Дебют / Миттельшпиль / Эндшпиль).
+     */
+    fun getPhaseAccuracy(
+        color: ChessColor = playerColor
+    ): com.example.chessmentor.domain.analysis.GameMoveClassifier.PhaseAccuracyBreakdown {
+        if (moves.isEmpty()) {
+            return com.example.chessmentor.domain.analysis.GameMoveClassifier.PhaseAccuracyBreakdown(
+                null, null, null, 0, 0, 0
+            )
+        }
+        val simBoard = createInitialBoard()
+        val startFullMove = simBoard.moveCounter.coerceAtLeast(1)
+        val fensBefore = ArrayList<String>(moves.size)
+        for (move in moves) {
+            fensBefore.add(simBoard.fen)
+            if (!simBoard.doMove(move)) break
+        }
+        return com.example.chessmentor.domain.analysis.GameMoveClassifier.calculatePhaseAccuracy(
+            moves = analyzedMoves,
+            color = color,
+            fensBefore = fensBefore,
+            startFullMove = startFullMove,
+            firstMoveIsWhite = firstMoveIsWhite
+        )
+    }
+
+    /**
+     * Распознаёт сыгранный в партии дебют (ECO + русское название) по реальным ходам партии.
+     */
+    fun getDetectedOpeningLabel(): String? {
+        if (startFen != null || moves.isEmpty()) return null
+        val simBoard = createInitialBoard()
+        var bestLabel: String? = null
+        val limit = moves.size.coerceAtMost(24)
+        for (i in 0 until limit) {
+            if (!simBoard.doMove(moves[i])) break
+            val match = com.example.chessmentor.domain.opening.OpeningDatabase.matchBookMove(simBoard.fen)
+            if (match?.openingName != null) {
+                bestLabel = if (!match.eco.isNullOrBlank()) {
+                    "${match.eco} · ${match.openingName}"
+                } else {
+                    match.openingName
+                }
+            }
+        }
+        return bestLabel
+    }
 
     fun getPlayerColor(): ChessColor = playerColor
 

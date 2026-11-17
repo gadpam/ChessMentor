@@ -1,19 +1,31 @@
 // domain/opening/OpeningDatabase.kt
 package com.example.chessmentor.domain.opening
 
-import android.util.Log
+import com.github.bhlangonijr.chesslib.Board
+import com.github.bhlangonijr.chesslib.move.MoveList
 
 /**
- * База знаний о шахматных дебютах
- * Содержит ~30 наиболее популярных дебютов
+ * Результат проверки теоретического (книжного) хода.
+ */
+data class BookMoveMatch(
+    val opening: OpeningPosition?,
+    val eco: String?,
+    val openingName: String?,
+    val isTabiya: Boolean
+)
+
+/**
+ * База знаний о шахматных дебютах и дерево теоретических ходов.
  */
 object OpeningDatabase {
-
-    private const val TAG = "OpeningDB"
 
     // Кэш для быстрого поиска (ключ — расстановка фигур, 1-е поле FEN)
     private val fenIndex = mutableMapOf<String, OpeningPosition>()
     private val ecoIndex = mutableMapOf<String, MutableList<OpeningPosition>>()
+
+    // Точное дерево дебютной теории (ключ — "<boardFen> <activeSide>")
+    private val exactBookOpenings = mutableMapOf<String, OpeningPosition>()
+    private val bookPrefixPositions = mutableSetOf<String>()
 
     /**
      * Основная база дебютов
@@ -640,20 +652,184 @@ object OpeningDatabase {
         )
     )
 
+    /**
+     * Канонические продолжения главных дебютных вариантов (до 6–10 полуходов),
+     * позволяющие честно отмечать теоретические ходы BOOK без ложных срабатываний.
+     */
+    private data class CanonicalBookLine(
+        val eco: String,
+        val name: String,
+        val moves: List<String>
+    )
+
+    private val canonicalBookLines = listOf(
+        // Открытые дебюты
+        CanonicalBookLine("C54", "Итальянская партия (Giuoco Piano)", listOf("e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5", "c3", "Nf6", "d3", "d6")),
+        CanonicalBookLine("C54", "Итальянская партия (центр d4)", listOf("e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5", "c3", "Nf6", "d4", "exd4", "cxd4", "Bb4+")),
+        CanonicalBookLine("C57", "Защита двух коней", listOf("e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6", "Ng5", "d5", "exd5", "Na5")),
+        CanonicalBookLine("C55", "Защита двух коней (спокойная)", listOf("e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6", "d3", "Be7", "O-O", "O-O")),
+        CanonicalBookLine("C84", "Испанская партия (закрытая)", listOf("e4", "e5", "Nf3", "Nc6", "Bb5", "a6", "Ba4", "Nf6", "O-O", "Be7", "Re1", "b5", "Bb3", "d6")),
+        CanonicalBookLine("C65", "Испанская партия (берлинская защита)", listOf("e4", "e5", "Nf3", "Nc6", "Bb5", "Nf6", "O-O", "Nxe4", "d4", "Nd6")),
+        CanonicalBookLine("C68", "Испанская партия (разменный вариант)", listOf("e4", "e5", "Nf3", "Nc6", "Bb5", "a6", "Bxc6", "dxc6", "O-O")),
+        CanonicalBookLine("C45", "Шотландская партия", listOf("e4", "e5", "Nf3", "Nc6", "d4", "exd4", "Nxd4", "Nf6", "Nxc6", "bxc6")),
+        CanonicalBookLine("C47", "Дебют четырёх коней", listOf("e4", "e5", "Nf3", "Nc6", "Nc3", "Nf6", "Bb5", "Bb4", "O-O", "O-O")),
+        CanonicalBookLine("C41", "Защита Филидора", listOf("e4", "e5", "Nf3", "d6", "d4", "exd4", "Nxd4", "Nf6", "Nc3", "Be7")),
+        CanonicalBookLine("C42", "Русская партия", listOf("e4", "e5", "Nf3", "Nf6", "Nxe5", "d6", "Nf3", "Nxe4", "d4", "d5")),
+        CanonicalBookLine("C25", "Венская партия", listOf("e4", "e5", "Nc3", "Nf6", "f4", "d5", "fxe5", "Nxe4")),
+        // Полуоткрытые дебюты
+        CanonicalBookLine("B90", "Сицилианская защита (вариант Найдорфа)", listOf("e4", "c5", "Nf3", "d6", "d4", "cxd4", "Nxd4", "Nf6", "Nc3", "a6")),
+        CanonicalBookLine("B70", "Сицилианская защита (вариант дракона)", listOf("e4", "c5", "Nf3", "d6", "d4", "cxd4", "Nxd4", "Nf6", "Nc3", "g6")),
+        CanonicalBookLine("B33", "Сицилианская защита (челябинский вариант)", listOf("e4", "c5", "Nf3", "Nc6", "d4", "cxd4", "Nxd4", "Nf6", "Nc3", "e5")),
+        CanonicalBookLine("B40", "Сицилианская защита (e6)", listOf("e4", "c5", "Nf3", "e6", "d4", "cxd4", "Nxd4", "a6")),
+        CanonicalBookLine("B22", "Сицилианская защита (вариант Алапина)", listOf("e4", "c5", "c3", "Nf6", "e5", "Nd5", "d4", "cxd4", "cxd4")),
+        CanonicalBookLine("B23", "Закрытая сицилианская защита", listOf("e4", "c5", "Nc3", "Nc6", "g3", "g6", "Bg2", "Bg7", "d3", "d6")),
+        CanonicalBookLine("C02", "Французская защита (продвижение)", listOf("e4", "e6", "d4", "d5", "e5", "c5", "c3", "Nc6", "Nf3", "Qb6")),
+        CanonicalBookLine("C15", "Французская защита (вариант Винавера)", listOf("e4", "e6", "d4", "d5", "Nc3", "Bb4", "e5", "c5", "a3", "Bxc3+", "bxc3")),
+        CanonicalBookLine("C03", "Французская защита (вариант Тарраша)", listOf("e4", "e6", "d4", "d5", "Nd2", "Nf6", "e5", "Nfd7", "Bd3", "c5")),
+        CanonicalBookLine("C01", "Французская защита (разменный вариант)", listOf("e4", "e6", "d4", "d5", "exd5", "exd5", "Nf3", "Nf6", "Bd3")),
+        CanonicalBookLine("B12", "Защита Каро-Канн (продвижение)", listOf("e4", "c6", "d4", "d5", "e5", "Bf5", "Nf3", "e6", "Be2", "c5")),
+        CanonicalBookLine("B18", "Защита Каро-Канн (классический вариант)", listOf("e4", "c6", "d4", "d5", "Nc3", "dxe4", "Nxe4", "Bf5", "Ng3", "Bg6")),
+        CanonicalBookLine("B13", "Защита Каро-Канн (разменный вариант)", listOf("e4", "c6", "d4", "d5", "exd5", "cxd5", "Bd3", "Nc6", "c3", "Nf6")),
+        CanonicalBookLine("B01", "Скандинавская защита", listOf("e4", "d5", "exd5", "Qxd5", "Nc3", "Qa5", "d4", "Nf6", "Nf3", "Bf5")),
+        CanonicalBookLine("B07", "Защита Пирца-Уфимцева", listOf("e4", "d6", "d4", "Nf6", "Nc3", "g6", "Nf3", "Bg7", "Be2", "O-O")),
+        CanonicalBookLine("B02", "Защита Алехина", listOf("e4", "Nf6", "e5", "Nd5", "d4", "d6", "Nf3")),
+        // Закрытые и полузакрытые дебюты
+        CanonicalBookLine("D37", "Отказанный ферзевый гамбит", listOf("d4", "d5", "c4", "e6", "Nc3", "Nf6", "Nf3", "Be7", "Bf4", "O-O", "e3")),
+        CanonicalBookLine("D35", "Ферзевый гамбит (разменный вариант)", listOf("d4", "d5", "c4", "e6", "Nc3", "Nf6", "cxd5", "exd5", "Bg5", "Be7")),
+        CanonicalBookLine("D15", "Славянская защита", listOf("d4", "d5", "c4", "c6", "Nf3", "Nf6", "Nc3", "dxc4", "a4", "Bf5")),
+        CanonicalBookLine("D45", "Полуславянская защита", listOf("d4", "d5", "c4", "c6", "Nf3", "Nf6", "Nc3", "e6", "e3", "Nbd7")),
+        CanonicalBookLine("D20", "Принятый ферзевый гамбит", listOf("d4", "d5", "c4", "dxc4", "Nf3", "Nf6", "e3", "e6", "Bxc4", "c5")),
+        CanonicalBookLine("D02", "Лондонская система", listOf("d4", "d5", "Bf4", "Nf6", "e3", "e6", "Nf3", "c5", "c3", "Nc6")),
+        CanonicalBookLine("E92", "Староиндийская защита (классическая)", listOf("d4", "Nf6", "c4", "g6", "Nc3", "Bg7", "e4", "d6", "Nf3", "O-O", "Be2", "e5")),
+        CanonicalBookLine("D85", "Защита Грюнфельда", listOf("d4", "Nf6", "c4", "g6", "Nc3", "d5", "cxd5", "Nxd5", "e4", "Nxc3", "bxc3", "Bg7")),
+        CanonicalBookLine("E46", "Защита Нимцовича", listOf("d4", "Nf6", "c4", "e6", "Nc3", "Bb4", "e3", "O-O", "Bd3", "d5", "Nf3")),
+        CanonicalBookLine("E15", "Новоиндийская защита", listOf("d4", "Nf6", "c4", "e6", "Nf3", "b6", "g3", "Ba6", "b3", "Bb4+")),
+        CanonicalBookLine("E06", "Каталонское начало", listOf("d4", "Nf6", "c4", "e6", "g3", "d5", "Bg2", "Be7", "Nf3", "O-O", "O-O")),
+        // Фланговые дебюты
+        CanonicalBookLine("A28", "Английское начало", listOf("c4", "e5", "Nc3", "Nf6", "Nf3", "Nc6", "g3", "Bb4")),
+        CanonicalBookLine("A30", "Английское начало (симметричное)", listOf("c4", "c5", "Nf3", "Nf6", "Nc3", "Nc6", "g3", "g6", "Bg2", "Bg7")),
+        CanonicalBookLine("A07", "Дебют Рети", listOf("Nf3", "d5", "g3", "Nf6", "Bg2", "c6", "O-O", "Bf5", "d3")),
+        CanonicalBookLine("A09", "Дебют Рети (c4)", listOf("Nf3", "d5", "c4", "d4", "g3", "Nc6", "Bg2", "e5"))
+    )
+
+    private val canonicalLineOpenings = mutableMapOf<String, Pair<String, String>>()
+
     init {
         buildIndexes()
     }
 
     /**
-     * Построение индексов для быстрого поиска
+     * Построение индексов для быстрого поиска и дерева теоретических ходов
      */
     private fun buildIndexes() {
         openings.forEach { opening ->
             fenIndex[extractBoardFen(opening.fenPattern)] = opening
             ecoIndex.getOrPut(opening.eco) { mutableListOf() }.add(opening)
+            indexOpeningMoves(opening)
+        }
+        canonicalBookLines.forEach { line ->
+            indexCanonicalLine(line)
+        }
+    }
+
+    private fun indexOpeningMoves(opening: OpeningPosition) {
+        if (opening.moves.isEmpty()) return
+        runCatching {
+            val moveList = MoveList()
+            for (san in opening.moves) {
+                moveList.addSanMove(san, false, true)
+            }
+            val board = Board()
+            for ((idx, move) in moveList.withIndex()) {
+                if (!board.doMove(move)) break
+                val key = normalizeBookKey(board.fen)
+                if (idx == moveList.lastIndex) {
+                    val prev = exactBookOpenings[key]
+                    if (prev == null || opening.moveCount >= prev.moveCount) {
+                        exactBookOpenings[key] = opening
+                    }
+                } else {
+                    bookPrefixPositions.add(key)
+                }
+            }
+        }
+    }
+
+    private fun indexCanonicalLine(line: CanonicalBookLine) {
+        if (line.moves.isEmpty()) return
+        runCatching {
+            val moveList = MoveList()
+            for (san in line.moves) {
+                moveList.addSanMove(san, false, true)
+            }
+            val board = Board()
+            for ((idx, move) in moveList.withIndex()) {
+                if (!board.doMove(move)) break
+                val key = normalizeBookKey(board.fen)
+                if (idx == moveList.lastIndex) {
+                    canonicalLineOpenings.putIfAbsent(key, line.eco to line.name)
+                } else {
+                    bookPrefixPositions.add(key)
+                }
+            }
+        }
+    }
+
+    /**
+     * Проверяет, принадлежит ли позиция ПОСЛЕ хода [fenAfter] точному дереву дебютной теории.
+     * Не использует нечёткое сходство — только реальные теоретические позиции и перестановки ходов.
+     */
+    fun matchBookMove(fenAfter: String): BookMoveMatch? {
+        val key = normalizeBookKey(fenAfter)
+        if (key.isEmpty()) return null
+        val boardFen = extractBoardFen(fenAfter)
+        if (expandBoardFen(boardFen) == START_EXPANDED) return null
+
+        exactBookOpenings[key]?.let { opening ->
+            return BookMoveMatch(
+                opening = opening,
+                eco = opening.eco,
+                openingName = opening.name,
+                isTabiya = true
+            )
         }
 
-        Log.d(TAG, "Loaded ${openings.size} openings")
+        canonicalLineOpenings[key]?.let { (eco, name) ->
+            return BookMoveMatch(
+                opening = fenIndex[boardFen],
+                eco = eco,
+                openingName = name,
+                isTabiya = true
+            )
+        }
+
+        if (key in bookPrefixPositions) {
+            return BookMoveMatch(
+                opening = null,
+                eco = null,
+                openingName = null,
+                isTabiya = false
+            )
+        }
+
+        // Резервная проверка точного совпадения расстановки фигур для именованной табии
+        fenIndex[boardFen]?.let { opening ->
+            return BookMoveMatch(
+                opening = opening,
+                eco = opening.eco,
+                openingName = opening.name,
+                isTabiya = true
+            )
+        }
+
+        return null
+    }
+
+    private fun normalizeBookKey(fen: String): String {
+        val parts = fen.trim().split(' ')
+        if (parts.isEmpty() || parts[0].isEmpty()) return ""
+        val side = parts.getOrNull(1)?.lowercase() ?: return parts[0]
+        return "${parts[0]} $side"
     }
 
     /**
