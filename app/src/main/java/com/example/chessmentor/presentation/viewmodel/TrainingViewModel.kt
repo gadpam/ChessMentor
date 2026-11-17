@@ -13,12 +13,20 @@ import com.example.chessmentor.domain.analysis.MistakeAnalysis
 import com.example.chessmentor.domain.entity.Exercise
 import com.example.chessmentor.domain.entity.ExerciseAttempt
 import com.example.chessmentor.domain.entity.TacticalPattern
+import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.training.CuratedExerciseBank
+import com.example.chessmentor.domain.training.ExerciseMetadata
+import com.example.chessmentor.domain.training.HintUsage
+import com.example.chessmentor.domain.training.TrainingLabels
+import com.example.chessmentor.domain.training.TrainingMode
+import com.example.chessmentor.domain.training.TrainingRatingCalculator
 import com.example.chessmentor.domain.usecase.GenerateExercisesFromMistakesUseCase
 import com.example.chessmentor.domain.usecase.GetTrainingExerciseUseCase
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.example.chessmentor.presentation.ui.components.BoardArrow
 import com.github.bhlangonijr.chesslib.Board
+import com.github.bhlangonijr.chesslib.Piece
 import com.github.bhlangonijr.chesslib.Side
 import com.github.bhlangonijr.chesslib.Square
 import com.github.bhlangonijr.chesslib.move.Move
@@ -30,19 +38,51 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Единое состояние экрана тренировки
+ * Звуковые события доски и результата задачи.
+ */
+enum class TrainingSoundEvent {
+    MOVE,
+    CAPTURE,
+    CHECK,
+    SOLVED,
+    ERROR
+}
+
+/**
+ * Единое состояние экрана тренировки.
  */
 data class TrainingUiState(
     val board: Board = Board(),
+    val mode: TrainingMode = TrainingMode.All,
     val arrows: List<BoardArrow> = emptyList(),
     val highlights: List<String> = emptyList(),
+    val lastMove: Pair<Square, Square>? = null,
     val feedbackMessage: String? = null,
     val playerSide: Side = Side.WHITE,
     val isInputLocked: Boolean = false,
     val isSolved: Boolean = false,
+    val isSolutionRevealed: Boolean = false,
     val isLoading: Boolean = false,
+    val hasActiveExercise: Boolean = false,
+    val hasNoUserMistakes: Boolean = false,
     val hintLevel: HintLevel = HintLevel.NONE,
     val sessionStats: SessionStats = SessionStats(),
+    val lastRatingDelta: Int? = null,
+
+    // Метаданные текущей задачи
+    val exerciseTitle: String? = null,
+    val exerciseSubtitle: String? = null,
+    val currentPattern: String? = null,
+    val patternDisplayName: String? = null,
+    val theme: TacticalTheme? = null,
+    val difficultyRating: Int = 50,
+    val difficultyLabel: String = "Средняя",
+    val exerciseElo: Int = 1600,
+    val sourceLabel: String = "",
+    val isDailyAlreadySolved: Boolean = false,
+    val isReviewOfFailed: Boolean = false,
+    val currentStepNumber: Int = 1,
+    val totalPlayerSteps: Int = 1,
 
     // Ошибки и анимации
     val currentMistakeAnalysis: MistakeAnalysis? = null,
@@ -52,14 +92,21 @@ data class TrainingUiState(
     val isAnimatingPunishment: Boolean = false,
     val isErrorShake: Boolean = false,
 
-    // Кластеризация и очередь
-    val currentPattern: String? = null,
-    val similarExercisesQueued: Int = 0
+    // Очередь похожих задач
+    val similarExercisesQueued: Int = 0,
+
+    // Звуковые события (soundEventId монотонно растёт для надёжной обработки в LaunchedEffect)
+    val soundEvent: TrainingSoundEvent? = null,
+    val soundEventId: Long = 0L
 )
 
 data class SessionStats(
     val solved: Int = 0,
-    val failed: Int = 0
+    val failed: Int = 0,
+    val skipped: Int = 0,
+    val currentStreak: Int = 0,
+    val bestStreak: Int = 0,
+    val netRatingDelta: Int = 0
 )
 
 enum class HintLevel { NONE, PIECE_HIGHLIGHT, FULL_SOLUTION }
@@ -71,10 +118,11 @@ class TrainingViewModel(
 
     companion object {
         private const val TAG = "TrainingVM"
-        private const val HUMAN_REACTION_DELAY_MS = 700L
+        private const val HUMAN_REACTION_DELAY_MS = 650L
         private const val ANIMATION_DELAY_MS = 600L
-        private const val PUNISHMENT_DISPLAY_MS = 2500L
+        private const val PUNISHMENT_DISPLAY_MS = 2200L
         private const val SIMILAR_EXERCISES_COUNT = 2
+        private const val MAX_SOLUTION_PLIES = 5
     }
 
     private val semanticAnalyzer = container.semanticMistakeAnalyzer
@@ -91,73 +139,165 @@ class TrainingViewModel(
     private var startTime: Long = 0
     private var attemptFailed = false
     private var failedAttemptSaved = false
+    private var maxHintUsed: HintUsage = HintUsage.NONE
+    private var isCurrentDailyAlreadySolved = false
+    private var soundCounter = 0L
     private var currentJob: Job? = null
     private var generationJob: Job? = null
     private var positionBeforePlayerMove: String = ""
+    private var lastMoveBeforePlayerMove: Pair<Square, Square>? = null
+    private var lastInitializedRouteKey: String? = null
 
     private val sessionQueue = mutableListOf<Exercise>()
     private var lastMistakePattern: String? = null
 
     // ================================================================
-    // ИНИЦИАЛИЗАЦИЯ
+    // ИНИЦИАЛИЗАЦИЯ И ПЕРЕКЛЮЧЕНИЕ РЕЖИМОВ
     // ================================================================
 
-    fun init(user: User, onUserUpdated: ((User) -> Unit)? = null) {
+    fun init(
+        user: User,
+        initialMode: TrainingMode? = null,
+        onUserUpdated: ((User) -> Unit)? = null
+    ) {
         onUserUpdatedCallback = onUserUpdated
         val isNewUser = currentUser?.id != user.id
         currentUser = user
 
-        if (isNewUser || (currentExercise == null && !_uiState.value.isLoading)) {
+        val requestedKey = initialMode?.routeKey
+        val modeChangedByNavigation = initialMode != null && requestedKey != lastInitializedRouteKey
+
+        if (isNewUser) {
             sessionQueue.clear()
             lastMistakePattern = null
-            initializeExercisesAndLoad()
+            lastInitializedRouteKey = requestedKey
+            val targetMode = initialMode ?: TrainingMode.All
+            _uiState.value = TrainingUiState(mode = targetMode)
+            initializeExercisesAndLoad(targetMode)
+        } else if (modeChangedByNavigation && initialMode != null) {
+            lastInitializedRouteKey = requestedKey
+            selectMode(initialMode)
+        } else if (currentExercise == null && !_uiState.value.isLoading) {
+            initializeExercisesAndLoad(_uiState.value.mode)
         }
     }
 
     /**
-     * Если у пользователя ещё нет готовых задач, сначала дожидаемся генерации из ошибок,
-     * а уже затем загружаем первую задачу (устраняет гонку инициализации).
+     * Переключение режима тренировки пользователем (Все / Мои ошибки / Слабые темы / По теме / Задача дня).
      */
-    private fun initializeExercisesAndLoad() {
+    fun selectMode(mode: TrainingMode) {
         val userId = currentUser?.id ?: return
-        currentJob?.cancel()
+        if (_uiState.value.mode == mode && currentExercise != null && !_uiState.value.isLoading) {
+            return
+        }
 
-        _uiState.value = TrainingUiState(
+        currentJob?.cancel()
+        sessionQueue.clear()
+        if (mode !is TrainingMode.All) {
+            lastMistakePattern = null
+        }
+
+        _uiState.value = _uiState.value.copy(
+            mode = mode,
             isLoading = true,
-            feedbackMessage = "Подготавливаем задачи...",
-            sessionStats = _uiState.value.sessionStats
+            isInputLocked = true,
+            hasNoUserMistakes = false,
+            similarExercisesQueued = 0,
+            arrows = emptyList(),
+            highlights = emptyList(),
+            lastRatingDelta = null,
+            feedbackMessage = "Подбираем задачу (${mode.displayName})..."
         )
 
         currentJob = viewModelScope.launch {
-            try {
-                val existingExercises = container.exerciseRepository.findByUserId(userId)
-                if (existingExercises.isEmpty()) {
-                    // Генерируем первую порцию синхронно перед показом
+            if (mode is TrainingMode.MyMistakes) {
+                // Если пользователь открыл «Мои ошибки», дожидаемся первичной генерации при пустом списке
+                val existing = runCatching { container.exerciseRepository.findByUserId(userId) }
+                    .getOrDefault(emptyList())
+                if (existing.isEmpty()) {
                     runCatching {
                         container.generateExercisesFromMistakesUseCase.execute(
                             GenerateExercisesFromMistakesUseCase.Input(userId, maxExercises = 15)
                         )
                     }.onFailure { e ->
                         if (e is CancellationException) throw e
-                        Log.e(TAG, "Error generating initial exercises", e)
+                        Log.e(TAG, "Failed generating mistake exercises", e)
                     }
-                    // Остальные догенерируем в фоне
+                }
+            }
+            loadNextExerciseInternal(userId, excludeId = -1L, mode = mode)
+        }
+    }
+
+    private fun initializeExercisesAndLoad(mode: TrainingMode) {
+        val userId = currentUser?.id ?: return
+        currentJob?.cancel()
+
+        _uiState.value = _uiState.value.copy(
+            mode = mode,
+            isLoading = true,
+            isInputLocked = true,
+            hasNoUserMistakes = false,
+            feedbackMessage = "Подготавливаем задачи..."
+        )
+
+        currentJob = viewModelScope.launch {
+            try {
+                // Идемпотентно наполняем встроенный тактический банк
+                CuratedExerciseBank.ensureSeeded(container.exerciseRepository)
+
+                // Подтягиваем историческую серию решённых задач пользователя
+                val historicalStreak = loadCurrentStreak(userId)
+                if (historicalStreak > 0) {
+                    val stats = _uiState.value.sessionStats
+                    _uiState.value = _uiState.value.copy(
+                        sessionStats = stats.copy(
+                            currentStreak = historicalStreak,
+                            bestStreak = maxOf(stats.bestStreak, historicalStreak)
+                        )
+                    )
+                }
+
+                val existingUserExercises = container.exerciseRepository.findByUserId(userId)
+                if (existingUserExercises.isEmpty()) {
+                    if (mode is TrainingMode.MyMistakes || mode is TrainingMode.All) {
+                        runCatching {
+                            container.generateExercisesFromMistakesUseCase.execute(
+                                GenerateExercisesFromMistakesUseCase.Input(userId, maxExercises = 12)
+                            )
+                        }.onFailure { e ->
+                            if (e is CancellationException) throw e
+                            Log.e(TAG, "Error generating initial exercises", e)
+                        }
+                    }
                     scheduleBackgroundGeneration(userId)
                 } else {
                     scheduleBackgroundGeneration(userId)
                 }
 
-                loadNextExerciseInternal(userId, excludeId = -1L)
+                loadNextExerciseInternal(userId, excludeId = -1L, mode = mode)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Error initializing training", e)
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
+                    hasActiveExercise = false,
                     feedbackMessage = "Сбой: ${e.message}"
                 )
             }
         }
+    }
+
+    private suspend fun loadCurrentStreak(userId: Long): Int {
+        return runCatching {
+            val attempts = container.exerciseRepository.getAttemptsByUserId(userId)
+            var streak = 0
+            for (attempt in attempts.asReversed()) {
+                if (attempt.solved) streak++ else break
+            }
+            streak
+        }.getOrDefault(0)
     }
 
     private fun scheduleBackgroundGeneration(userId: Long) {
@@ -176,60 +316,202 @@ class TrainingViewModel(
     }
 
     // ================================================================
-    // ЗАГРУЗКА ЗАДАЧИ
+    // ЗАГРУЗКА СЛЕДУЮЩЕЙ ЗАДАЧИ И ПРОПУСК
     // ================================================================
 
     fun loadNextExercise() {
         val userId = currentUser?.id ?: return
+        val currentMode = _uiState.value.mode
         val excludeId = currentExercise?.id ?: -1L
+
+        // После завершения «Задачи дня» кнопка «Следующая» плавно переводит в общий поток задач
+        val effectiveMode = if (currentMode is TrainingMode.Daily &&
+            (_uiState.value.isSolved || _uiState.value.isSolutionRevealed)
+        ) {
+            TrainingMode.All
+        } else {
+            currentMode
+        }
 
         currentJob?.cancel()
 
-        // 1. Проверяем очередь похожих задач
-        if (sessionQueue.isNotEmpty()) {
+        // 1. В общем режиме сначала отрабатываем очередь похожих задач после ошибки
+        if (effectiveMode is TrainingMode.All && sessionQueue.isNotEmpty()) {
             val nextFromQueue = sessionQueue.removeFirst()
             currentJob = viewModelScope.launch {
                 resetStateForNewExercise()
-                setupExercise(nextFromQueue)
-                _uiState.value = _uiState.value.copy(
-                    similarExercisesQueued = sessionQueue.size,
-                    currentPattern = nextFromQueue.tacticalPattern.name
+                setupExercise(
+                    exercise = nextFromQueue,
+                    mode = effectiveMode,
+                    isAlreadySolvedDaily = false,
+                    isReviewOfFailed = false
                 )
             }
             return
         }
 
-        // 2. Загружаем из БД
-        _uiState.value = TrainingUiState(
+        // 2. Загружаем следующую задачу из БД
+        _uiState.value = _uiState.value.copy(
+            mode = effectiveMode,
             isLoading = true,
-            sessionStats = _uiState.value.sessionStats
+            isInputLocked = true,
+            arrows = emptyList(),
+            highlights = emptyList(),
+            lastRatingDelta = null,
+            feedbackMessage = null
         )
 
         resetStateForNewExercise()
 
         currentJob = viewModelScope.launch {
-            loadNextExerciseInternal(userId, excludeId)
+            loadNextExerciseInternal(userId, excludeId, effectiveMode)
         }
     }
 
-    private suspend fun loadNextExerciseInternal(userId: Long, excludeId: Long) {
+    /**
+     * Пропустить текущую задачу без списания рейтинга (но со сбросом серии, если уже была подсказка).
+     */
+    fun onSkipExercise() {
+        val state = _uiState.value
+        if (state.isLoading || state.isAnimatingPunishment) return
+        if (state.isSolved || state.isSolutionRevealed) {
+            loadNextExercise()
+            return
+        }
+
+        val stats = state.sessionStats
+        val updatedStreak = if (maxHintUsed == HintUsage.FULL_SOLUTION) 0 else stats.currentStreak
+        _uiState.value = state.copy(
+            sessionStats = stats.copy(
+                skipped = stats.skipped + 1,
+                currentStreak = updatedStreak
+            )
+        )
+
+        // Если пропускается задача дня — переходим в общую тренировку
+        if (state.mode is TrainingMode.Daily) {
+            selectMode(TrainingMode.All)
+        } else {
+            loadNextExercise()
+        }
+    }
+
+    /**
+     * Показать полное решение текущей задачи с пошаговой демонстрацией на доске.
+     * Не начисляет рейтинг и фиксирует нерешённую попытку (для последующего повторения).
+     */
+    fun onRevealSolution() {
+        val state = _uiState.value
+        if (state.isLoading || state.isSolved || state.isSolutionRevealed || state.isAnimatingPunishment) return
+        if (!state.hasActiveExercise || targetSequence.isEmpty()) return
+
+        currentJob?.cancel()
+        maxHintUsed = HintUsage.FULL_SOLUTION
+
+        val remainingMoves = targetSequence.drop(currentMoveIndex)
+        if (remainingMoves.isEmpty()) return
+
+        val stats = state.sessionStats
+        val shouldRecordFail = !failedAttemptSaved && !isCurrentDailyAlreadySolved
+        if (shouldRecordFail) {
+            failedAttemptSaved = true
+            attemptFailed = true
+        }
+
+        currentJob = viewModelScope.launch {
+            val startFen = positionBeforePlayerMove.ifBlank { state.board.fen }
+            val simBoard = Board().apply { loadFromFen(startFen) }
+
+            // Формируем читаемую запись решения в SAN
+            val sanNotation = buildSanLine(startFen, remainingMoves)
+
+            _uiState.value = _uiState.value.copy(
+                board = Board().apply { loadFromFen(startFen) },
+                isInputLocked = true,
+                hintLevel = HintLevel.FULL_SOLUTION,
+                highlights = emptyList(),
+                currentMistakeAnalysis = null,
+                showBetterMoveHint = false,
+                lastRatingDelta = 0,
+                sessionStats = stats.copy(
+                    failed = if (shouldRecordFail) stats.failed + 1 else stats.failed,
+                    currentStreak = 0
+                ),
+                feedbackMessage = "Решение: $sanNotation"
+            )
+
+            if (shouldRecordFail) {
+                runCatching { saveAttempt(solved = false) }
+            }
+
+            // Пошагово разыгрываем оставшуюся линию решения
+            var lastPlayedMove = _uiState.value.lastMove
+            for ((idx, uci) in remainingMoves.withIndex()) {
+                val isPlayerPly = idx % 2 == 0
+                val arrowColor = if (isPlayerPly) Color(0xCC4CAF50) else Color(0xAA2196F3)
+                createArrowFromUci(uci, arrowColor)?.let { arrow ->
+                    _uiState.value = _uiState.value.copy(arrows = listOf(arrow))
+                }
+                delay(ANIMATION_DELAY_MS)
+
+                val parsed = ChessMoveUtils.parseUciMove(simBoard, uci) ?: break
+                val wasCapture = isCaptureMove(simBoard, parsed)
+                if (!simBoard.doMove(parsed)) break
+                lastPlayedMove = parsed.from to parsed.to
+
+                emitBoardWithSound(
+                    newBoard = Board().apply { loadFromFen(simBoard.fen) },
+                    movePair = lastPlayedMove,
+                    wasCapture = wasCapture
+                )
+                delay(ANIMATION_DELAY_MS / 2)
+            }
+
+            _uiState.value = _uiState.value.copy(
+                isSolutionRevealed = true,
+                isInputLocked = true,
+                arrows = emptyList(),
+                feedbackMessage = "💡 Решение: $sanNotation\nЗадача вернётся позже для закрепления."
+            )
+        }
+    }
+
+    private fun buildSanLine(startFen: String, uciMoves: List<String>): String {
+        val sim = Board().apply { loadFromFen(startFen) }
+        val parts = mutableListOf<String>()
+        for (uci in uciMoves) {
+            val san = ChessMoveUtils.uciToSan(uci, sim.fen)
+            parts.add(san)
+            if (!ChessMoveUtils.applyUciMove(sim, uci)) break
+        }
+        return parts.joinToString(" → ")
+    }
+
+    private suspend fun loadNextExerciseInternal(
+        userId: Long,
+        excludeId: Long,
+        mode: TrainingMode
+    ) {
         resetStateForNewExercise()
         try {
+            val preferred = if (mode is TrainingMode.All) lastMistakePattern else null
             val result = container.getTrainingExerciseUseCase.execute(
                 GetTrainingExerciseUseCase.Input(
                     userId = userId,
                     excludeExerciseId = excludeId,
-                    preferredPattern = lastMistakePattern
+                    preferredPattern = preferred,
+                    mode = mode
                 )
             )
 
-            // Если нет других задач, кроме текущей — разрешаем повторить текущую
+            // Если кроме только что решённой задачи других в этом режиме нет — разрешаем повтор
             val finalResult = if (result is GetTrainingExerciseUseCase.Result.NoSuitableExercises && excludeId != -1L) {
                 container.getTrainingExerciseUseCase.execute(
                     GetTrainingExerciseUseCase.Input(
                         userId = userId,
                         excludeExerciseId = -1L,
-                        preferredPattern = null
+                        preferredPattern = null,
+                        mode = mode
                     )
                 )
             } else {
@@ -238,23 +520,35 @@ class TrainingViewModel(
 
             when (finalResult) {
                 is GetTrainingExerciseUseCase.Result.Success -> {
-                    setupExercise(finalResult.exercise)
-                    _uiState.value = _uiState.value.copy(
-                        currentPattern = finalResult.exercise.tacticalPattern.name,
-                        similarExercisesQueued = sessionQueue.size
+                    setupExercise(
+                        exercise = finalResult.exercise,
+                        mode = mode,
+                        isAlreadySolvedDaily = finalResult.isAlreadySolvedDaily,
+                        isReviewOfFailed = finalResult.isReviewOfFailed
                     )
                 }
                 is GetTrainingExerciseUseCase.Result.NoSuitableExercises -> {
+                    currentExercise = null
+                    val isMistakesMode = mode is TrainingMode.MyMistakes
+                    val emptyMessage = if (isMistakesMode) {
+                        "У вас пока нет задач из собственных партий. Загрузите PGN и запустите анализ — или выберите общий режим!"
+                    } else {
+                        "В выбранной теме пока нет задач. Попробуйте другую тему или общий режим."
+                    }
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         isInputLocked = true,
-                        feedbackMessage = "Нет новых задач. Загрузите и проанализируйте партии!"
+                        hasActiveExercise = false,
+                        hasNoUserMistakes = isMistakesMode,
+                        feedbackMessage = emptyMessage
                     )
                 }
                 is GetTrainingExerciseUseCase.Result.Error -> {
+                    currentExercise = null
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         isInputLocked = true,
+                        hasActiveExercise = false,
                         feedbackMessage = finalResult.message
                     )
                 }
@@ -265,6 +559,7 @@ class TrainingViewModel(
             Log.e(TAG, "Error loading exercise", e)
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
+                hasActiveExercise = false,
                 feedbackMessage = "Сбой: ${e.message}"
             )
         }
@@ -276,42 +571,110 @@ class TrainingViewModel(
         currentMoveIndex = 0
         attemptFailed = false
         failedAttemptSaved = false
+        maxHintUsed = HintUsage.NONE
+        isCurrentDailyAlreadySolved = false
         startTime = System.currentTimeMillis()
         positionBeforePlayerMove = ""
+        lastMoveBeforePlayerMove = null
     }
 
-    private suspend fun setupExercise(exercise: Exercise) {
+    private suspend fun setupExercise(
+        exercise: Exercise,
+        mode: TrainingMode,
+        isAlreadySolvedDaily: Boolean,
+        isReviewOfFailed: Boolean
+    ) {
         currentExercise = exercise
+        isCurrentDailyAlreadySolved = isAlreadySolvedDaily
+
         val newBoard = Board()
         newBoard.loadFromFen(exercise.fenPosition)
         positionBeforePlayerMove = exercise.fenPosition
 
+        val curatedId = ExerciseMetadata.extractCuratedId(exercise)
+        val curatedTemplate = curatedId?.let { CuratedExerciseBank.findTemplateById(it) }
+            ?: CuratedExerciseBank.findTemplateByFen(exercise.fenPosition)
+
         val normalizedStored = normalizeSequenceToUci(exercise.fenPosition, exercise.solutionMoves)
-        if (normalizedStored.size < 3) {
-            extendSolutionWithEngine(normalizedStored, newBoard)
+        val oddStored = TrainingRatingCalculator.trimPvToPlayerLastMove(normalizedStored, MAX_SOLUTION_PLIES)
+
+        if (curatedTemplate != null && oddStored.isNotEmpty()) {
+            // Для верифицированных задач используем их точную проверенную линию
+            targetSequence.addAll(oddStored)
+        } else if (oddStored.size < 3) {
+            extendSolutionWithEngine(oddStored, newBoard)
         } else {
-            targetSequence.addAll(normalizedStored)
+            targetSequence.addAll(oddStored)
+        }
+
+        val initialPrevMove = ExerciseMetadata.extractPrevMove(exercise)?.let { parseSquaresFromUci(it) }
+        lastMoveBeforePlayerMove = initialPrevMove
+
+        val effectiveDiff = exercise.getEffectiveDifficulty()
+        val totalPlayerSteps = ((targetSequence.size + 1) / 2).coerceAtLeast(1)
+        val sideText = if (newBoard.sideToMove == Side.WHITE) "белых" else "чёрных"
+
+        val title = curatedTemplate?.title
+            ?: ExerciseMetadata.extractTitle(exercise)
+            ?: exercise.tacticalPattern.displayName
+        val subtitle = curatedTemplate?.subtitle
+            ?: if (totalPlayerSteps > 1) {
+                "Найдите комбинацию в $totalPlayerSteps ${pluralizeMoves(totalPlayerSteps)} за $sideText"
+            } else {
+                "Найдите сильнейший ход за $sideText"
+            }
+
+        val initialBanner = when {
+            isAlreadySolvedDaily -> "✓ Задача дня уже решена сегодня — можно перерешать без изменения рейтинга"
+            isReviewOfFailed -> "🔁 Повтор задачи, в которой ранее была ошибка"
+            else -> null
         }
 
         _uiState.value = _uiState.value.copy(
             board = newBoard,
+            mode = mode,
             playerSide = newBoard.sideToMove,
             arrows = emptyList(),
             highlights = emptyList(),
+            lastMove = initialPrevMove,
             hintLevel = HintLevel.NONE,
             isInputLocked = false,
             isSolved = false,
+            isSolutionRevealed = false,
             isAnimatingPunishment = false,
             isLoading = false,
+            hasActiveExercise = true,
+            hasNoUserMistakes = false,
+            lastRatingDelta = null,
+            exerciseTitle = title,
+            exerciseSubtitle = subtitle,
+            currentPattern = exercise.tacticalPattern.name,
+            patternDisplayName = exercise.tacticalPattern.displayName,
+            theme = exercise.theme,
+            difficultyRating = effectiveDiff,
+            difficultyLabel = TrainingLabels.difficultyLabel(effectiveDiff),
+            exerciseElo = TrainingRatingCalculator.effectiveExerciseElo(exercise),
+            sourceLabel = TrainingLabels.sourceLabel(exercise, isDailyMode = mode is TrainingMode.Daily),
+            isDailyAlreadySolved = isAlreadySolvedDaily,
+            isReviewOfFailed = isReviewOfFailed,
+            currentStepNumber = 1,
+            totalPlayerSteps = totalPlayerSteps,
+            similarExercisesQueued = sessionQueue.size,
             currentMistakeAnalysis = null,
             showBetterMoveHint = false,
             betterMoveShown = false,
-            feedbackMessage = null
+            feedbackMessage = initialBanner
         )
 
         exercise.id?.let { id ->
             runCatching { container.exerciseRepository.incrementTimesShown(id) }
         }
+    }
+
+    private fun pluralizeMoves(n: Int): String = when {
+        n % 10 == 1 && n % 100 != 11 -> "ход"
+        n % 10 in 2..4 && n % 100 !in 12..14 -> "хода"
+        else -> "ходов"
     }
 
     private fun normalizeSequenceToUci(startFen: String, rawMoves: List<String>): List<String> {
@@ -326,21 +689,28 @@ class TrainingViewModel(
         return result
     }
 
+    /**
+     * Дополняет короткое (1-ходовое) решение через движок, проверяя легальность каждого полухода
+     * и обрезая линию до нечётной длины, чтобы последний ход всегда делал игрок.
+     */
     private suspend fun extendSolutionWithEngine(fallbackUci: List<String>, board: Board) {
         withContext(Dispatchers.IO) {
             try {
                 val engine = container.chessEngine
                 if (engine.init()) {
                     val line = engine.getBestMoveWithLine(board.fen, 12)
-                    val pv = line?.principalVariation
-                        ?.map { it.trim().lowercase() }
-                        ?.filter { ChessMoveUtils.isUciMove(it) }
-                        ?.take(5)
-                        .orEmpty()
+                    val validatedPv = normalizeSequenceToUci(
+                        board.fen,
+                        line?.principalVariation?.take(MAX_SOLUTION_PLIES).orEmpty()
+                    )
+                    val oddPv = TrainingRatingCalculator.trimPvToPlayerLastMove(validatedPv, MAX_SOLUTION_PLIES)
 
                     when {
-                        pv.isNotEmpty() -> targetSequence.addAll(pv)
-                        !line?.bestMove.isNullOrBlank() -> targetSequence.add(line!!.bestMove.lowercase())
+                        oddPv.isNotEmpty() -> targetSequence.addAll(oddPv)
+                        !line?.bestMove.isNullOrBlank() -> {
+                            val single = ChessMoveUtils.sanOrUciToUci(line!!.bestMove, board.fen)
+                            if (single != null) targetSequence.add(single) else targetSequence.addAll(fallbackUci)
+                        }
                         fallbackUci.isNotEmpty() -> targetSequence.addAll(fallbackUci)
                     }
                 } else {
@@ -361,13 +731,17 @@ class TrainingViewModel(
 
     fun onMoveMade(move: Move) {
         val state = _uiState.value
-        if (state.isInputLocked || state.isSolved || state.isAnimatingPunishment || state.isLoading) return
+        if (state.isInputLocked || state.isSolved || state.isSolutionRevealed ||
+            state.isAnimatingPunishment || state.isLoading || !state.hasActiveExercise
+        ) {
+            return
+        }
         if (state.board.sideToMove != state.playerSide) return
 
-        // Проверка легальности хода (включая превращение пешки и рокировку)
         if (!state.board.isMoveLegal(move, true)) {
             triggerShakeEffect()
-            _uiState.value = state.copy(feedbackMessage = "Невозможный ход")
+            emitSound(TrainingSoundEvent.ERROR)
+            _uiState.value = _uiState.value.copy(feedbackMessage = "Невозможный ход")
             viewModelScope.launch {
                 delay(1000)
                 if (_uiState.value.feedbackMessage == "Невозможный ход") {
@@ -378,13 +752,24 @@ class TrainingViewModel(
         }
 
         positionBeforePlayerMove = state.board.fen
+        lastMoveBeforePlayerMove = state.lastMove
 
         val newBoard = Board()
         newBoard.loadFromFen(positionBeforePlayerMove)
+        val wasCapture = isCaptureMove(newBoard, move)
         newBoard.doMove(move)
+        val movePair = move.from to move.to
+
+        soundCounter++
+        val moveSound = when {
+            newBoard.isKingAttacked -> TrainingSoundEvent.CHECK
+            wasCapture -> TrainingSoundEvent.CAPTURE
+            else -> TrainingSoundEvent.MOVE
+        }
 
         _uiState.value = state.copy(
             board = newBoard,
+            lastMove = movePair,
             isInputLocked = true,
             arrows = emptyList(),
             highlights = emptyList(),
@@ -392,13 +777,52 @@ class TrainingViewModel(
             feedbackMessage = null,
             currentMistakeAnalysis = null,
             showBetterMoveHint = false,
-            betterMoveShown = false
+            betterMoveShown = false,
+            soundEvent = moveSound,
+            soundEventId = soundCounter
         )
 
         currentJob?.cancel()
         currentJob = viewModelScope.launch {
             processUserMove(positionBeforePlayerMove, move)
         }
+    }
+
+    private fun isCaptureMove(board: Board, move: Move): Boolean {
+        if (board.getPiece(move.to) != Piece.NONE) return true
+        val moving = board.getPiece(move.from)
+        return moving.pieceType == com.github.bhlangonijr.chesslib.PieceType.PAWN &&
+            move.from.file != move.to.file
+    }
+
+    private fun emitSound(event: TrainingSoundEvent) {
+        soundCounter++
+        _uiState.value = _uiState.value.copy(
+            soundEvent = event,
+            soundEventId = soundCounter
+        )
+    }
+
+    private fun emitBoardWithSound(
+        newBoard: Board,
+        movePair: Pair<Square, Square>?,
+        wasCapture: Boolean,
+        unlockInput: Boolean = false
+    ) {
+        soundCounter++
+        val sound = when {
+            newBoard.isKingAttacked -> TrainingSoundEvent.CHECK
+            wasCapture -> TrainingSoundEvent.CAPTURE
+            else -> TrainingSoundEvent.MOVE
+        }
+        _uiState.value = _uiState.value.copy(
+            board = newBoard,
+            lastMove = movePair,
+            arrows = emptyList(),
+            isInputLocked = !unlockInput,
+            soundEvent = sound,
+            soundEventId = soundCounter
+        )
     }
 
     private fun triggerShakeEffect() {
@@ -410,7 +834,6 @@ class TrainingViewModel(
     }
 
     private suspend fun processUserMove(fenBefore: String, move: Move) {
-        // Полный UCI с учётом превращения пешки (например, e7e8q != e7e8n)
         val userUci = ChessMoveUtils.moveToUci(move)
         recordedMoves.add(userUci)
 
@@ -420,12 +843,45 @@ class TrainingViewModel(
         if (!isExactExpected) {
             _uiState.value = _uiState.value.copy(
                 isInputLocked = true,
-                feedbackMessage = "Анализирую..."
+                feedbackMessage = "Проверяем вариант..."
             )
 
             val quality = checkMoveQuality(fenBefore, move)
             if (quality == TrainingMoveQuality.BEST || quality == TrainingMoveQuality.EXCELLENT) {
-                targetSequence.clear()
+                val remainingPlies = (targetSequence.size - currentMoveIndex - 1).coerceAtLeast(0)
+                // Если в задаче предполагалось продолжение и мата ещё нет — пробуем продолжить комбинацию с движком
+                if (remainingPlies >= 2 && !_uiState.value.board.isMated) {
+                    val continuation = fetchEvenContinuationForOpponent(
+                        fenAfterUserMove = _uiState.value.board.fen,
+                        maxPlies = remainingPlies.coerceAtMost(4)
+                    )
+                    if (continuation.size >= 2) {
+                        // Перестраиваем остаток последовательности под сильный альтернативный ход игрока
+                        val prefix = targetSequence.take(currentMoveIndex) + userUci
+                        targetSequence.clear()
+                        targetSequence.addAll(prefix + continuation)
+                        currentMoveIndex = prefix.size
+                        val totalSteps = ((targetSequence.size + 1) / 2).coerceAtLeast(1)
+
+                        delay(HUMAN_REACTION_DELAY_MS)
+                        val oppUci = targetSequence[currentMoveIndex]
+                        val applied = makeOpponentMove(oppUci)
+                        currentMoveIndex++
+
+                        if (!applied || currentMoveIndex >= targetSequence.size || _uiState.value.board.isMated) {
+                            handleSuccess("✅ Отличный альтернативный ход!")
+                        } else {
+                            val nextStep = (currentMoveIndex / 2) + 1
+                            _uiState.value = _uiState.value.copy(
+                                currentStepNumber = nextStep,
+                                totalPlayerSteps = totalSteps,
+                                feedbackMessage = "Сильный ход! Найдите продолжение."
+                            )
+                        }
+                        return
+                    }
+                }
+
                 handleSuccess("✅ Отличный альтернативный ход!")
                 return
             } else {
@@ -436,7 +892,7 @@ class TrainingViewModel(
 
         currentMoveIndex++
 
-        if (targetSequence.isNotEmpty() && currentMoveIndex < targetSequence.size) {
+        if (targetSequence.isNotEmpty() && currentMoveIndex < targetSequence.size && !_uiState.value.board.isMated) {
             delay(HUMAN_REACTION_DELAY_MS)
 
             val opponentMoveUci = targetSequence[currentMoveIndex]
@@ -444,26 +900,67 @@ class TrainingViewModel(
             currentMoveIndex++
 
             if (!applied || currentMoveIndex >= targetSequence.size || _uiState.value.board.isMated) {
-                handleSuccess("🏆 Отлично!")
+                handleSuccess("🏆 Комбинация завершена!")
+            } else {
+                val nextStep = (currentMoveIndex / 2) + 1
+                _uiState.value = _uiState.value.copy(
+                    currentStepNumber = nextStep,
+                    feedbackMessage = "Верно! Продолжайте атаку."
+                )
             }
         } else {
-            handleSuccess("✅ Задача решена!")
+            val message = if (_uiState.value.board.isMated) {
+                "🏆 Мат! Задача решена!"
+            } else {
+                "✅ Задача решена!"
+            }
+            handleSuccess(message)
+        }
+    }
+
+    /**
+     * Запрашивает у движка чётное число полуходов после альтернативного хода игрока:
+     * `[ответ_соперника, добивающий_ход_игрока, ...]`, чтобы финал остался за игроком.
+     */
+    private suspend fun fetchEvenContinuationForOpponent(
+        fenAfterUserMove: String,
+        maxPlies: Int
+    ): List<String> = withContext(Dispatchers.IO) {
+        if (maxPlies < 2) return@withContext emptyList()
+        try {
+            val engine = container.chessEngine
+            if (!engine.init()) return@withContext emptyList()
+            val line = engine.getBestMoveWithLine(fenAfterUserMove, 10) ?: return@withContext emptyList()
+            val validated = normalizeSequenceToUci(fenAfterUserMove, line.principalVariation.take(maxPlies))
+            if (validated.size < 2) return@withContext emptyList()
+            if (validated.size % 2 == 0) validated else validated.dropLast(1)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 
     private fun makeOpponentMove(uci: String): Boolean {
         val board = Board()
         board.loadFromFen(_uiState.value.board.fen)
-        val ok = ChessMoveUtils.applyUciMove(board, uci)
-        if (ok) {
-            recordedMoves.add(uci)
-        }
+        val parsed = ChessMoveUtils.parseUciMove(board, uci) ?: return false
+        val wasCapture = isCaptureMove(board, parsed)
+        val ok = board.doMove(parsed)
+        if (!ok) return false
 
-        _uiState.value = _uiState.value.copy(
-            board = board,
-            isInputLocked = false
+        recordedMoves.add(ChessMoveUtils.moveToUci(parsed))
+        positionBeforePlayerMove = board.fen
+        val pair = parsed.from to parsed.to
+        lastMoveBeforePlayerMove = pair
+
+        emitBoardWithSound(
+            newBoard = board,
+            movePair = pair,
+            wasCapture = wasCapture,
+            unlockInput = true
         )
-        return ok
+        return true
     }
 
     // ================================================================
@@ -475,18 +972,39 @@ class TrainingViewModel(
         attemptFailed = true
         val stats = _uiState.value.sessionStats
 
+        var appliedDelta: Int? = null
+        if (isFirstMistakeOnExercise && !failedAttemptSaved && !isCurrentDailyAlreadySolved) {
+            failedAttemptSaved = true
+            val exercise = currentExercise
+            val user = currentUser
+            if (exercise != null && user != null) {
+                appliedDelta = TrainingRatingCalculator.calculateFailureDelta(user.rating, exercise)
+            }
+        }
+
+        val updatedNet = stats.netRatingDelta + (appliedDelta ?: 0)
+        soundCounter++
         _uiState.value = _uiState.value.copy(
             isInputLocked = true,
             isAnimatingPunishment = true,
-            sessionStats = stats.copy(failed = stats.failed + 1),
-            feedbackMessage = "Анализ ошибки..."
+            lastRatingDelta = appliedDelta,
+            sessionStats = stats.copy(
+                failed = stats.failed + 1,
+                currentStreak = 0,
+                netRatingDelta = updatedNet
+            ),
+            feedbackMessage = "Неверный ход — разбираем опровержение...",
+            soundEvent = TrainingSoundEvent.ERROR,
+            soundEventId = soundCounter
         )
 
-        if (isFirstMistakeOnExercise && !failedAttemptSaved) {
-            failedAttemptSaved = true
+        if (appliedDelta != null) {
             runCatching {
                 saveAttempt(solved = false)
-                updateRating(-5)
+                updateRating(appliedDelta)
+            }.onFailure { e ->
+                if (e is CancellationException) throw e
+                Log.e(TAG, "Error saving failed attempt", e)
             }
         }
 
@@ -513,7 +1031,6 @@ class TrainingViewModel(
             }
 
             if (punishmentLineObj == null || bestMoveLineObj == null) {
-                Log.w(TAG, "Engine returned null lines")
                 fallbackMistakeHandling(fenBefore, userMove)
                 return
             }
@@ -529,7 +1046,7 @@ class TrainingViewModel(
                     punishmentLine = punishmentLineObj
                 )
             } catch (e: Exception) {
-                Log.e(TAG, "Semantic analysis crash", e)
+                Log.e(TAG, "Semantic analysis error", e)
                 fallbackMistakeHandling(fenBefore, userMove)
                 return
             }
@@ -549,8 +1066,8 @@ class TrainingViewModel(
         analysis: MistakeAnalysis,
         punishmentMoves: List<String>
     ) {
-        val queueInfo = if (sessionQueue.isNotEmpty()) {
-            "\n\n📚 +${sessionQueue.size} похожих задач добавлено"
+        val queueInfo = if (sessionQueue.isNotEmpty() && _uiState.value.mode is TrainingMode.All) {
+            "\n📚 +${sessionQueue.size} похожих задач для закрепления"
         } else {
             ""
         }
@@ -571,9 +1088,6 @@ class TrainingViewModel(
         resetToPosition(positionBeforePlayerMove, keepAnalysis = true)
     }
 
-    /**
-     * Анимация цепочки наказания (PV)
-     */
     private suspend fun animatePunishmentLine(startBoard: Board, moves: List<String>) {
         val currentBoard = Board().apply { loadFromFen(startBoard.fen) }
 
@@ -589,10 +1103,12 @@ class TrainingViewModel(
 
             delay(ANIMATION_DELAY_MS)
 
-            if (!ChessMoveUtils.applyUciMove(currentBoard, moveUci)) break
+            val parsed = ChessMoveUtils.parseUciMove(currentBoard, moveUci) ?: break
+            if (!currentBoard.doMove(parsed)) break
 
             _uiState.value = _uiState.value.copy(
                 board = Board().apply { loadFromFen(currentBoard.fen) },
+                lastMove = parsed.from to parsed.to,
                 arrows = emptyList()
             )
 
@@ -601,8 +1117,6 @@ class TrainingViewModel(
     }
 
     private suspend fun fallbackMistakeHandling(fenBefore: String, userMove: Move) {
-        Log.w(TAG, "Using fallback mistake handling")
-
         try {
             val engine = container.chessEngine
             if (engine.init()) {
@@ -617,20 +1131,29 @@ class TrainingViewModel(
                     if (punishmentUci != null && arrow != null) {
                         _uiState.value = _uiState.value.copy(
                             arrows = listOf(arrow),
-                            feedbackMessage = "Неточный ход. Посмотрите ответ соперника.",
+                            feedbackMessage = "Неверный ход. Посмотрите опровержение соперника.",
                             currentMistakeAnalysis = null
                         )
 
                         delay(ANIMATION_DELAY_MS)
-                        ChessMoveUtils.applyUciMove(boardAfterPlayer, punishmentUci)
-                        _uiState.value = _uiState.value.copy(board = boardAfterPlayer)
+                        val parsed = ChessMoveUtils.parseUciMove(boardAfterPlayer, punishmentUci)
+                        if (parsed != null && boardAfterPlayer.doMove(parsed)) {
+                            _uiState.value = _uiState.value.copy(
+                                board = boardAfterPlayer,
+                                lastMove = parsed.from to parsed.to
+                            )
+                        }
                     }
                 }
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    feedbackMessage = "❌ Неверный ход — найдите более сильное решение."
+                )
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Fallback also failed", e)
+            Log.e(TAG, "Fallback mistake handling failed", e)
             _uiState.value = _uiState.value.copy(feedbackMessage = "❌ Неверный ход")
         }
 
@@ -644,15 +1167,29 @@ class TrainingViewModel(
         board.loadFromFen(fen)
 
         val prev = _uiState.value
+        val keptExplanation = if (keepAnalysis) {
+            prev.currentMistakeAnalysis?.explanation
+                ?.let { cleanEvaluationText(it) }
+                ?.takeIf { it.isNotBlank() }
+        } else {
+            null
+        }
+        val prompt = if (keptExplanation != null) {
+            "$keptExplanation\nПопробуйте ещё раз!"
+        } else {
+            "Попробуйте ещё раз!"
+        }
+
         _uiState.value = prev.copy(
             board = board,
+            lastMove = lastMoveBeforePlayerMove,
             isInputLocked = false,
             isAnimatingPunishment = false,
             arrows = emptyList(),
             punishmentAnimationStep = 0,
             currentMistakeAnalysis = if (keepAnalysis) prev.currentMistakeAnalysis else null,
             showBetterMoveHint = if (keepAnalysis) prev.showBetterMoveHint else false,
-            feedbackMessage = "Попробуйте ещё раз!"
+            feedbackMessage = prompt
         )
     }
 
@@ -661,23 +1198,29 @@ class TrainingViewModel(
     // ================================================================
 
     private suspend fun loadSimilarExercisesIntoQueue(analysis: MistakeAnalysis) {
-        val motif = analysis.tacticalMotif ?: return
-        val pattern = TacticalPattern.fromMotif(motif)
-        val patternName = pattern.name
+        if (_uiState.value.mode !is TrainingMode.All) return
+        val userId = currentUser?.id ?: return
 
+        val pattern = analysis.tacticalMotif?.let { TacticalPattern.fromMotif(it) }
+            ?: currentExercise?.tacticalPattern
+            ?: return
+        val patternName = pattern.name
         lastMistakePattern = patternName
 
         try {
             val currentId = currentExercise?.id ?: -1L
-            val currentDifficulty = currentExercise?.difficultyRating ?: 50
+            val currentDifficulty = currentExercise?.getEffectiveDifficulty() ?: 50
             val alreadyQueuedIds = sessionQueue.mapNotNull { it.id }.toSet()
 
-            val similarExercises = container.exerciseRepository.findSimilarByPattern(
+            val remainingSlots = (4 - sessionQueue.size).coerceAtLeast(0)
+            if (remainingSlots == 0) return
+
+            val similarExercises = container.exerciseRepository.findForMistakeRepetition(
+                userId = userId,
                 pattern = patternName,
+                difficulty = currentDifficulty,
                 excludeId = currentId,
-                minDifficulty = (currentDifficulty - 20).coerceAtLeast(0),
-                maxDifficulty = (currentDifficulty + 20).coerceAtMost(100),
-                limit = SIMILAR_EXERCISES_COUNT
+                limit = minOf(SIMILAR_EXERCISES_COUNT, remainingSlots)
             ).filter { it.id !in alreadyQueuedIds }
 
             if (similarExercises.isNotEmpty()) {
@@ -693,10 +1236,6 @@ class TrainingViewModel(
         }
     }
 
-    /**
-     * Проверяет альтернативный ход игрока с учётом знака оценки и форсированных матов:
-     * ход лучше или равный линии движка засчитывается как BEST, а не отвергается из-за abs().
-     */
     private suspend fun checkMoveQuality(fen: String, userMove: Move): TrainingMoveQuality {
         return withContext(Dispatchers.IO) {
             try {
@@ -704,7 +1243,6 @@ class TrainingViewModel(
                 userBoard.loadFromFen(fen)
                 if (!userBoard.doMove(userMove)) return@withContext TrainingMoveQuality.MISTAKE
 
-                // Мат в 1 ход всегда является лучшим решением
                 if (userBoard.isMated) {
                     return@withContext TrainingMoveQuality.BEST
                 }
@@ -720,12 +1258,10 @@ class TrainingViewModel(
                     return@withContext TrainingMoveQuality.BEST
                 }
 
-                // Оценка позиции ПОСЛЕ хода игрока со стороны соперника -> инвертируем для игрока
                 val opponentEvalAfterUser = engine.evaluate(userBoard.fen, 10)
                 val playerEvalAfterUser = -opponentEvalAfterUser
                 val playerEvalBest = bestLine.score
 
-                // Если игрок всё равно ставит форсированный мат — засчитываем решение
                 if (ChessEngine.isMateScore(playerEvalAfterUser) && playerEvalAfterUser > 0) {
                     return@withContext if (playerEvalAfterUser >= playerEvalBest) {
                         TrainingMoveQuality.BEST
@@ -734,14 +1270,11 @@ class TrainingViewModel(
                     }
                 }
 
-                // Если был форсированный мат, но ход игрока его упускает — ошибка
                 if (ChessEngine.isMateScore(playerEvalBest) && playerEvalBest > 0) {
                     return@withContext TrainingMoveQuality.MISTAKE
                 }
 
-                // Знаковая потеря: отрицательное значение означает, что игрок нашёл ход сильнее!
                 val cpLoss = playerEvalBest - playerEvalAfterUser
-
                 when {
                     cpLoss <= 15 -> TrainingMoveQuality.BEST
                     cpLoss <= 40 -> TrainingMoveQuality.EXCELLENT
@@ -761,23 +1294,31 @@ class TrainingViewModel(
         return textWithoutBrackets.replace(Regex("[+-]?\\d+\\.\\d+"), "").trim()
     }
 
-    private fun createArrowFromUci(uci: String, color: Color): BoardArrow? {
+    private fun parseSquaresFromUci(uci: String): Pair<Square, Square>? {
         val normalized = uci.trim()
         if (normalized.length < 4) return null
         return try {
             val from = Square.fromValue(normalized.substring(0, 2).uppercase())
             val to = Square.fromValue(normalized.substring(2, 4).uppercase())
-            if (from == Square.NONE || to == Square.NONE) null else BoardArrow(from, to, color)
+            if (from == Square.NONE || to == Square.NONE) null else from to to
         } catch (e: Exception) {
             null
         }
     }
 
+    private fun createArrowFromUci(uci: String, color: Color): BoardArrow? {
+        val (from, to) = parseSquaresFromUci(uci) ?: return null
+        return BoardArrow(from, to, color)
+    }
+
     private suspend fun updateRating(change: Int) {
+        if (change == 0) return
         val user = currentUser ?: return
         if (user.id == null) return
-        val newRating = (user.rating + change).coerceIn(100, 3500)
-        // withNewRating автоматически пересчитывает skillLevel
+        val newRating = (user.rating + change).coerceIn(
+            TrainingRatingCalculator.MIN_RATING,
+            TrainingRatingCalculator.MAX_RATING
+        )
         val updated = user.withNewRating(newRating)
         currentUser = updated
         container.userRepository.update(updated)
@@ -802,17 +1343,17 @@ class TrainingViewModel(
     }
 
     // ================================================================
-    // UI HANDLERS
+    // ПОДСКАЗКИ И ЗАВЕРШЕНИЕ ЗАДАЧИ
     // ================================================================
 
     fun onShowBetterMoveClicked() {
         val state = _uiState.value
         val analysis = state.currentMistakeAnalysis ?: return
         val betterMove = analysis.betterMoveInfo ?: return
-
         if (state.betterMoveShown) return
 
         val arrow = createArrowFromUci(betterMove.moveUci, Color(0xAA4CAF50)) ?: return
+        maxHintUsed = HintUsage.FULL_SOLUTION
 
         _uiState.value = state.copy(
             arrows = listOf(arrow),
@@ -823,7 +1364,11 @@ class TrainingViewModel(
 
     fun onHintClicked() {
         val state = _uiState.value
-        if (state.isSolved || state.isInputLocked || state.isAnimatingPunishment || state.isLoading) return
+        if (state.isSolved || state.isSolutionRevealed || state.isInputLocked ||
+            state.isAnimatingPunishment || state.isLoading || !state.hasActiveExercise
+        ) {
+            return
+        }
 
         val correctMoveUci = targetSequence.getOrNull(currentMoveIndex)
         if (correctMoveUci == null || correctMoveUci.length < 4) {
@@ -839,21 +1384,25 @@ class TrainingViewModel(
 
         when (nextLevel) {
             HintLevel.PIECE_HIGHLIGHT -> {
+                if (maxHintUsed == HintUsage.NONE) {
+                    maxHintUsed = HintUsage.PIECE_HIGHLIGHT
+                }
                 _uiState.value = state.copy(
                     hintLevel = nextLevel,
                     highlights = listOf(fromSq),
                     arrows = emptyList(),
-                    feedbackMessage = "Посмотрите на эту фигуру"
+                    feedbackMessage = "Подсказка: обратите внимание на выделенную фигуру"
                 )
             }
             HintLevel.FULL_SOLUTION -> {
+                maxHintUsed = HintUsage.FULL_SOLUTION
                 val arrow = createArrowFromUci(correctMoveUci, Color(0xAA4CAF50)) ?: return
                 val san = ChessMoveUtils.uciToSan(correctMoveUci, state.board.fen)
                 _uiState.value = state.copy(
                     hintLevel = nextLevel,
                     highlights = emptyList(),
                     arrows = listOf(arrow),
-                    feedbackMessage = "Лучший ход: $san"
+                    feedbackMessage = "Лучший ход: $san (без начисления рейтинга)"
                 )
             }
             HintLevel.NONE -> {}
@@ -861,31 +1410,72 @@ class TrainingViewModel(
     }
 
     private fun handleSuccess(msg: String) {
+        val exercise = currentExercise
+        val user = currentUser
+        val usedFullHint = maxHintUsed == HintUsage.FULL_SOLUTION
+
+        val ratingDelta = if (exercise != null && user != null && !isCurrentDailyAlreadySolved) {
+            TrainingRatingCalculator.calculateSolveDelta(
+                playerElo = user.rating,
+                exercise = exercise,
+                hadMistake = attemptFailed,
+                maxHintUsed = maxHintUsed,
+                solutionRevealed = false
+            )
+        } else {
+            0
+        }
+
+        // Чистое решение (без раскрытия полного ответа и без ошибок) увеличивает серию
         val stats = _uiState.value.sessionStats
-        val queueInfo = if (sessionQueue.isNotEmpty()) {
-            "\n📚 Ещё ${sessionQueue.size} похожих задач"
+        val countsForStreak = !attemptFailed && !usedFullHint && !isCurrentDailyAlreadySolved
+        val newStreak = if (countsForStreak) stats.currentStreak + 1 else stats.currentStreak
+        val newBestStreak = maxOf(stats.bestStreak, newStreak)
+
+        val ratingInfo = when {
+            isCurrentDailyAlreadySolved -> ""
+            ratingDelta > 0 -> " (+$ratingDelta Эло)"
+            usedFullHint -> " (с подсказкой хода: +0 Эло)"
+            else -> ""
+        }
+        val queueInfo = if (sessionQueue.isNotEmpty() && _uiState.value.mode is TrainingMode.All) {
+            "\n📚 Ещё ${sessionQueue.size} похожих задач для закрепления"
         } else {
             ""
         }
 
+        soundCounter++
         _uiState.value = _uiState.value.copy(
             isSolved = true,
             isInputLocked = true,
-            feedbackMessage = msg + queueInfo,
-            sessionStats = stats.copy(solved = stats.solved + 1),
+            lastRatingDelta = if (isCurrentDailyAlreadySolved) null else ratingDelta,
+            feedbackMessage = msg + ratingInfo + queueInfo,
+            sessionStats = stats.copy(
+                solved = stats.solved + 1,
+                currentStreak = newStreak,
+                bestStreak = newBestStreak,
+                netRatingDelta = stats.netRatingDelta + ratingDelta
+            ),
             currentMistakeAnalysis = null,
             showBetterMoveHint = false,
-            similarExercisesQueued = sessionQueue.size
+            similarExercisesQueued = sessionQueue.size,
+            soundEvent = TrainingSoundEvent.SOLVED,
+            soundEventId = soundCounter
         )
 
-        val ratingChange = if (attemptFailed) 10 else 15
+        // Засчитываем задачу как самостоятельно решённую, если не показывался готовый ход стрелкой
+        val markAsSolvedInDb = !usedFullHint && !isCurrentDailyAlreadySolved
 
         viewModelScope.launch {
             try {
-                updateRating(ratingChange)
-                saveAttempt(solved = true)
-                currentExercise?.id?.let { id ->
-                    container.exerciseRepository.incrementTimesSolved(id)
+                if (ratingDelta != 0) {
+                    updateRating(ratingDelta)
+                }
+                if (markAsSolvedInDb) {
+                    saveAttempt(solved = true)
+                    exercise?.id?.let { id ->
+                        container.exerciseRepository.incrementTimesSolved(id)
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -899,8 +1489,7 @@ class TrainingViewModel(
         sessionQueue.clear()
         lastMistakePattern = null
         _uiState.value = _uiState.value.copy(
-            similarExercisesQueued = 0,
-            currentPattern = null
+            similarExercisesQueued = 0
         )
     }
 

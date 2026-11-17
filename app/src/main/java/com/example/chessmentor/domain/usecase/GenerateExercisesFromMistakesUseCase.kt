@@ -6,8 +6,11 @@ import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.domain.analysis.SemanticMistakeAnalyzer
 import com.example.chessmentor.domain.analysis.TacticalMotif
 import com.example.chessmentor.domain.clustering.ExerciseClusterer
+import com.example.chessmentor.domain.entity.AnalyzedMove
+import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Exercise
 import com.example.chessmentor.domain.entity.ExerciseSource
+import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.MistakeType
 import com.example.chessmentor.domain.entity.TacticalPattern
@@ -16,10 +19,14 @@ import com.example.chessmentor.domain.repository.AnalyzedMoveRepository
 import com.example.chessmentor.domain.repository.ExerciseRepository
 import com.example.chessmentor.domain.repository.GameRepository
 import com.example.chessmentor.domain.repository.MistakeRepository
+import com.example.chessmentor.domain.training.ExerciseMetadata
+import com.example.chessmentor.domain.training.TrainingRatingCalculator
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Piece
 import com.github.bhlangonijr.chesslib.PieceType
+import com.github.bhlangonijr.chesslib.Square
+import com.github.bhlangonijr.chesslib.move.Move
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -28,10 +35,13 @@ import kotlinx.coroutines.withContext
 
 /**
  * Use Case: Генерация тренировочных задач с кластеризацией из ошибок пользователя.
+ *
+ * Отбирает только учебно ценные позиции (исключая безнадёжно проигранные эндшпили
+ * и мелкие позиционные неточности), сохраняет предшествующий ход соперника для подсветки,
+ * гарантирует нечётную длину решения (последний ход за игроком) и изолирует дедупликацию по userId.
  */
 class GenerateExercisesFromMistakesUseCase(
     private val mistakeRepository: MistakeRepository,
-    @Suppress("unused")
     private val analyzedMoveRepository: AnalyzedMoveRepository,
     private val exerciseRepository: ExerciseRepository,
     private val gameRepository: GameRepository,
@@ -41,6 +51,68 @@ class GenerateExercisesFromMistakesUseCase(
         private const val TAG = "GenerateExercisesUC"
         private const val SOLUTION_DEPTH = 12
         private const val MAX_SOLUTION_PLIES = 5
+
+        /** Позиция уже безнадёжна для игрока до хода (≤ -5.5 пешки) — не подходит для задачи. */
+        const val HOPELESS_EVAL_THRESHOLD_CP = -550
+
+        /** Позиция уже абсолютно выиграна (≥ +7.0 пешек) — берём только грубые зевки ≥ 400 сП. */
+        const val ALREADY_CRUSHING_EVAL_CP = 700
+        const val MIN_LOSS_IN_CRUSHING_POS_CP = 400
+
+        /** Минимальная потеря оценки для неточности, чтобы превращать её в задачу. */
+        const val MIN_INACCURACY_LOSS_CP = 90
+
+        private val FEN_HEADER_REGEX = Regex("""\[FEN\s+"([^"]+)"\]""")
+
+        /**
+         * Чистая проверка пригодности ошибки для превращения в тренировочную задачу.
+         */
+        fun isMistakeSuitableForExercise(
+            mistake: Mistake,
+            analyzedMove: AnalyzedMove?
+        ): Boolean {
+            if (mistake.fenBefore.isNullOrBlank()) return false
+
+            // Мелкие дебютные неточности на первых 3 ходах не дают тактических задач
+            if (mistake.moveNumber <= 3 && mistake.evaluationLoss < 200) {
+                return false
+            }
+
+            // Отсекаем мелкие неточности без ощутимой тактической цены
+            if (mistake.mistakeType == MistakeType.INACCURACY &&
+                mistake.evaluationLoss < MIN_INACCURACY_LOSS_CP
+            ) {
+                return false
+            }
+
+            if (analyzedMove != null) {
+                val playerEvalBefore = if (mistake.color == ChessColor.WHITE) {
+                    analyzedMove.evalBefore
+                } else {
+                    -analyzedMove.evalBefore
+                }
+
+                // Не создаём задачи из позиций, где игроку уже ставили форсированный мат
+                if (ChessEngine.isMateScore(playerEvalBefore) && playerEvalBefore < 0) {
+                    return false
+                }
+
+                // Не создаём задачи из безнадёжно проигранных позиций
+                if (playerEvalBefore <= HOPELESS_EVAL_THRESHOLD_CP) {
+                    return false
+                }
+
+                // В уже абсолютно выигранной позиции берём только реальную потерю победы/фигуры
+                if (!ChessEngine.isMateScore(playerEvalBefore) &&
+                    playerEvalBefore >= ALREADY_CRUSHING_EVAL_CP &&
+                    mistake.evaluationLoss < MIN_LOSS_IN_CRUSHING_POS_CP
+                ) {
+                    return false
+                }
+            }
+
+            return true
+        }
     }
 
     private val semanticAnalyzer = SemanticMistakeAnalyzer(chessEngine)
@@ -59,6 +131,11 @@ class GenerateExercisesFromMistakesUseCase(
         data class Error(val message: String) : Result()
     }
 
+    private data class GameMoveContext(
+        val byMoveAndColor: Map<Pair<Int, ChessColor>, AnalyzedMove>,
+        val prevMoveUciByIndex: Map<Int, String>
+    )
+
     suspend fun execute(input: Input): Result = withContext(Dispatchers.IO) {
         if (input.userId <= 0L || input.maxExercises <= 0) {
             return@withContext Result.Success(0, emptyList())
@@ -66,13 +143,13 @@ class GenerateExercisesFromMistakesUseCase(
 
         try {
             val games = gameRepository.findByUserId(input.userId)
-            val gameIds = games.mapNotNull { it.id }
-            if (gameIds.isEmpty()) {
+            val gamesById = games.mapNotNull { g -> g.id?.let { it to g } }.toMap()
+            if (gamesById.isEmpty()) {
                 return@withContext Result.Success(0, emptyList())
             }
 
-            // Приоритет: сначала зевки и серьёзные ошибки, затем неточности
-            val mistakes = mistakeRepository.findByGameIds(gameIds)
+            // Приоритет: сначала зевки и серьёзные ошибки, затем ощутимые неточности
+            val mistakes = mistakeRepository.findByGameIds(gamesById.keys.toList())
                 .filter { !it.fenBefore.isNullOrBlank() }
                 .sortedWith(
                     compareByDescending<Mistake> { it.getSeverity() }
@@ -83,6 +160,7 @@ class GenerateExercisesFromMistakesUseCase(
                 return@withContext Result.Success(0, emptyList())
             }
 
+            val contextCache = mutableMapOf<Long, GameMoveContext>()
             val engineReady = runCatching { chessEngine.init() }.getOrDefault(false)
             val created = mutableListOf<Exercise>()
 
@@ -93,21 +171,31 @@ class GenerateExercisesFromMistakesUseCase(
                 val fen = mistake.fenBefore?.trim().orEmpty()
                 if (fen.isEmpty()) continue
 
-                // Пропускаем уже созданные задачи по (gameId, moveNumber) или по FEN
-                if (exerciseRepository.findBySourceGameAndMove(mistake.gameId, mistake.moveNumber) != null) {
-                    continue
+                val gameContext = contextCache.getOrPut(mistake.gameId) {
+                    loadGameMoveContext(gamesById[mistake.gameId], mistake.gameId)
                 }
-                if (exerciseRepository.findByFen(fen) != null) {
+                val analyzedMove = gameContext.byMoveAndColor[mistake.moveNumber to mistake.color]
+
+                if (!isMistakeSuitableForExercise(mistake, analyzedMove)) {
                     continue
                 }
 
-                val exercise = buildExerciseFromMistake(mistake, fen, engineReady) ?: continue
+                // Изолированная по пользователю проверка дубликатов
+                if (exerciseRepository.findBySourceGameAndMove(mistake.gameId, mistake.moveNumber) != null) {
+                    continue
+                }
+                if (exerciseRepository.findUserExerciseByFen(input.userId, fen) != null) {
+                    continue
+                }
+
+                val prevMoveUci = analyzedMove?.let { gameContext.prevMoveUciByIndex[it.moveIndex] }
+                val exercise = buildExerciseFromMistake(mistake, fen, prevMoveUci, engineReady) ?: continue
                 val saved = exerciseRepository.saveExercise(exercise)
                 created.add(saved)
             }
 
             if (created.isNotEmpty()) {
-                exerciseRepository.deleteDuplicates()
+                exerciseRepository.deleteDuplicatesForUser(input.userId)
                 Log.i(TAG, "Generated ${created.size} exercises for user ${input.userId}")
             }
 
@@ -120,9 +208,52 @@ class GenerateExercisesFromMistakesUseCase(
         }
     }
 
+    /**
+     * Загружает проанализированные ходы партии и за один проход вычисляет
+     * предшествующий ход соперника (в UCI) для каждого полухода.
+     */
+    private suspend fun loadGameMoveContext(game: Game?, gameId: Long): GameMoveContext {
+        val moves = runCatching { analyzedMoveRepository.findByGameId(gameId) }
+            .getOrDefault(emptyList())
+            .sortedBy { it.moveIndex }
+
+        if (moves.isEmpty()) {
+            return GameMoveContext(emptyMap(), emptyMap())
+        }
+
+        val byMoveAndColor = moves.associateBy { it.moveNumber to it.color }
+        val prevUciMap = mutableMapOf<Int, String>()
+
+        runCatching {
+            val board = Board()
+            val customStartFen = game?.pgnData
+                ?.let { FEN_HEADER_REGEX.find(it)?.groupValues?.getOrNull(1) }
+                ?.takeIf { it.isNotBlank() }
+            if (customStartFen != null) {
+                board.loadFromFen(customStartFen)
+            }
+
+            var lastUci: String? = null
+            var expectedIndex = 0
+            for (am in moves) {
+                if (am.moveIndex != expectedIndex) break
+                if (lastUci != null) {
+                    prevUciMap[am.moveIndex] = lastUci
+                }
+                val uci = ChessMoveUtils.sanOrUciToUci(am.san, board.fen) ?: break
+                if (!ChessMoveUtils.applyUciMove(board, uci)) break
+                lastUci = uci
+                expectedIndex++
+            }
+        }
+
+        return GameMoveContext(byMoveAndColor, prevUciMap)
+    }
+
     private suspend fun buildExerciseFromMistake(
         mistake: Mistake,
         fen: String,
+        prevMoveUci: String?,
         engineReady: Boolean
     ): Exercise? {
         val board = try {
@@ -132,7 +263,11 @@ class GenerateExercisesFromMistakesUseCase(
             return null
         }
 
-        // Получаем проверенную линию решения в формате UCI
+        // Проверяем, что в позиции вообще есть легальные ходы
+        if (runCatching { board.legalMoves() }.getOrDefault(emptyList()).size <= 1 && !board.isKingAttacked) {
+            return null
+        }
+
         val solutionMoves = resolveSolutionMoves(board, fen, mistake.bestMove, engineReady)
         if (solutionMoves.isEmpty()) return null
 
@@ -156,14 +291,18 @@ class GenerateExercisesFromMistakesUseCase(
             solutionMove = firstMoveUci,
             difficultyRating = difficulty
         )
-        val features = ExerciseClusterer.extractFeatures(
+        val baseFeatures = ExerciseClusterer.extractFeatures(
             board = board,
             pattern = pattern,
             solutionMove = firstMoveUci
         )
+        val features = if (!prevMoveUci.isNullOrBlank() && ChessMoveUtils.isUciMove(prevMoveUci)) {
+            baseFeatures + ExerciseMetadata.prevMoveTag(prevMoveUci)
+        } else {
+            baseFeatures
+        }
 
-        // Переводим сложность 0..100 в ориентировочный рейтинг Эло (800..2400)
-        val estimatedElo = (800 + difficulty * 16).coerceIn(800, 2400)
+        val estimatedElo = TrainingRatingCalculator.difficultyToElo(difficulty)
 
         return Exercise(
             fenPosition = fen,
@@ -190,10 +329,10 @@ class GenerateExercisesFromMistakesUseCase(
             try {
                 val line = chessEngine.getBestMoveWithLine(fen, SOLUTION_DEPTH)
                 if (line != null && line.principalVariation.isNotEmpty()) {
-                    // Оставляем нечётное число полуходов (чтобы задача заканчивалась ходом игрока)
                     val validated = validateUciSequence(board, line.principalVariation.take(MAX_SOLUTION_PLIES))
-                    if (validated.isNotEmpty()) {
-                        return trimToPlayerLastMove(validated)
+                    val oddSequence = TrainingRatingCalculator.trimPvToPlayerLastMove(validated, MAX_SOLUTION_PLIES)
+                    if (oddSequence.isNotEmpty()) {
+                        return oddSequence
                     }
                 }
             } catch (e: CancellationException) {
@@ -218,14 +357,9 @@ class GenerateExercisesFromMistakesUseCase(
         return result
     }
 
-    private fun trimToPlayerLastMove(moves: List<String>): List<String> {
-        if (moves.size <= 1) return moves
-        return if (moves.size % 2 == 0) moves.dropLast(1) else moves
-    }
-
     private fun classifyPattern(
         board: Board,
-        firstMove: com.github.bhlangonijr.chesslib.move.Move,
+        firstMove: Move,
         movingPiece: Piece,
         motif: TacticalMotif?,
         mistake: Mistake
@@ -245,6 +379,9 @@ class GenerateExercisesFromMistakesUseCase(
                     else -> TacticalPattern.FORK_KNIGHT
                 }
             }
+            if (motif == TacticalMotif.PIN && createsPinToKing(board, firstMove, movingPiece)) {
+                return TacticalPattern.PIN_ABSOLUTE
+            }
             return TacticalPattern.fromMotif(motif)
         }
 
@@ -257,6 +394,50 @@ class GenerateExercisesFromMistakesUseCase(
             mistake.mistakeType == MistakeType.INACCURACY -> TacticalPattern.POSITIONAL
             else -> TacticalPattern.MIXED
         }
+    }
+
+    /**
+     * Проверяет, связывает ли дальнобойная фигура после [move] фигуру соперника именно с королём.
+     */
+    private fun createsPinToKing(board: Board, move: Move, movingPiece: Piece): Boolean {
+        val pt = movingPiece.pieceType
+        if (pt != PieceType.BISHOP && pt != PieceType.ROOK && pt != PieceType.QUEEN) return false
+        val after = Board().apply { loadFromFen(board.fen) }
+        if (!after.doMove(move)) return false
+
+        val enemySide = movingPiece.pieceSide.flip()
+        val directions = buildList {
+            if (pt == PieceType.BISHOP || pt == PieceType.QUEEN) {
+                addAll(listOf(-1 to -1, -1 to 1, 1 to -1, 1 to 1))
+            }
+            if (pt == PieceType.ROOK || pt == PieceType.QUEEN) {
+                addAll(listOf(0 to -1, 0 to 1, -1 to 0, 1 to 0))
+            }
+        }
+
+        val startFile = move.to.file.ordinal
+        val startRank = move.to.rank.ordinal
+        for ((df, dr) in directions) {
+            var f = startFile + df
+            var r = startRank + dr
+            var seenEnemyPiece = false
+            while (f in 0..7 && r in 0..7) {
+                val p = after.getPiece(Square.squareAt(r * 8 + f))
+                if (p != Piece.NONE) {
+                    if (p.pieceSide != enemySide) break
+                    if (!seenEnemyPiece) {
+                        if (p.pieceType == PieceType.KING) break
+                        seenEnemyPiece = true
+                    } else {
+                        if (p.pieceType == PieceType.KING) return true
+                        break
+                    }
+                }
+                f += df
+                r += dr
+            }
+        }
+        return false
     }
 
     private fun mapPatternToTheme(pattern: TacticalPattern): TacticalTheme {
