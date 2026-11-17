@@ -133,7 +133,8 @@ class GenerateExercisesFromMistakesUseCase(
 
     private data class GameMoveContext(
         val byMoveAndColor: Map<Pair<Int, ChessColor>, AnalyzedMove>,
-        val prevMoveUciByIndex: Map<Int, String>
+        val prevMoveUciByIndex: Map<Int, String>,
+        val preFenByIndex: Map<Int, String>
     )
 
     suspend fun execute(input: Input): Result = withContext(Dispatchers.IO) {
@@ -189,7 +190,8 @@ class GenerateExercisesFromMistakesUseCase(
                 }
 
                 val prevMoveUci = analyzedMove?.let { gameContext.prevMoveUciByIndex[it.moveIndex] }
-                val exercise = buildExerciseFromMistake(mistake, fen, prevMoveUci, engineReady) ?: continue
+                val preFen = analyzedMove?.let { gameContext.preFenByIndex[it.moveIndex] }
+                val exercise = buildExerciseFromMistake(mistake, fen, preFen, prevMoveUci, engineReady) ?: continue
                 val saved = exerciseRepository.saveExercise(exercise)
                 created.add(saved)
             }
@@ -218,11 +220,12 @@ class GenerateExercisesFromMistakesUseCase(
             .sortedBy { it.moveIndex }
 
         if (moves.isEmpty()) {
-            return GameMoveContext(emptyMap(), emptyMap())
+            return GameMoveContext(emptyMap(), emptyMap(), emptyMap())
         }
 
         val byMoveAndColor = moves.associateBy { it.moveNumber to it.color }
         val prevUciMap = mutableMapOf<Int, String>()
+        val preFenMap = mutableMapOf<Int, String>()
 
         runCatching {
             val board = Board()
@@ -234,25 +237,30 @@ class GenerateExercisesFromMistakesUseCase(
             }
 
             var lastUci: String? = null
+            var lastPreFen: String? = null
             var expectedIndex = 0
             for (am in moves) {
                 if (am.moveIndex != expectedIndex) break
-                if (lastUci != null) {
+                if (lastUci != null && lastPreFen != null) {
                     prevUciMap[am.moveIndex] = lastUci
+                    preFenMap[am.moveIndex] = lastPreFen
                 }
-                val uci = ChessMoveUtils.sanOrUciToUci(am.san, board.fen) ?: break
+                val fenBeforeThisMove = board.fen
+                val uci = ChessMoveUtils.sanOrUciToUci(am.san, fenBeforeThisMove) ?: break
                 if (!ChessMoveUtils.applyUciMove(board, uci)) break
+                lastPreFen = fenBeforeThisMove
                 lastUci = uci
                 expectedIndex++
             }
         }
 
-        return GameMoveContext(byMoveAndColor, prevUciMap)
+        return GameMoveContext(byMoveAndColor, prevUciMap, preFenMap)
     }
 
     private suspend fun buildExerciseFromMistake(
         mistake: Mistake,
         fen: String,
+        preFen: String?,
         prevMoveUci: String?,
         engineReady: Boolean
     ): Exercise? {
@@ -296,10 +304,18 @@ class GenerateExercisesFromMistakesUseCase(
             pattern = pattern,
             solutionMove = firstMoveUci
         )
-        val features = if (!prevMoveUci.isNullOrBlank() && ChessMoveUtils.isUciMove(prevMoveUci)) {
-            baseFeatures + ExerciseMetadata.prevMoveTag(prevMoveUci)
-        } else {
-            baseFeatures
+        val features = buildList {
+            addAll(baseFeatures)
+            if (!prevMoveUci.isNullOrBlank() && ChessMoveUtils.isUciMove(prevMoveUci)) {
+                add(ExerciseMetadata.prevMoveTag(prevMoveUci))
+                if (!preFen.isNullOrBlank() &&
+                    com.example.chessmentor.domain.training.SolutionReviewHelper.validateTriggerTransition(
+                        preFen, prevMoveUci, fen
+                    )
+                ) {
+                    add(ExerciseMetadata.preFenTag(preFen))
+                }
+            }
         }
 
         val estimatedElo = TrainingRatingCalculator.difficultyToElo(difficulty)

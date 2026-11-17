@@ -29,14 +29,22 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.FirstPage
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LastPage
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Visibility
@@ -231,7 +239,7 @@ fun TrainingScreen(
                 ModeSelectorRow(
                     selectedMode = uiState.mode,
                     dueReviewCount = uiState.dueReviewCount,
-                    enabled = !uiState.isLoading && !uiState.isAnimatingPunishment,
+                    enabled = !uiState.isLoading && !uiState.isAnimatingIntro && !uiState.isAnimatingPunishment,
                     onSelectMode = { mode ->
                         selectedSquare = null
                         pendingPromotion = null
@@ -261,6 +269,35 @@ fun TrainingScreen(
                         selectedSquare = null
                         pendingPromotion = null
                         viewModel.onSkipExercise()
+                    },
+                    onReviewFirst = {
+                        selectedSquare = null
+                        viewModel.onReviewFirst()
+                    },
+                    onReviewPrev = {
+                        selectedSquare = null
+                        viewModel.onReviewPrev()
+                    },
+                    onReviewNext = {
+                        selectedSquare = null
+                        viewModel.onReviewNext()
+                    },
+                    onReviewLast = {
+                        selectedSquare = null
+                        viewModel.onReviewLast()
+                    },
+                    onToggleFreeAnalysis = {
+                        selectedSquare = null
+                        pendingPromotion = null
+                        viewModel.onToggleFreeAnalysis()
+                    },
+                    onUndoAnalysis = {
+                        selectedSquare = null
+                        viewModel.onUndoAnalysisMove()
+                    },
+                    onPlayEngineBest = {
+                        selectedSquare = null
+                        viewModel.onPlayEngineBestInAnalysis()
                     }
                 )
             }
@@ -322,10 +359,17 @@ fun TrainingScreen(
                             .graphicsLayer { translationX = shakeOffset.value },
                         contentAlignment = Alignment.Center
                     ) {
-                        val canInteract = !uiState.isSolved &&
+                        val isFreeAnalysis = uiState.isFreeAnalysisMode &&
+                            (uiState.isSolved || uiState.isSolutionRevealed) &&
+                            !uiState.isAnimatingIntro &&
+                            !uiState.isAnimatingPunishment
+                        val canSolveMove = !uiState.isSolved &&
                             !uiState.isSolutionRevealed &&
                             !uiState.isInputLocked &&
+                            !uiState.isAnimatingIntro &&
                             !uiState.isAnimatingPunishment
+                        val canInteract = canSolveMove || isFreeAnalysis
+                        val movableSide = if (isFreeAnalysis) uiState.board.sideToMove else uiState.playerSide
 
                         ChessBoard(
                             board = uiState.board,
@@ -344,18 +388,17 @@ fun TrainingScreen(
 
                                 when {
                                     from == null -> {
-                                        if (clickedPiece != Piece.NONE && clickedPiece.pieceSide == uiState.playerSide) {
+                                        if (clickedPiece != Piece.NONE && clickedPiece.pieceSide == movableSide) {
                                             selectedSquare = square
                                         }
                                     }
                                     square == from -> {
                                         selectedSquare = null
                                     }
-                                    clickedPiece != Piece.NONE && clickedPiece.pieceSide == uiState.playerSide -> {
+                                    clickedPiece != Piece.NONE && clickedPiece.pieceSide == movableSide -> {
                                         selectedSquare = square
                                     }
                                     square !in legalMoveSquares && square !in legalCaptureSquares -> {
-                                        // Тап по недоступному полю просто снимает выделение
                                         selectedSquare = null
                                     }
                                     ChessMoveUtils.isPawnPromotion(uiState.board, from, square) -> {
@@ -363,7 +406,7 @@ fun TrainingScreen(
                                         selectedSquare = null
                                     }
                                     else -> {
-                                        val move = ChessMoveUtils.createMove(from, square, uiState.playerSide)
+                                        val move = ChessMoveUtils.createMove(from, square, movableSide)
                                         selectedSquare = null
                                         viewModel.onMoveMade(move)
                                     }
@@ -393,14 +436,15 @@ fun TrainingScreen(
     }
 
     pendingPromotion?.let { (from, to) ->
+        val promoSide = if (uiState.isFreeAnalysisMode) uiState.board.sideToMove else uiState.playerSide
         PromotionPickerDialog(
-            side = uiState.playerSide,
+            side = promoSide,
             onPieceSelected = { pieceType ->
                 pendingPromotion = null
                 val promotionMove = ChessMoveUtils.createMove(
                     from = from,
                     to = to,
-                    side = uiState.playerSide,
+                    side = promoSide,
                     promotion = pieceType
                 )
                 viewModel.onMoveMade(promotionMove)
@@ -551,13 +595,27 @@ private fun ExerciseMetaStrip(uiState: TrainingUiState) {
                 }
             }
 
-            if (uiState.totalPlayerSteps > 1 && !uiState.isSolved && !uiState.isSolutionRevealed) {
+            // Не спойлерим общее число ходов до решения: плашка появляется только при продолжении
+            if (uiState.isFreeAnalysisMode) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = uiState.analysisEvalText ?: "Анализ",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            } else if (uiState.currentStepNumber > 1 && !uiState.isSolved && !uiState.isSolutionRevealed) {
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     shape = RoundedCornerShape(6.dp)
                 ) {
                     Text(
-                        text = "Ход ${uiState.currentStepNumber}/${uiState.totalPlayerSteps}",
+                        text = "Продолжение",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                         fontWeight = FontWeight.Medium,
@@ -706,27 +764,42 @@ private fun PromotionPickerDialog(
 private data class FeedbackSnapshot(
     val text: String?,
     val motif: String?,
+    val explanation: String?,
+    val sanLine: String?,
     val isSolved: Boolean,
     val isRevealed: Boolean,
-    val isError: Boolean
+    val isError: Boolean,
+    val isFreeAnalysis: Boolean
 )
 
 @Composable
 private fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
     val analysis = uiState.currentMistakeAnalysis
-    val isErrorNow = !uiState.isSolved && !uiState.isSolutionRevealed &&
+    val isFinished = uiState.isSolved || uiState.isSolutionRevealed
+    val isErrorNow = !isFinished &&
         (analysis != null || (uiState.lastRatingDelta != null && uiState.lastRatingDelta < 0))
     val motifNow = when {
-        uiState.isSolved || uiState.isSolutionRevealed -> uiState.patternDisplayName
+        isFinished -> uiState.patternDisplayName
         isErrorNow -> analysis?.tacticalMotif?.russianName
         else -> null
     }
+    val mainText = if (uiState.isFreeAnalysisMode && isFinished) {
+        val sideToMoveWord = if (uiState.board.sideToMove == Side.WHITE) "белых" else "чёрных"
+        val evalPart = uiState.analysisEvalText?.let { "Оценка Stockfish: $it" } ?: "Свободный анализ"
+        val bestPart = uiState.analysisBestMoveSan?.let { " • Лучший ответ: $it" }.orEmpty()
+        "$evalPart$bestPart\nДвигайте фигуры за $sideToMoveWord, чтобы проверить любой вариант"
+    } else {
+        uiState.feedbackMessage ?: uiState.exerciseSubtitle ?: if (isErrorNow) "Неверный ход" else null
+    }
     val snapshot = FeedbackSnapshot(
-        text = uiState.feedbackMessage ?: uiState.exerciseSubtitle ?: if (isErrorNow) "Неверный ход" else null,
+        text = mainText,
         motif = motifNow,
-        isSolved = uiState.isSolved,
-        isRevealed = uiState.isSolutionRevealed,
-        isError = isErrorNow
+        explanation = if (isFinished && !uiState.isFreeAnalysisMode) uiState.postSolveExplanation else null,
+        sanLine = if (uiState.isSolved && !uiState.isFreeAnalysisMode) uiState.solutionSanLine else null,
+        isSolved = uiState.isSolved && !uiState.isFreeAnalysisMode,
+        isRevealed = uiState.isSolutionRevealed && !uiState.isFreeAnalysisMode,
+        isError = isErrorNow,
+        isFreeAnalysis = uiState.isFreeAnalysisMode && isFinished
     )
 
     AnimatedContent(
@@ -739,6 +812,11 @@ private fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
         if (state.text != null) {
             // Семантические цвета Material 3 — корректно читаются и в светлой, и в тёмной теме
             val (containerColor, contentColor, icon) = when {
+                state.isFreeAnalysis -> Triple(
+                    MaterialTheme.colorScheme.secondaryContainer,
+                    MaterialTheme.colorScheme.onSecondaryContainer,
+                    Icons.Default.Analytics
+                )
                 state.isSolved -> Triple(
                     MaterialTheme.colorScheme.primaryContainer,
                     MaterialTheme.colorScheme.onPrimaryContainer,
@@ -795,27 +873,44 @@ private fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
                         )
                     }
 
-                    if (!state.motif.isNullOrBlank()) {
+                    if (!state.motif.isNullOrBlank() || !state.explanation.isNullOrBlank() || !state.sanLine.isNullOrBlank()) {
                         HorizontalDivider(
                             modifier = Modifier.padding(horizontal = 12.dp),
                             color = contentColor.copy(alpha = 0.2f)
                         )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Lightbulb,
-                                contentDescription = null,
-                                modifier = Modifier.size(15.dp),
-                                tint = contentColor.copy(alpha = 0.85f)
-                            )
-                            Spacer(Modifier.width(6.dp))
+                        if (!state.motif.isNullOrBlank()) {
+                            val motifLine = if (!state.sanLine.isNullOrBlank()) {
+                                "Мотив: ${state.motif} • ${state.sanLine}"
+                            } else {
+                                "Мотив: ${state.motif}"
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lightbulb,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                    tint = contentColor.copy(alpha = 0.85f)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = motifLine,
+                                    color = contentColor.copy(alpha = 0.94f),
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 12.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                        if (!state.explanation.isNullOrBlank()) {
                             Text(
-                                text = "Мотив: ${state.motif}",
-                                color = contentColor.copy(alpha = 0.92f),
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 13.sp
+                                text = state.explanation,
+                                color = contentColor.copy(alpha = 0.88f),
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp,
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
@@ -939,10 +1034,17 @@ private fun BottomControlPanel(
     onHint: () -> Unit,
     onShowBetterMove: () -> Unit,
     onRevealSolution: () -> Unit,
-    onSkip: () -> Unit
+    onSkip: () -> Unit,
+    onReviewFirst: () -> Unit,
+    onReviewPrev: () -> Unit,
+    onReviewNext: () -> Unit,
+    onReviewLast: () -> Unit,
+    onToggleFreeAnalysis: () -> Unit,
+    onUndoAnalysis: () -> Unit,
+    onPlayEngineBest: () -> Unit
 ) {
     val isFinished = uiState.isSolved || uiState.isSolutionRevealed
-    val controlsEnabled = !uiState.isAnimatingPunishment && !uiState.isInputLocked
+    val controlsEnabled = !uiState.isAnimatingIntro && !uiState.isAnimatingPunishment && !uiState.isInputLocked
 
     Surface(
         shadowElevation = 8.dp,
@@ -956,11 +1058,127 @@ private fun BottomControlPanel(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (isFinished) {
+                // Пошаговый навигатор решения или управление свободным анализом со Stockfish
+                if (uiState.isFreeAnalysisMode) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = onUndoAnalysis,
+                            enabled = uiState.canUndoAnalysisMove,
+                            modifier = Modifier.height(38.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Отменить ход", modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Назад", fontSize = 12.sp)
+                        }
+                        OutlinedButton(
+                            onClick = onPlayEngineBest,
+                            enabled = uiState.analysisBestMoveUci != null && !uiState.isAnalyzingPosition,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(38.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = uiState.analysisBestMoveSan?.let { "Ход $it" } ?: "Ход движка",
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = onToggleFreeAnalysis,
+                            modifier = Modifier.height(38.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Вернуться к решению", modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("К линии", fontSize = 12.sp)
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (uiState.reviewSteps.size > 1) {
+                            val canBack = uiState.reviewStepIndex > 0
+                            val canForward = uiState.reviewStepIndex < uiState.reviewSteps.lastIndex
+                            val stepLabel = uiState.reviewSteps
+                                .getOrNull(uiState.reviewStepIndex)
+                                ?.moveLabel
+                                .orEmpty()
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(
+                                    onClick = onReviewFirst,
+                                    enabled = canBack,
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(Icons.Default.FirstPage, contentDescription = "В начало", modifier = Modifier.size(20.dp))
+                                }
+                                IconButton(
+                                    onClick = onReviewPrev,
+                                    enabled = canBack,
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Ход назад", modifier = Modifier.size(20.dp))
+                                }
+                                Text(
+                                    text = stepLabel,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                                IconButton(
+                                    onClick = onReviewNext,
+                                    enabled = canForward,
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Ход вперёд", modifier = Modifier.size(20.dp))
+                                }
+                                IconButton(
+                                    onClick = onReviewLast,
+                                    enabled = canForward,
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(Icons.Default.LastPage, contentDescription = "В конец", modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        } else {
+                            Spacer(Modifier.width(4.dp))
+                        }
+
+                        OutlinedButton(
+                            onClick = onToggleFreeAnalysis,
+                            modifier = Modifier.height(36.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Analytics, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Анализ", fontSize = 12.sp)
+                        }
+                    }
+                }
+
                 Button(
                     onClick = onNextExercise,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp),
+                        .height(48.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
@@ -1042,7 +1260,7 @@ private fun BottomControlPanel(
                     // Пропустить задачу
                     OutlinedButton(
                         onClick = onSkip,
-                        enabled = !uiState.isAnimatingPunishment,
+                        enabled = !uiState.isAnimatingIntro && !uiState.isAnimatingPunishment,
                         modifier = Modifier
                             .height(46.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp),

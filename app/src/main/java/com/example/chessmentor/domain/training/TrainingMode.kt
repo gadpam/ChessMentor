@@ -117,10 +117,16 @@ object ExerciseMetadata {
     const val PREFIX_CURATED_ID = "CURATED_ID:"
     const val PREFIX_TITLE = "TITLE:"
     const val PREFIX_PREV_MOVE = "PREV_MOVE:"
+    const val PREFIX_PRE_FEN = "PRE_FEN:"
+    const val PREFIX_GOAL = "GOAL:"
+
+    const val GOAL_DEFENSE = "DEFENSE"
 
     fun curatedIdTag(id: String): String = "$PREFIX_CURATED_ID$id"
     fun titleTag(title: String): String = "$PREFIX_TITLE$title"
     fun prevMoveTag(uci: String): String = "$PREFIX_PREV_MOVE${uci.trim().lowercase()}"
+    fun preFenTag(fen: String): String = "$PREFIX_PRE_FEN${fen.trim()}"
+    fun defensiveGoalTag(): String = "$PREFIX_GOAL$GOAL_DEFENSE"
 
     fun extractCuratedId(exercise: Exercise): String? =
         extractValue(exercise.patternFeatures, PREFIX_CURATED_ID)
@@ -130,6 +136,16 @@ object ExerciseMetadata {
 
     fun extractPrevMove(exercise: Exercise): String? =
         extractValue(exercise.patternFeatures, PREFIX_PREV_MOVE)
+
+    fun extractPreFen(exercise: Exercise): String? =
+        extractValue(exercise.patternFeatures, PREFIX_PRE_FEN)
+
+    fun isDefensiveGoal(exercise: Exercise): Boolean =
+        extractValue(exercise.patternFeatures, PREFIX_GOAL) == GOAL_DEFENSE ||
+            exercise.tacticalPattern == com.example.chessmentor.domain.entity.TacticalPattern.DEFENSIVE_MOVE ||
+            exercise.tacticalPattern == com.example.chessmentor.domain.entity.TacticalPattern.COUNTER_ATTACK ||
+            exercise.tacticalPattern == com.example.chessmentor.domain.entity.TacticalPattern.PERPETUAL_CHECK ||
+            exercise.tacticalPattern == com.example.chessmentor.domain.entity.TacticalPattern.STALEMATE_TRICK
 
     private fun extractValue(features: List<String>, prefix: String): String? =
         features.firstOrNull { it.startsWith(prefix) }

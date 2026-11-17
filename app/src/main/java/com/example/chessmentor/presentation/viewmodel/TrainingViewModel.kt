@@ -20,6 +20,8 @@ import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.ExerciseMetadata
 import com.example.chessmentor.domain.training.HintUsage
 import com.example.chessmentor.domain.training.ReviewCardState
+import com.example.chessmentor.domain.training.SolutionReviewHelper
+import com.example.chessmentor.domain.training.SolutionReviewStep
 import com.example.chessmentor.domain.training.SpacedRepetitionScheduler
 import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.domain.training.TrainingMode
@@ -88,6 +90,19 @@ data class TrainingUiState(
     val dueReviewCount: Int = 0,
     val currentStepNumber: Int = 1,
     val totalPlayerSteps: Int = 1,
+    val isAnimatingIntro: Boolean = false,
+
+    // Пост-разбор решения и свободный анализ со Stockfish
+    val reviewSteps: List<SolutionReviewStep> = emptyList(),
+    val reviewStepIndex: Int = 0,
+    val solutionSanLine: String? = null,
+    val postSolveExplanation: String? = null,
+    val isFreeAnalysisMode: Boolean = false,
+    val isAnalyzingPosition: Boolean = false,
+    val analysisEvalText: String? = null,
+    val analysisBestMoveSan: String? = null,
+    val analysisBestMoveUci: String? = null,
+    val canUndoAnalysisMove: Boolean = false,
 
     // Ошибки и анимации
     val currentMistakeAnalysis: MistakeAnalysis? = null,
@@ -123,11 +138,13 @@ class TrainingViewModel(
 
     companion object {
         private const val TAG = "TrainingVM"
+        private const val INTRO_PRE_MOVE_DELAY_MS = 450L
         private const val HUMAN_REACTION_DELAY_MS = 650L
         private const val ANIMATION_DELAY_MS = 600L
         private const val PUNISHMENT_DISPLAY_MS = 2200L
         private const val SIMILAR_EXERCISES_COUNT = 2
         private const val MAX_SOLUTION_PLIES = 5
+        private const val FREE_ANALYSIS_DEPTH = 12
     }
 
     private val semanticAnalyzer = container.semanticMistakeAnalyzer
@@ -151,8 +168,12 @@ class TrainingViewModel(
     private var soundCounter = 0L
     private var currentJob: Job? = null
     private var generationJob: Job? = null
+    private var analysisJob: Job? = null
     private var positionBeforePlayerMove: String = ""
     private var lastMoveBeforePlayerMove: Pair<Square, Square>? = null
+    private var initialTriggerMoveUci: String? = null
+    private var currentCuratedExplanation: String? = null
+    private val analysisHistory = mutableListOf<Pair<String, Pair<Square, Square>?>>()
 
     private val sessionQueue = mutableListOf<Exercise>()
     private var lastMistakePattern: String? = null
@@ -475,11 +496,19 @@ class TrainingViewModel(
             val scheduleNote = refreshCardAndDueCount()?.let { "\n${SpacedRepetitionScheduler.formatNextIntervalNote(it)}" }
                 ?: "\n📅 Вернёмся к задаче через 10 мин"
 
+            val postReview = buildPostSolveReviewState()
+            val fullSan = postReview.second.ifBlank { sanNotation }
+
             _uiState.value = _uiState.value.copy(
                 isSolutionRevealed = true,
                 isInputLocked = true,
+                isFreeAnalysisMode = false,
                 arrows = emptyList(),
-                feedbackMessage = "💡 Решение: $sanNotation$scheduleNote"
+                reviewSteps = postReview.first,
+                reviewStepIndex = (postReview.first.size - 1).coerceAtLeast(0),
+                solutionSanLine = fullSan,
+                postSolveExplanation = postReview.third,
+                feedbackMessage = "💡 Решение: $fullSan$scheduleNote"
             )
         }
     }
@@ -576,6 +605,8 @@ class TrainingViewModel(
     }
 
     private fun resetStateForNewExercise() {
+        analysisJob?.cancel()
+        analysisHistory.clear()
         targetSequence.clear()
         recordedMoves.clear()
         currentMoveIndex = 0
@@ -588,6 +619,8 @@ class TrainingViewModel(
         firstMoveThinkTimeMs = null
         positionBeforePlayerMove = ""
         lastMoveBeforePlayerMove = null
+        initialTriggerMoveUci = null
+        currentCuratedExplanation = null
     }
 
     private suspend fun setupExercise(
@@ -621,22 +654,34 @@ class TrainingViewModel(
             targetSequence.addAll(oddStored)
         }
 
-        val initialPrevMove = ExerciseMetadata.extractPrevMove(exercise)?.let { parseSquaresFromUci(it) }
+        val prevMoveUci = ExerciseMetadata.extractPrevMove(exercise)
+            ?: curatedTemplate?.prevMoveUci
+        val preFen = ExerciseMetadata.extractPreFen(exercise)
+            ?: curatedTemplate?.preFen
+        val canAnimateIntro = SolutionReviewHelper.validateTriggerTransition(
+            preFen = preFen,
+            prevMoveUci = prevMoveUci,
+            targetFen = exercise.fenPosition
+        )
+
+        initialTriggerMoveUci = prevMoveUci
+        currentCuratedExplanation = curatedTemplate?.explanation
+        val initialPrevMove = prevMoveUci?.let { parseSquaresFromUci(it) }
         lastMoveBeforePlayerMove = initialPrevMove
 
         val effectiveDiff = exercise.getEffectiveDifficulty()
         val totalPlayerSteps = ((targetSequence.size + 1) / 2).coerceAtLeast(1)
-        val sideText = if (newBoard.sideToMove == Side.WHITE) "белых" else "чёрных"
+        val isDefensive = ExerciseMetadata.isDefensiveGoal(exercise)
 
         val title = curatedTemplate?.title
             ?: ExerciseMetadata.extractTitle(exercise)
             ?: exercise.tacticalPattern.displayName
-        val subtitle = curatedTemplate?.subtitle
-            ?: if (totalPlayerSteps > 1) {
-                "Найдите комбинацию в $totalPlayerSteps ${pluralizeMoves(totalPlayerSteps)} за $sideText"
-            } else {
-                "Найдите сильнейший ход за $sideText"
-            }
+        // Без микро-спойлеров мотива и глубины расчёта ДО решения (как в живой партии)
+        val neutralPrompt = SolutionReviewHelper.buildNeutralPrompt(
+            playerSide = newBoard.sideToMove,
+            hasOpponentTriggerMove = initialPrevMove != null,
+            isDefensiveGoal = isDefensive
+        )
 
         val initialBanner = when {
             isAlreadySolvedDaily -> "✓ Задача дня уже решена сегодня — можно перерешать без изменения рейтинга"
@@ -645,19 +690,12 @@ class TrainingViewModel(
             else -> null
         }
 
-        // Отсчитываем время решения строго с момента, когда доска готова к ходу игрока
-        startTime = System.currentTimeMillis()
-        firstMoveThinkTimeMs = null
-
-        _uiState.value = _uiState.value.copy(
-            board = newBoard,
+        val baseReadyState = _uiState.value.copy(
             mode = mode,
             playerSide = newBoard.sideToMove,
             arrows = emptyList(),
             highlights = emptyList(),
-            lastMove = initialPrevMove,
             hintLevel = HintLevel.NONE,
-            isInputLocked = false,
             isSolved = false,
             isSolutionRevealed = false,
             isAnimatingPunishment = false,
@@ -666,7 +704,7 @@ class TrainingViewModel(
             hasNoUserMistakes = false,
             lastRatingDelta = null,
             exerciseTitle = title,
-            exerciseSubtitle = subtitle,
+            exerciseSubtitle = neutralPrompt,
             currentPattern = exercise.tacticalPattern.name,
             patternDisplayName = exercise.tacticalPattern.displayName,
             theme = exercise.theme,
@@ -684,8 +722,72 @@ class TrainingViewModel(
             currentMistakeAnalysis = null,
             showBetterMoveHint = false,
             betterMoveShown = false,
-            feedbackMessage = initialBanner
+            reviewSteps = emptyList(),
+            reviewStepIndex = 0,
+            solutionSanLine = null,
+            postSolveExplanation = null,
+            isFreeAnalysisMode = false,
+            isAnalyzingPosition = false,
+            analysisEvalText = null,
+            analysisBestMoveSan = null,
+            analysisBestMoveUci = null,
+            canUndoAnalysisMove = false
         )
+
+        // Входная анимация последнего хода соперника: тренирует живое включение тактического зрения
+        if (canAnimateIntro && preFen != null && prevMoveUci != null) {
+            val preBoard = runCatching { Board().apply { loadFromFen(preFen) } }.getOrNull()
+            val triggerMove = preBoard?.let { ChessMoveUtils.parseUciMove(it, prevMoveUci) }
+            if (preBoard != null && triggerMove != null) {
+                val wasCapture = isCaptureMove(preBoard, triggerMove)
+                _uiState.value = baseReadyState.copy(
+                    board = preBoard,
+                    lastMove = null,
+                    isInputLocked = true,
+                    isAnimatingIntro = true,
+                    feedbackMessage = initialBanner ?: neutralPrompt
+                )
+                delay(INTRO_PRE_MOVE_DELAY_MS)
+
+                soundCounter++
+                val introSound = when {
+                    newBoard.isKingAttacked -> TrainingSoundEvent.CHECK
+                    wasCapture -> TrainingSoundEvent.CAPTURE
+                    else -> TrainingSoundEvent.MOVE
+                }
+                startTime = System.currentTimeMillis()
+                firstMoveThinkTimeMs = null
+                _uiState.value = baseReadyState.copy(
+                    board = newBoard,
+                    lastMove = initialPrevMove,
+                    isInputLocked = false,
+                    isAnimatingIntro = false,
+                    feedbackMessage = initialBanner,
+                    soundEvent = introSound,
+                    soundEventId = soundCounter
+                )
+            } else {
+                startTime = System.currentTimeMillis()
+                firstMoveThinkTimeMs = null
+                _uiState.value = baseReadyState.copy(
+                    board = newBoard,
+                    lastMove = initialPrevMove,
+                    isInputLocked = false,
+                    isAnimatingIntro = false,
+                    feedbackMessage = initialBanner
+                )
+            }
+        } else {
+            startTime = System.currentTimeMillis()
+            firstMoveThinkTimeMs = null
+            _uiState.value = baseReadyState.copy(
+                board = newBoard,
+                lastMove = initialPrevMove,
+                isInputLocked = false,
+                isAnimatingIntro = false,
+                feedbackMessage = initialBanner
+            )
+        }
 
         exercise.id?.let { id ->
             runCatching { container.exerciseRepository.incrementTimesShown(id) }
@@ -752,9 +854,17 @@ class TrainingViewModel(
 
     fun onMoveMade(move: Move) {
         val state = _uiState.value
-        if (state.isInputLocked || state.isSolved || state.isSolutionRevealed ||
-            state.isAnimatingPunishment || state.isLoading || !state.hasActiveExercise
-        ) {
+        if (state.isLoading || state.isAnimatingIntro || state.isAnimatingPunishment || !state.hasActiveExercise) {
+            return
+        }
+
+        // В режиме пост-разбора со Stockfish игрок может свободно двигать фигуры за обе стороны
+        if (state.isFreeAnalysisMode && (state.isSolved || state.isSolutionRevealed)) {
+            handleFreeAnalysisMove(move)
+            return
+        }
+
+        if (state.isInputLocked || state.isSolved || state.isSolutionRevealed) {
             return
         }
         if (state.board.sideToMove != state.playerSide) return
@@ -1521,12 +1631,19 @@ class TrainingViewModel(
             ""
         }
 
+        val postReview = buildPostSolveReviewState()
+
         soundCounter++
         _uiState.value = _uiState.value.copy(
             isSolved = true,
             isInputLocked = true,
+            isFreeAnalysisMode = false,
             lastRatingDelta = if (isCurrentDailyAlreadySolved) null else ratingDelta,
             feedbackMessage = msg + ratingInfo + queueInfo,
+            reviewSteps = postReview.first,
+            reviewStepIndex = (postReview.first.size - 1).coerceAtLeast(0),
+            solutionSanLine = postReview.second.ifBlank { null },
+            postSolveExplanation = postReview.third,
             sessionStats = stats.copy(
                 solved = stats.solved + 1,
                 currentStreak = newStreak,
@@ -1581,6 +1698,286 @@ class TrainingViewModel(
         }
     }
 
+    // ================================================================
+    // ПОСТ-РАЗБОР РЕШЕНИЯ И СВОБОДНЫЙ АНАЛИЗ СО STOCKFISH
+    // ================================================================
+
+    private fun buildPostSolveReviewState(): Triple<List<SolutionReviewStep>, String, String?> {
+        val exercise = currentExercise ?: return Triple(emptyList(), "", null)
+        val solution = targetSequence.toList().ifEmpty { exercise.solutionMoves }
+        val steps = SolutionReviewHelper.buildReviewSteps(
+            startFen = exercise.fenPosition,
+            solutionUci = solution,
+            initialPrevMoveUci = initialTriggerMoveUci
+        )
+        val sanLine = SolutionReviewHelper.formatNumberedSanLine(exercise.fenPosition, solution)
+        val explanation = SolutionReviewHelper.buildPostSolveExplanation(
+            startFen = exercise.fenPosition,
+            solutionUci = solution,
+            pattern = exercise.tacticalPattern,
+            curatedExplanation = currentCuratedExplanation
+        )
+        return Triple(steps, sanLine, explanation)
+    }
+
+    fun onReviewFirst() = applyReviewStep(0)
+
+    fun onReviewPrev() {
+        val state = _uiState.value
+        applyReviewStep((state.reviewStepIndex - 1).coerceAtLeast(0))
+    }
+
+    fun onReviewNext() {
+        val state = _uiState.value
+        val maxIdx = (state.reviewSteps.size - 1).coerceAtLeast(0)
+        applyReviewStep((state.reviewStepIndex + 1).coerceAtMost(maxIdx))
+    }
+
+    fun onReviewLast() {
+        val state = _uiState.value
+        applyReviewStep((state.reviewSteps.size - 1).coerceAtLeast(0))
+    }
+
+    private fun applyReviewStep(targetIndex: Int) {
+        val state = _uiState.value
+        if ((!state.isSolved && !state.isSolutionRevealed) || state.reviewSteps.isEmpty()) return
+        val clamped = targetIndex.coerceIn(0, state.reviewSteps.lastIndex)
+        val step = state.reviewSteps[clamped]
+
+        analysisJob?.cancel()
+        analysisHistory.clear()
+
+        val board = runCatching { Board().apply { loadFromFen(step.fen) } }.getOrNull() ?: return
+        val lastPair = step.lastMoveUci?.let { parseSquaresFromUci(it) }
+        val stepArrow = if (clamped > 0 && step.lastMoveUci != null) {
+            val color = if (step.isPlayerMove) Color(0x994CAF50) else Color(0x882196F3)
+            listOfNotNull(createArrowFromUci(step.lastMoveUci, color))
+        } else {
+            emptyList()
+        }
+
+        soundCounter++
+        val sound = if (board.isKingAttacked) TrainingSoundEvent.CHECK else TrainingSoundEvent.MOVE
+        _uiState.value = state.copy(
+            board = board,
+            lastMove = lastPair,
+            arrows = stepArrow,
+            highlights = emptyList(),
+            reviewStepIndex = clamped,
+            isFreeAnalysisMode = false,
+            isInputLocked = true,
+            isAnalyzingPosition = false,
+            analysisEvalText = null,
+            analysisBestMoveSan = null,
+            analysisBestMoveUci = null,
+            canUndoAnalysisMove = false,
+            soundEvent = sound,
+            soundEventId = soundCounter
+        )
+    }
+
+    /**
+     * Включает/выключает режим свободного анализа со Stockfish после завершения задачи,
+     * чтобы игрок мог проверить любой побочный вариант («а что если соперник побил ладьёй?»).
+     */
+    fun onToggleFreeAnalysis() {
+        val state = _uiState.value
+        if (!state.isSolved && !state.isSolutionRevealed) return
+
+        if (state.isFreeAnalysisMode) {
+            // Возвращаемся к текущему шагу основного решения
+            if (state.reviewSteps.isNotEmpty()) {
+                applyReviewStep(state.reviewStepIndex)
+            } else {
+                analysisJob?.cancel()
+                analysisHistory.clear()
+                _uiState.value = state.copy(
+                    isFreeAnalysisMode = false,
+                    isInputLocked = true,
+                    isAnalyzingPosition = false,
+                    arrows = emptyList(),
+                    analysisEvalText = null,
+                    analysisBestMoveSan = null,
+                    analysisBestMoveUci = null,
+                    canUndoAnalysisMove = false
+                )
+            }
+            return
+        }
+
+        analysisHistory.clear()
+        val currentFen = state.board.fen
+        analysisHistory.add(currentFen to state.lastMove)
+
+        _uiState.value = state.copy(
+            isFreeAnalysisMode = true,
+            isInputLocked = false,
+            arrows = emptyList(),
+            highlights = emptyList(),
+            canUndoAnalysisMove = false
+        )
+        requestFreeAnalysisEvaluation(currentFen)
+    }
+
+    private fun handleFreeAnalysisMove(move: Move) {
+        val state = _uiState.value
+        val board = Board().apply { loadFromFen(state.board.fen) }
+        if (!board.isMoveLegal(move, true)) return
+
+        val wasCapture = isCaptureMove(board, move)
+        if (!board.doMove(move)) return
+        val pair = move.from to move.to
+        val newFen = board.fen
+        analysisHistory.add(newFen to pair)
+
+        soundCounter++
+        val sound = when {
+            board.isKingAttacked -> TrainingSoundEvent.CHECK
+            wasCapture -> TrainingSoundEvent.CAPTURE
+            else -> TrainingSoundEvent.MOVE
+        }
+
+        _uiState.value = state.copy(
+            board = board,
+            lastMove = pair,
+            arrows = emptyList(),
+            canUndoAnalysisMove = analysisHistory.size > 1,
+            soundEvent = sound,
+            soundEventId = soundCounter
+        )
+        requestFreeAnalysisEvaluation(newFen)
+    }
+
+    fun onUndoAnalysisMove() {
+        val state = _uiState.value
+        if (!state.isFreeAnalysisMode || analysisHistory.size <= 1) return
+
+        analysisHistory.removeAt(analysisHistory.lastIndex)
+        val (prevFen, prevLastMove) = analysisHistory.last()
+        val restored = runCatching { Board().apply { loadFromFen(prevFen) } }.getOrNull() ?: return
+
+        soundCounter++
+        _uiState.value = state.copy(
+            board = restored,
+            lastMove = prevLastMove,
+            arrows = emptyList(),
+            canUndoAnalysisMove = analysisHistory.size > 1,
+            soundEvent = TrainingSoundEvent.MOVE,
+            soundEventId = soundCounter
+        )
+        requestFreeAnalysisEvaluation(prevFen)
+    }
+
+    fun onPlayEngineBestInAnalysis() {
+        val state = _uiState.value
+        if (!state.isFreeAnalysisMode || state.isAnalyzingPosition) return
+        val bestUci = state.analysisBestMoveUci ?: return
+        val parsed = ChessMoveUtils.parseUciMove(state.board, bestUci) ?: return
+        handleFreeAnalysisMove(parsed)
+    }
+
+    private fun requestFreeAnalysisEvaluation(fen: String) {
+        analysisJob?.cancel()
+        val boardCheck = runCatching { Board().apply { loadFromFen(fen) } }.getOrNull() ?: return
+
+        if (boardCheck.isMated) {
+            val winnerLabel = if (boardCheck.sideToMove == Side.WHITE) "0–1 (мат)" else "1–0 (мат)"
+            _uiState.value = _uiState.value.copy(
+                isAnalyzingPosition = false,
+                analysisEvalText = winnerLabel,
+                analysisBestMoveSan = null,
+                analysisBestMoveUci = null,
+                arrows = emptyList()
+            )
+            return
+        }
+        if (boardCheck.isStaleMate || boardCheck.isDraw) {
+            _uiState.value = _uiState.value.copy(
+                isAnalyzingPosition = false,
+                analysisEvalText = "½–½ (ничья)",
+                analysisBestMoveSan = null,
+                analysisBestMoveUci = null,
+                arrows = emptyList()
+            )
+            return
+        }
+
+        _uiState.value = _uiState.value.copy(
+            isAnalyzingPosition = true,
+            analysisEvalText = "Анализ...",
+            analysisBestMoveSan = null,
+            analysisBestMoveUci = null
+        )
+
+        analysisJob = viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val engine = container.chessEngine
+                    if (!engine.init()) return@withContext null
+                    engine.getBestMoveWithLine(fen, FREE_ANALYSIS_DEPTH)
+                }
+
+                val latest = _uiState.value
+                if (!latest.isFreeAnalysisMode || latest.board.fen != fen) return@launch
+
+                if (result == null) {
+                    _uiState.value = latest.copy(
+                        isAnalyzingPosition = false,
+                        analysisEvalText = "Движок недоступен",
+                        analysisBestMoveSan = null,
+                        analysisBestMoveUci = null
+                    )
+                    return@launch
+                }
+
+                // Переводим оценку в стандартную шкалу со стороны белых (+ в пользу белых, − в пользу чёрных)
+                val whiteSign = if (boardCheck.sideToMove == Side.WHITE) 1 else -1
+                val evalLabel = formatEngineEvalLabel(
+                    sideToMoveScore = result.score,
+                    mateIn = result.mateIn,
+                    whiteSign = whiteSign
+                )
+                val bestUci = result.bestMove.takeIf { ChessMoveUtils.isUciMove(it) }
+                val bestSan = bestUci?.let { ChessMoveUtils.uciToSan(it, fen) }
+                val bestArrow = bestUci?.let { listOfNotNull(createArrowFromUci(it, Color(0xAA4CAF50))) }
+                    ?: emptyList()
+
+                _uiState.value = latest.copy(
+                    isAnalyzingPosition = false,
+                    analysisEvalText = evalLabel,
+                    analysisBestMoveSan = bestSan,
+                    analysisBestMoveUci = bestUci,
+                    arrows = bestArrow
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Free analysis failed", e)
+                if (_uiState.value.isFreeAnalysisMode) {
+                    _uiState.value = _uiState.value.copy(
+                        isAnalyzingPosition = false,
+                        analysisEvalText = "Ошибка анализа"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun formatEngineEvalLabel(sideToMoveScore: Int, mateIn: Int?, whiteSign: Int): String {
+        if (mateIn != null && mateIn != 0) {
+            val whiteMate = mateIn * whiteSign
+            val sign = if (whiteMate > 0) "+" else "-"
+            return "${sign}М${kotlin.math.abs(whiteMate)}"
+        }
+        if (ChessEngine.isMateScore(sideToMoveScore)) {
+            val whiteScore = sideToMoveScore * whiteSign
+            return if (whiteScore > 0) "+Мат" else "-Мат"
+        }
+        val pawns = (sideToMoveScore * whiteSign) / 100.0
+        val sign = if (pawns > 0.04) "+" else ""
+        return String.format(java.util.Locale.US, "%s%.1f", sign, pawns)
+    }
+
     fun clearSessionQueue() {
         sessionQueue.clear()
         lastMistakePattern = null
@@ -1593,6 +1990,7 @@ class TrainingViewModel(
         super.onCleared()
         currentJob?.cancel()
         generationJob?.cancel()
+        analysisJob?.cancel()
         onUserUpdatedCallback = null
     }
 }

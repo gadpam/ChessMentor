@@ -712,21 +712,31 @@ fun DailyPuzzleWidget(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = puzzle.title,
+                        text = if (isSolved) puzzle.title else sidePrompt,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = puzzle.subtitle,
+                        text = if (isSolved) {
+                            puzzle.explanation ?: puzzle.subtitle
+                        } else {
+                            "Оцените позицию и найдите сильнейшее продолжение без подсказки мотива"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "$sidePrompt • ${TrainingLabels.themeDisplayName(puzzle.theme)}",
+                        text = if (isSolved) {
+                            "$sidePrompt • ${TrainingLabels.themeDisplayName(puzzle.theme)}"
+                        } else {
+                            val elo = com.example.chessmentor.domain.training.TrainingRatingCalculator
+                                .difficultyToElo(puzzle.difficultyRating)
+                            "Сложность: $difficultyLabel • ~$elo Эло"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Medium

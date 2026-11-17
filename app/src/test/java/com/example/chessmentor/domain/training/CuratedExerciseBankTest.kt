@@ -76,6 +76,17 @@ class CuratedExerciseBankTest {
                     board.isMated
                 )
             }
+
+            if (puzzle.preFen != null || puzzle.prevMoveUci != null) {
+                assertTrue(
+                    "Invalid opponent trigger transition (${puzzle.preFen} -> ${puzzle.prevMoveUci}) for '${puzzle.id}'",
+                    SolutionReviewHelper.validateTriggerTransition(
+                        preFen = puzzle.preFen,
+                        prevMoveUci = puzzle.prevMoveUci,
+                        targetFen = puzzle.fen
+                    )
+                )
+            }
         }
     }
 
