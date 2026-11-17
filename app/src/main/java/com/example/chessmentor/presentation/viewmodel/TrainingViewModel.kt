@@ -146,7 +146,6 @@ class TrainingViewModel(
     private var generationJob: Job? = null
     private var positionBeforePlayerMove: String = ""
     private var lastMoveBeforePlayerMove: Pair<Square, Square>? = null
-    private var lastInitializedRouteKey: String? = null
 
     private val sessionQueue = mutableListOf<Exercise>()
     private var lastMistakePattern: String? = null
@@ -164,18 +163,15 @@ class TrainingViewModel(
         val isNewUser = currentUser?.id != user.id
         currentUser = user
 
-        val requestedKey = initialMode?.routeKey
-        val modeChangedByNavigation = initialMode != null && requestedKey != lastInitializedRouteKey
+        val modeChangedByNavigation = initialMode != null && initialMode != _uiState.value.mode
 
         if (isNewUser) {
             sessionQueue.clear()
             lastMistakePattern = null
-            lastInitializedRouteKey = requestedKey
             val targetMode = initialMode ?: TrainingMode.All
             _uiState.value = TrainingUiState(mode = targetMode)
             initializeExercisesAndLoad(targetMode)
         } else if (modeChangedByNavigation && initialMode != null) {
-            lastInitializedRouteKey = requestedKey
             selectMode(initialMode)
         } else if (currentExercise == null && !_uiState.value.isLoading) {
             initializeExercisesAndLoad(_uiState.value.mode)

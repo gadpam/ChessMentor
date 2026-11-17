@@ -15,14 +15,20 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.training.CuratedExerciseBank
+import com.example.chessmentor.domain.training.TrainingLabels
+import com.example.chessmentor.presentation.ui.components.BoardThemes
 import com.example.chessmentor.presentation.ui.components.ChessBoard
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import com.github.bhlangonijr.chesslib.Board
@@ -32,8 +38,10 @@ fun HomeScreen(
     paddingValues: PaddingValues,
     currentUser: User?,
     gameViewModel: GameViewModel,
+    container: AppContainer? = null,
     onNavigateToSettings: () -> Unit,
     onNavigateToTraining: () -> Unit,
+    onNavigateToDailyPuzzle: () -> Unit = onNavigateToTraining,
     message: String,
     isLoading: Boolean,
     onMessageDismiss: () -> Unit,
@@ -79,8 +87,9 @@ fun HomeScreen(
             paddingValues = paddingValues,
             user = currentUser,
             gameViewModel = gameViewModel,
+            container = container,
             onLogout = onLogout,
-            onNavigateToTraining = onNavigateToTraining,
+            onNavigateToDailyPuzzle = onNavigateToDailyPuzzle,
             onNavigateToSettings = onNavigateToSettings
         )
     }
@@ -480,12 +489,26 @@ fun DashboardContent(
     paddingValues: PaddingValues,
     user: User,
     gameViewModel: GameViewModel,
+    container: AppContainer? = null,
+    @Suppress("UNUSED_PARAMETER")
     onLogout: () -> Unit,
-    onNavigateToTraining: () -> Unit,
+    onNavigateToDailyPuzzle: () -> Unit,
     onNavigateToSettings: () -> Unit
 ) {
-    LaunchedEffect(user.id) {
+    val epochDay = remember { CuratedExerciseBank.currentEpochDay() }
+    val dailyPuzzle = remember(epochDay) { CuratedExerciseBank.getDailyPuzzle(epochDay) }
+    var isDailySolved by remember(user.id, epochDay) { mutableStateOf(false) }
+
+    LaunchedEffect(user.id, epochDay) {
         gameViewModel.loadUserData()
+        val uid = user.id
+        if (uid != null && container != null) {
+            isDailySolved = runCatching {
+                val existing = container.exerciseRepository.findGlobalByFen(dailyPuzzle.fen)
+                val exId = existing?.id
+                exId != null && container.exerciseRepository.hasUserSolvedExercise(uid, exId)
+            }.getOrDefault(false)
+        }
     }
 
     val recentGames = gameViewModel.userGames.take(2)
@@ -508,7 +531,12 @@ fun DashboardContent(
         }
 
         item {
-            DailyPuzzleWidget(onClick = onNavigateToTraining)
+            DailyPuzzleWidget(
+                puzzle = dailyPuzzle,
+                isSolved = isDailySolved,
+                preferredTheme = user.preferredTheme,
+                onClick = onNavigateToDailyPuzzle
+            )
         }
 
         item {
@@ -595,7 +623,25 @@ private fun UserHeader(
 }
 
 @Composable
-fun DailyPuzzleWidget(onClick: () -> Unit) {
+fun DailyPuzzleWidget(
+    puzzle: com.example.chessmentor.domain.training.CuratedPuzzle = remember {
+        CuratedExerciseBank.getDailyPuzzle()
+    },
+    isSolved: Boolean = false,
+    preferredTheme: String? = null,
+    onClick: () -> Unit
+) {
+    val board = remember(puzzle.fen) {
+        Board().apply { loadFromFen(puzzle.fen) }
+    }
+    val boardTheme = remember(preferredTheme) {
+        BoardThemes.getByName(preferredTheme)
+    }
+    val difficultyLabel = remember(puzzle.difficultyRating) {
+        TrainingLabels.difficultyLabel(puzzle.difficultyRating)
+    }
+    val sidePrompt = if (puzzle.isWhiteToMove) "Ход белых" else "Ход чёрных"
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -603,61 +649,95 @@ fun DailyPuzzleWidget(onClick: () -> Unit) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(40.dp)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Extension, null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(
+                        imageVector = Icons.Default.Extension,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Задача дня", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 }
 
                 Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = RoundedCornerShape(4.dp)
+                    color = if (isSolved) {
+                        MaterialTheme.colorScheme.tertiaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.primaryContainer
+                    },
+                    shape = RoundedCornerShape(6.dp)
                 ) {
                     Text(
-                        "Сложная",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        text = if (isSolved) "✓ Решено" else difficultyLabel,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isSolved) {
+                            MaterialTheme.colorScheme.onTertiaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        }
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            val fen = "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4"
-            val board = remember {
-                Board().apply { loadFromFen(fen) }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(2f)
-                    .background(
-                        Color.LightGray.copy(alpha = 0.2f),
-                        RoundedCornerShape(8.dp)
-                    )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 ChessBoard(
                     board = board,
-                    modifier = Modifier.fillMaxSize(),
+                    theme = boardTheme,
+                    flipped = !puzzle.isWhiteToMove,
+                    animateMove = false,
+                    showCoordinates = false,
+                    modifier = Modifier
+                        .size(132.dp)
+                        .clip(RoundedCornerShape(8.dp)),
                     onSquareClick = null
                 )
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.1f)),
-                    contentAlignment = Alignment.Center
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Button(onClick = onClick) {
-                        Text("Решить сейчас")
+                    Text(
+                        text = puzzle.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = puzzle.subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "$sidePrompt • ${TrainingLabels.themeDisplayName(puzzle.theme)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Button(
+                        onClick = onClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Text(if (isSolved) "Повторить" else "Решить сейчас")
                     }
                 }
             }

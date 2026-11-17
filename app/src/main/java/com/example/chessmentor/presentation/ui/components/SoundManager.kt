@@ -9,7 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
- * Менеджер звуковых эффектов для шахматной доски
+ * Менеджер звуковых эффектов для шахматной доски и тренировки.
  */
 class SoundManager(@Suppress("unused") context: Context) {
 
@@ -34,8 +34,10 @@ class SoundManager(@Suppress("unused") context: Context) {
         }
     }
 
+    fun isSoundEnabled(): Boolean = isEnabled
+
     /**
-     * Включить/выключить звуки
+     * Включить/выключить звуки.
      */
     fun setEnabled(enabled: Boolean) {
         isEnabled = enabled
@@ -52,40 +54,41 @@ class SoundManager(@Suppress("unused") context: Context) {
         }
     }
 
-    /**
-     * Звук обычного хода
-     */
+    /** Звук обычного хода. */
     suspend fun playMove() = withContext(Dispatchers.IO) {
-        startToneSafe(ToneGenerator.TONE_PROP_BEEP, 100)
+        startToneSafe(ToneGenerator.TONE_PROP_BEEP, 85)
     }
 
-    /**
-     * Звук взятия фигуры (более громкий)
-     */
+    /** Звук взятия фигуры. */
     suspend fun playCapture() = withContext(Dispatchers.IO) {
-        startToneSafe(ToneGenerator.TONE_PROP_ACK, 150)
+        startToneSafe(ToneGenerator.TONE_PROP_ACK, 130)
     }
 
-    /**
-     * Звук шаха (предупреждающий)
-     */
+    /** Звук шаха. */
     suspend fun playCheck() = withContext(Dispatchers.IO) {
-        startToneSafe(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 200)
+        startToneSafe(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 170)
     }
 
-    /**
-     * Звук мата (победный)
-     */
+    /** Звук мата / успешного решения задачи. */
     suspend fun playCheckmate() = withContext(Dispatchers.IO) {
         if (!isEnabled) return@withContext
-        startToneSafe(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 150)
-        delay(200)
-        startToneSafe(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 150)
+        startToneSafe(ToneGenerator.TONE_PROP_ACK, 110)
+        delay(130)
+        startToneSafe(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 160)
     }
 
-    /**
-     * Освободить ресурсы
-     */
+    /** Звук успешного решения тактической задачи. */
+    suspend fun playSuccess() = withContext(Dispatchers.IO) {
+        if (!isEnabled) return@withContext
+        startToneSafe(ToneGenerator.TONE_PROP_BEEP2, 140)
+    }
+
+    /** Звук ошибки / неверного хода. */
+    suspend fun playError() = withContext(Dispatchers.IO) {
+        startToneSafe(ToneGenerator.TONE_PROP_NACK, 160)
+    }
+
+    /** Освободить ресурсы. */
     fun release() {
         synchronized(lock) {
             try {

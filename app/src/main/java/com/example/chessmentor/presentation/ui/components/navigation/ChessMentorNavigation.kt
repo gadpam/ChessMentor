@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.usecase.LoginUserUseCase
 import com.example.chessmentor.domain.usecase.RegisterUserUseCase
 import com.example.chessmentor.presentation.ui.components.screen.EngineSettingsScreen
@@ -45,6 +46,7 @@ fun ChessMentorApp(
     // Пользователь хранится в ViewModel, поэтому сессия сохраняется при повороте экрана
     val currentUser by gameViewModel.currentUser
     var currentScreen by rememberSaveable { mutableStateOf("home") }
+    var pendingTrainingModeKey by rememberSaveable { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf("") }
 
@@ -103,6 +105,7 @@ fun ChessMentorApp(
         NavigationHost(
             paddingValues = paddingValues,
             currentScreen = currentScreen,
+            pendingTrainingModeKey = pendingTrainingModeKey,
             currentUser = currentUser,
             gameViewModel = gameViewModel,
             boardViewModel = boardViewModel,
@@ -119,6 +122,14 @@ fun ChessMentorApp(
                 currentScreen = next
                 Log.d(TAG, "Screen changed to: $next")
             },
+            onOpenTrainingWithMode = { mode ->
+                pendingTrainingModeKey = mode.routeKey
+                currentScreen = "training"
+                Log.d(TAG, "Open training with mode: ${mode.routeKey}")
+            },
+            onTrainingModeConsumed = {
+                pendingTrainingModeKey = null
+            },
             onUserUpdated = { updated ->
                 gameViewModel.updateCurrentUser(updated)
             },
@@ -127,6 +138,7 @@ fun ChessMentorApp(
                 loginPassword = ""
                 regPassword = ""
                 message = ""
+                pendingTrainingModeKey = null
                 currentScreen = "home"
             },
             onMessageDismiss = { message = "" },
@@ -296,6 +308,7 @@ private fun ChessMentorBottomBar(
 private fun NavigationHost(
     paddingValues: PaddingValues,
     currentScreen: String,
+    pendingTrainingModeKey: String?,
     currentUser: User?,
     gameViewModel: GameViewModel,
     boardViewModel: BoardViewModel,
@@ -309,6 +322,8 @@ private fun NavigationHost(
     loginEmail: String,
     loginPassword: String,
     onScreenChange: (String) -> Unit,
+    onOpenTrainingWithMode: (TrainingMode) -> Unit,
+    onTrainingModeConsumed: () -> Unit,
     onUserUpdated: (User) -> Unit,
     onLogout: () -> Unit,
     onMessageDismiss: () -> Unit,
@@ -326,8 +341,10 @@ private fun NavigationHost(
             paddingValues = paddingValues,
             currentUser = currentUser,
             gameViewModel = gameViewModel,
+            container = container,
             onNavigateToSettings = { onScreenChange("settings") },
             onNavigateToTraining = { onScreenChange("training") },
+            onNavigateToDailyPuzzle = { onOpenTrainingWithMode(TrainingMode.Daily) },
             message = message,
             isLoading = isLoading,
             onMessageDismiss = onMessageDismiss,
@@ -431,6 +448,9 @@ private fun NavigationHost(
                     container = container,
                     userId = user.id,
                     preferredTheme = user.preferredTheme,
+                    initialModeKey = pendingTrainingModeKey,
+                    onModeConsumed = onTrainingModeConsumed,
+                    onNavigateToUpload = { onScreenChange("upload") },
                     onUserUpdated = onUserUpdated
                 )
             } else {
