@@ -53,6 +53,12 @@ Java_com_example_chessmentor_data_engine_StockfishEngine_nativeInit(JNIEnv* env,
 }
 
 JNIEXPORT void JNICALL
+Java_com_example_chessmentor_data_engine_StockfishEngine_nativeStop(JNIEnv* /*env*/,
+                                                                    jobject /*thiz*/) {
+    bridge().stop();
+}
+
+JNIEXPORT void JNICALL
 Java_com_example_chessmentor_data_engine_StockfishEngine_nativeDestroy(JNIEnv* /*env*/,
                                                                        jobject /*thiz*/) {
     bridge().destroy();
@@ -92,6 +98,7 @@ Java_com_example_chessmentor_data_engine_StockfishEngine_nativeGetBestMove(JNIEn
 }
 
 // Формат результата: "<bestMove>\t<score>\t<pv>", разбирается в decodeAnalysisLine.
+// В терминальных позициях (мат/пат) bestMove и pv пустые, но score передаётся.
 JNIEXPORT jstring JNICALL
 Java_com_example_chessmentor_data_engine_StockfishEngine_nativeGetBestMoveWithLine(
   JNIEnv* env, jobject /*thiz*/, jstring fen, jint depth) {

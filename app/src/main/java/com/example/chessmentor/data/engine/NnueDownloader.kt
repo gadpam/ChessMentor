@@ -8,14 +8,16 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 /**
  * Загрузка файла нейросети (NNUE) для Stockfish.
  *
  * Имя файла содержит первые 12 hex-символов SHA-256 (правило Stockfish).
- * Файл сохраняется только после успешной проверки хеша, поэтому повреждённый
+ * Файл сохраняется и используется только после проверки хеша, поэтому повреждённый
  * или подменённый файл не попадает в движок (иначе Stockfish завершит процесс).
  */
 class NnueDownloader(context: Context) {
@@ -43,6 +45,9 @@ class NnueDownloader(context: Context) {
 
     private val netDirectory = File(context.filesDir, "nnue")
 
+    @Volatile
+    private var verifiedExistingFile = false
+
     /** Путь, по которому лежит проверенный файл сети. */
     fun netFile(): File = File(netDirectory, NET_NAME)
 
@@ -53,30 +58,32 @@ class NnueDownloader(context: Context) {
     suspend fun ensureNet(): File? = withContext(Dispatchers.IO) {
         val target = netFile()
         if (target.isFile && target.length() >= MIN_NET_BYTES) {
-            return@withContext target
+            if (verifiedExistingFile || isValidNetFile(target)) {
+                verifiedExistingFile = true
+                return@withContext target
+            }
+            Log.w(TAG, "Existing network file failed integrity check, re-downloading")
+            target.delete()
         }
 
         netDirectory.mkdirs()
         val partFile = File(netDirectory, "$NET_NAME.part")
 
         for (source in SOURCES) {
+            coroutineContext.ensureActive()
             try {
                 Log.i(TAG, "Downloading network from $source")
                 download(source, partFile)
 
-                if (partFile.length() < MIN_NET_BYTES) {
-                    Log.w(TAG, "Downloaded file is too small, skipping")
-                    partFile.delete()
-                    continue
-                }
-                if (sha256Prefix(partFile) != EXPECTED_HASH_PREFIX) {
-                    Log.w(TAG, "Hash mismatch for $source, skipping")
+                if (!isValidNetFile(partFile)) {
+                    Log.w(TAG, "Downloaded file from $source failed validation, skipping")
                     partFile.delete()
                     continue
                 }
 
                 target.delete()
                 if (partFile.renameTo(target)) {
+                    verifiedExistingFile = true
                     return@withContext target
                 }
                 Log.w(TAG, "Failed to move network into place")
@@ -90,7 +97,17 @@ class NnueDownloader(context: Context) {
         null
     }
 
-    private fun download(source: String, destination: File) {
+    private fun isValidNetFile(file: File): Boolean {
+        if (!file.isFile || file.length() < MIN_NET_BYTES) return false
+        return try {
+            sha256Prefix(file) == EXPECTED_HASH_PREFIX
+        } catch (e: IOException) {
+            Log.w(TAG, "Failed to verify network hash", e)
+            false
+        }
+    }
+
+    private suspend fun download(source: String, destination: File) {
         val connection = URL(source).openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = CONNECT_TIMEOUT_MS
@@ -103,7 +120,15 @@ class NnueDownloader(context: Context) {
             }
 
             connection.inputStream.use { input ->
-                destination.outputStream().use { output -> input.copyTo(output) }
+                destination.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        coroutineContext.ensureActive()
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        output.write(buffer, 0, read)
+                    }
+                }
             }
         } finally {
             connection.disconnect()

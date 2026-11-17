@@ -1,6 +1,7 @@
 // data/engine/ChessEngine.kt
 package com.example.chessmentor.data.engine
 
+import java.util.Locale
 import kotlin.math.abs
 
 /**
@@ -11,17 +12,10 @@ interface ChessEngine {
     suspend fun init(): Boolean
     suspend fun evaluate(fen: String, depthLimit: Int = 15): Int
     suspend fun getBestMove(fen: String, depthLimit: Int = 15): String?
-    fun destroy()
-
-    suspend fun setOption(name: String, value: String)
-
-    /**
-     * НОВОЕ: Получить лучший ход вместе с линией продолжения (PV)
-     * @param fen Позиция в формате FEN
-     * @param depthLimit Глубина анализа
-     * @return Результат анализа с линией или null при ошибке
-     */
     suspend fun getBestMoveWithLine(fen: String, depthLimit: Int = 15): AnalysisLine?
+    suspend fun setOption(name: String, value: String)
+    fun stop()
+    fun destroy()
 
     companion object {
         const val MATE_VALUE = 100000
@@ -34,7 +28,7 @@ interface ChessEngine {
 
         /**
          * Получить количество ходов до мата
-         * @return положительное число = мат за белых, отрицательное = мат за чёрных
+         * @return положительное число = мат за сторону, отрицательное = мат против стороны (0 если мат уже на доске)
          */
         fun getMateInMoves(score: Int): Int {
             if (!isMateScore(score)) return 0
@@ -48,21 +42,26 @@ interface ChessEngine {
         fun formatEvaluation(score: Int): String {
             return if (isMateScore(score)) {
                 val moves = abs(getMateInMoves(score))
-                if (score > 0) "+M$moves" else "-M$moves"
+                val sign = if (score > 0) "+" else "-"
+                if (moves == 0) "${sign}M" else "${sign}M$moves"
             } else {
                 val pawns = score / 100.0
-                if (pawns >= 0) "+%.1f".format(pawns) else "%.1f".format(pawns)
+                if (pawns >= 0) {
+                    String.format(Locale.US, "+%.1f", pawns)
+                } else {
+                    String.format(Locale.US, "%.1f", pawns)
+                }
             }
         }
     }
 }
 
 /**
- * Результат анализа с линией продолжения
+ * Результат анализа с линией продолжения (оценка со стороны ходящего, как в UCI)
  */
 data class AnalysisLine(
-    val bestMove: String,                    // Лучший ход (UCI)
-    val score: Int,                          // Оценка в сантипешках
+    val bestMove: String,                    // Лучший ход (UCI; пусто для терминальной позиции мат/пат)
+    val score: Int,                          // Оценка в сантипешках или мат-кодировке
     val mateIn: Int?,                        // Мат в N ходов (null если не мат)
-    val principalVariation: List<String>     // Главная линия (до 6 ходов)
+    val principalVariation: List<String>     // Главная линия в UCI
 )
