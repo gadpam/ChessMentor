@@ -92,6 +92,7 @@ class GetTrainingExerciseUseCase(
             TrainingMode.Daily -> selectDailyExercise(userId, input.epochDay, snapshot)
             TrainingMode.MyMistakes -> selectUserMistakeExercise(user, userId, input.excludeExerciseId, input.nowMs, snapshot)
             TrainingMode.WeakPatterns -> selectWeakPatternExercise(user, userId, input.excludeExerciseId, input.nowMs, snapshot)
+            TrainingMode.Defense -> selectDefenseExercise(user, input.excludeExerciseId, input.nowMs, snapshot)
             is TrainingMode.ByTheme -> selectThemeExercise(user, input.excludeExerciseId, mode.theme, input.nowMs, snapshot)
             TrainingMode.All -> selectAdaptiveExercise(user, userId, input.excludeExerciseId, input.preferredPattern, input.nowMs, snapshot)
         }
@@ -253,6 +254,55 @@ class GetTrainingExerciseUseCase(
 
         // 3. Если статистики пока мало — адаптивный подбор
         return selectAdaptiveExercise(user, userId, excludeId, preferredPattern = null, nowMs = nowMs, snapshot = snapshot)
+    }
+
+    /**
+     * Подбор задач на защиту, профилактику, контрудар (цвишенцуг) и спасение тяжёлых позиций.
+     */
+    private fun selectDefenseExercise(
+        user: User,
+        excludeId: Long,
+        nowMs: Long,
+        snapshot: LearningSnapshot
+    ): Result {
+        val defenseFilter: (Exercise) -> Boolean = { ex ->
+            com.example.chessmentor.domain.training.ExerciseMetadata.isDefensiveGoal(ex) ||
+                ex.theme == TacticalTheme.KING_SAFETY
+        }
+        val targetDiff = TrainingRatingCalculator.eloToDifficulty(user.rating)
+
+        SpacedRepetitionScheduler.rankDueExercises(
+            accessibleExercises = snapshot.accessible,
+            schedule = snapshot.schedule,
+            nowMs = nowMs,
+            excludeId = excludeId,
+            filter = defenseFilter
+        ).firstOrNull()?.let { (ex, state) ->
+            return buildReviewSuccess(ex, state, snapshot.dueReviewCount)
+        }
+
+        pickUnseenExercise(
+            accessible = snapshot.accessible,
+            schedule = snapshot.schedule,
+            targetDifficulty = targetDiff,
+            excludeId = excludeId,
+            prioritizeOwnMistakes = true,
+            filter = defenseFilter
+        )?.let { ex ->
+            return Result.Success(exercise = ex, dueReviewCount = snapshot.dueReviewCount)
+        }
+
+        SpacedRepetitionScheduler.pickFallbackReview(
+            accessibleExercises = snapshot.accessible,
+            schedule = snapshot.schedule,
+            nowMs = nowMs,
+            excludeId = excludeId,
+            filter = defenseFilter
+        )?.let { (ex, state) ->
+            return buildReviewSuccess(ex, state, snapshot.dueReviewCount)
+        }
+
+        return Result.NoSuitableExercises
     }
 
     private fun selectThemeExercise(

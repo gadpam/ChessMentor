@@ -193,7 +193,8 @@ class TrainingRatingCalculatorTest {
             TrainingMode.All,
             TrainingMode.Daily,
             TrainingMode.MyMistakes,
-            TrainingMode.WeakPatterns
+            TrainingMode.WeakPatterns,
+            TrainingMode.Defense
         ) + TrainingMode.selectableThemes.map { TrainingMode.ByTheme(it) }
 
         for (mode in modes) {

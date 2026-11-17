@@ -19,6 +19,7 @@ import com.example.chessmentor.domain.training.AttemptMetadata
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.ExerciseMetadata
 import com.example.chessmentor.domain.training.HintUsage
+import com.example.chessmentor.domain.training.PuzzleQualityEvaluator
 import com.example.chessmentor.domain.training.ReviewCardState
 import com.example.chessmentor.domain.training.SolutionReviewHelper
 import com.example.chessmentor.domain.training.SolutionReviewStep
@@ -143,7 +144,7 @@ class TrainingViewModel(
         private const val ANIMATION_DELAY_MS = 600L
         private const val PUNISHMENT_DISPLAY_MS = 2200L
         private const val SIMILAR_EXERCISES_COUNT = 2
-        private const val MAX_SOLUTION_PLIES = 5
+        private const val MAX_SOLUTION_PLIES = PuzzleQualityEvaluator.MAX_QUIESCENCE_PLIES
         private const val FREE_ANALYSIS_DEPTH = 12
     }
 
@@ -826,7 +827,13 @@ class TrainingViewModel(
                         board.fen,
                         line?.principalVariation?.take(MAX_SOLUTION_PLIES).orEmpty()
                     )
-                    val oddPv = TrainingRatingCalculator.trimPvToPlayerLastMove(validatedPv, MAX_SOLUTION_PLIES)
+                    // Обрезаем линию строго в точке успокоения позиции (после разменов/шахов),
+                    // не навязывая игроку угадывание лишних «тихих» ходов
+                    val oddPv = PuzzleQualityEvaluator.trimPvAtQuiescence(
+                        startFen = board.fen,
+                        rawUciMoves = validatedPv,
+                        maxPlies = MAX_SOLUTION_PLIES
+                    )
 
                     when {
                         oddPv.isNotEmpty() -> targetSequence.addAll(oddPv)
@@ -1411,9 +1418,16 @@ class TrainingViewModel(
                 }
 
                 val cpLoss = playerEvalBest - playerEvalAfterUser
+                val isDefensive = currentExercise?.let { ExerciseMetadata.isDefensiveGoal(it) } == true
                 when {
                     cpLoss <= 15 -> TrainingMoveQuality.BEST
-                    cpLoss <= 40 -> TrainingMoveQuality.EXCELLENT
+                    cpLoss <= 45 -> TrainingMoveQuality.EXCELLENT
+                    // В защитной задаче любой ход, надёжно удерживающий равновесие без тактических потерь, корректен
+                    isDefensive && playerEvalAfterUser >= -140 && cpLoss <= 60 ->
+                        TrainingMoveQuality.EXCELLENT
+                    // При реализации уже подавляющего перевеса (+4 пешки) допускаем равноценный выигрывающий путь
+                    playerEvalAfterUser >= 400 && cpLoss <= 65 ->
+                        TrainingMoveQuality.EXCELLENT
                     else -> TrainingMoveQuality.MISTAKE
                 }
             } catch (e: CancellationException) {

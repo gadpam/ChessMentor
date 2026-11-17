@@ -507,6 +507,14 @@ private fun ModeSelectorRow(
             )
         }
         item {
+            FilterChip(
+                selected = selectedMode is TrainingMode.Defense,
+                onClick = { onSelectMode(TrainingMode.Defense) },
+                enabled = enabled,
+                label = { Text("Защита") }
+            )
+        }
+        item {
             Box {
                 val isThemeMode = selectedMode is TrainingMode.ByTheme
                 val labelText = if (selectedMode is TrainingMode.ByTheme) {

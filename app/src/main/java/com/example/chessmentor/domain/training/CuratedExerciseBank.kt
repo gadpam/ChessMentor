@@ -488,7 +488,7 @@ object CuratedExerciseBank {
         CuratedPuzzle(
             id = "only_defense_back_rank",
             title = "Точная защита на 1-й горизонтали",
-            subtitle = "Отразите шах с сохранением решающего перевеса",
+            subtitle = "Отразите вторжение ладьи без потери перевеса",
             fen = "6k1/5ppp/8/8/3Q4/7P/5PP1/1q1r1RK1 w - - 0 1",
             solutionMoves = listOf("f1d1"),
             pattern = TacticalPattern.DEFENSIVE_MOVE,
@@ -496,8 +496,92 @@ object CuratedExerciseBank {
             difficultyRating = 32,
             preFen = "3r2k1/5ppp/8/8/3Q4/7P/5PP1/1q3RK1 b - - 0 1",
             prevMoveUci = "d8d1",
-            explanation = "На 1. Rxd1 проигрывало 1... Qxd4 из-за связки, а точное 1. Qxd1! отражает мат, разменивает ферзей и сохраняет лишнюю ладью.",
-            extraFeatures = listOf("WITH_CAPTURE", "WINS_ROOK")
+            explanation = "Ферзь d4 контролирует поле d1 по вертикали: 1. Rxd1! забирает чистую ладью, а на 1... Qxd1+ решает 2. Qxd1 с лишним ферзём.",
+            extraFeatures = listOf("WITH_CAPTURE", "GOAL:DEFENSE")
+        ),
+        CuratedPuzzle(
+            id = "defense_battery_neutralize",
+            title = "Ликвидация матовой батареи",
+            subtitle = "Отразите двойную угрозу мата на g2 и потери ферзя",
+            fen = "7k/6pp/2b5/3Q2q1/8/7P/5PP1/5RK1 w - - 0 1",
+            solutionMoves = listOf("d5g5"),
+            pattern = TacticalPattern.DEFENSIVE_MOVE,
+            theme = TacticalTheme.KING_SAFETY,
+            difficultyRating = 28,
+            preFen = "7k/1b4pp/8/3Q2q1/8/7P/5PP1/5RK1 b - - 0 1",
+            prevMoveUci = "b7c6",
+            explanation = "Ходом 1... Bc6 чёрные напали на ферзя и создали угрозу мата Qxg2#, но забыли о защите самого ферзя — 1. Qxg5! снимает все угрозы.",
+            extraFeatures = listOf("WITH_CAPTURE", "GOAL:DEFENSE")
+        ),
+        CuratedPuzzle(
+            id = "defense_black_only_move_qd8",
+            title = "Хладнокровная защита 8-й горизонтали",
+            subtitle = "Отразите вторжение сдвоенных ладей",
+            fen = "3R2k1/5ppp/2b2q2/8/8/7P/5PP1/4R1K1 b - - 0 1",
+            solutionMoves = listOf("f6d8"),
+            pattern = TacticalPattern.DEFENSIVE_MOVE,
+            theme = TacticalTheme.KING_SAFETY,
+            difficultyRating = 30,
+            preFen = "6k1/5ppp/2b2q2/8/8/7P/5PP1/3RR1K1 w - - 0 1",
+            prevMoveUci = "d1d8",
+            explanation = "Слон c6 проигрывал бы на 1... Bxe8?? 2. Rxe8#, а точное 1... Qxd8! ликвидирует шахующую ладью и держит поле e8 под контролем.",
+            extraFeatures = listOf("WITH_CAPTURE", "GOAL:DEFENSE")
+        ),
+        CuratedPuzzle(
+            id = "defense_counter_back_rank",
+            title = "Встречный удар вместо пассивной защиты",
+            subtitle = "Опровергните связку по вертикали d",
+            fen = "3r2k1/5ppp/8/8/3q4/7P/3Q1PP1/4R1K1 w - - 0 1",
+            solutionMoves = listOf("d2d4", "d8d4", "e1e8"),
+            pattern = TacticalPattern.COUNTER_ATTACK,
+            theme = TacticalTheme.KING_SAFETY,
+            difficultyRating = 44,
+            preFen = "4r1k1/5ppp/8/8/3q4/7P/3Q1PP1/4R1K1 b - - 0 1",
+            prevMoveUci = "e8d8",
+            explanation = "Связав ферзя ходом 1... Rd8, чёрные ослабили свою 8-ю горизонталь: 1. Qxd4! использует слабость короля — на 1... Rxd4 следует 2. Re8#.",
+            extraFeatures = listOf("WITH_CAPTURE", "WITH_CHECK", "GOAL:DEFENSE")
+        ),
+        CuratedPuzzle(
+            id = "defense_black_f6_blocks_diagonal",
+            title = "Перекрытие смертельной диагонали",
+            subtitle = "Найдите единственную защиту от матовой батареи",
+            fen = "1r4k1/5p1p/6p1/8/3Q4/q1B4P/5PPK/8 b - - 0 1",
+            solutionMoves = listOf("f7f6"),
+            pattern = TacticalPattern.DEFENSIVE_MOVE,
+            theme = TacticalTheme.KING_SAFETY,
+            difficultyRating = 50,
+            preFen = "1r4k1/5p1p/6p1/8/3Q4/q6P/1B3PPK/8 w - - 0 1",
+            prevMoveUci = "b2c3",
+            explanation = "Батарея Qd4+Bc3 грозит матом на g7 и h8 (на 1... Qf8?? решает 2. Qh8#). Скромное 1... f6! наглухо перекрывает диагональ и сохраняет лишнюю ладью.",
+            extraFeatures = listOf("GOAL:DEFENSE")
+        ),
+        CuratedPuzzle(
+            id = "defense_stop_queening_with_check",
+            title = "Задержание проходной с темпом",
+            subtitle = "Не дайте пешке a2 превратиться в ферзя",
+            fen = "4B3/8/8/2bk4/5PP1/6K1/p7/8 w - - 0 1",
+            solutionMoves = listOf("e8f7", "d5d4", "f7a2"),
+            pattern = TacticalPattern.DEFENSIVE_MOVE,
+            theme = TacticalTheme.KING_SAFETY,
+            difficultyRating = 56,
+            preFen = "4B3/8/8/2bk4/5PP1/p5K1/8/8 b - - 0 1",
+            prevMoveUci = "a3a2",
+            explanation = "Слон c5 перекрывает доступ к полю a1, но промежуточный шах 1. Bf7+! выигрывает решающий темп и переводит слона на диагональ a2–g8: 2. Bxa2.",
+            extraFeatures = listOf("WITH_CHECK", "ENDGAME", "GOAL:DEFENSE")
+        ),
+        CuratedPuzzle(
+            id = "defense_forced_stalemate",
+            title = "Спасительный пат",
+            subtitle = "Спасите безнадёжную позицию при угрозе мата в 1 ход",
+            fen = "1R4bk/7p/8/8/6p1/6Pp/5q1P/7K w - - 0 1",
+            solutionMoves = listOf("b8g8"),
+            pattern = TacticalPattern.STALEMATE_TRICK,
+            theme = TacticalTheme.KING_SAFETY,
+            difficultyRating = 62,
+            preFen = "1R4bk/7p/8/8/6p1/6Pp/q6P/7K b - - 0 1",
+            prevMoveUci = "a2f2",
+            explanation = "Чёрные грозят матом Qf1#, а белый король и пешки полностью обездвижены: жертва 1. Rxg8+! вынуждает единственный ответ 1... Kxg8 — на доске пат!",
+            extraFeatures = listOf("WITH_CHECK", "WITH_CAPTURE", "ENDGAME", "GOAL:DEFENSE")
         )
     )
 
@@ -507,14 +591,26 @@ object CuratedExerciseBank {
 
     /**
      * Детерминированно возвращает задачу дня для заданного [epochDay].
-     * Благодаря взаимной простоте [CYCLE_STEP] и размера списка, все 28 задач
-     * чередуются без повторов на протяжении 28 дней подряд.
+     * Шаг автоматически подбирается взаимно простым с размером банка, поэтому
+     * все задачи гарантированно чередуются без повторов на протяжении полного цикла.
      */
     fun getDailyPuzzle(epochDay: Long = currentEpochDay()): CuratedPuzzle {
         val count = puzzles.size
-        val index = Math.floorMod(epochDay * CYCLE_STEP + CYCLE_OFFSET, count.toLong()).toInt()
+        val step = coprimeStepFor(count)
+        val index = Math.floorMod(epochDay * step + CYCLE_OFFSET, count.toLong()).toInt()
         return puzzles[index]
     }
+
+    private fun coprimeStepFor(count: Int): Long {
+        if (count <= 1) return 1L
+        var candidate = CYCLE_STEP.coerceAtLeast(3)
+        while (gcd(candidate, count) != 1) {
+            candidate += 2
+        }
+        return candidate.toLong()
+    }
+
+    private tailrec fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
 
     fun findTemplateById(id: String): CuratedPuzzle? = puzzles.firstOrNull { it.id == id }
 

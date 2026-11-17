@@ -15,8 +15,11 @@ sealed class TrainingMode {
     /** Только задачи, сгенерированные из собственных партий пользователя. */
     data object MyMistakes : TrainingMode()
 
-    /** Прицельная отработка паттернов с наименьшим процентом решений. */
+    /** Прицельная отработка паттернов с наименьшим процентом решений и интервальный повтор. */
     data object WeakPatterns : TrainingMode()
+
+    /** Тренировка защиты, профилактики, встречных ударов и спасения трудных позиций. */
+    data object Defense : TrainingMode()
 
     /** Ежедневная задача (единая для текущей даты). */
     data object Daily : TrainingMode()
@@ -29,6 +32,7 @@ sealed class TrainingMode {
             All -> "Все задачи"
             MyMistakes -> "Мои ошибки"
             WeakPatterns -> "Слабые темы"
+            Defense -> "Защита"
             Daily -> "Задача дня"
             is ByTheme -> TrainingLabels.themeDisplayName(theme)
         }
@@ -38,6 +42,7 @@ sealed class TrainingMode {
             All -> "all"
             MyMistakes -> "mistakes"
             WeakPatterns -> "weak"
+            Defense -> "defense"
             Daily -> "daily"
             is ByTheme -> "theme_${theme.name}"
         }
@@ -49,6 +54,7 @@ sealed class TrainingMode {
                 "all" -> All
                 "mistakes" -> MyMistakes
                 "weak" -> WeakPatterns
+                "defense" -> Defense
                 "daily" -> Daily
                 else -> {
                     if (key.startsWith("theme_")) {
