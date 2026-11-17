@@ -104,6 +104,7 @@ fun TrainingScreen(
     container: AppContainer,
     userId: Long,
     preferredTheme: String? = null,
+    initialSoundEnabled: Boolean = true,
     initialModeKey: String? = null,
     onModeConsumed: () -> Unit = {},
     onNavigateToUpload: () -> Unit = {},
@@ -117,7 +118,7 @@ fun TrainingScreen(
 
     // Звуковой менеджер с корректным освобождением ресурсов
     val soundManager = remember(context) { SoundManager(context.applicationContext) }
-    var soundEnabled by rememberSaveable { mutableStateOf(true) }
+    var soundEnabled by rememberSaveable(userId, initialSoundEnabled) { mutableStateOf(initialSoundEnabled) }
     DisposableEffect(soundManager) {
         onDispose { soundManager.release() }
     }

@@ -448,6 +448,7 @@ private fun NavigationHost(
                     container = container,
                     userId = user.id,
                     preferredTheme = user.preferredTheme,
+                    initialSoundEnabled = user.isSoundEnabled,
                     initialModeKey = pendingTrainingModeKey,
                     onModeConsumed = onTrainingModeConsumed,
                     onNavigateToUpload = { onScreenChange("upload") },
@@ -465,7 +466,10 @@ private fun NavigationHost(
                 StatisticsScreen(
                     paddingValues = paddingValues,
                     user = user,
-                    container = container
+                    container = container,
+                    onPracticeWeakPatterns = {
+                        onOpenTrainingWithMode(TrainingMode.WeakPatterns)
+                    }
                 )
             } ?: LaunchedEffect(Unit) {
                 onScreenChange("home")

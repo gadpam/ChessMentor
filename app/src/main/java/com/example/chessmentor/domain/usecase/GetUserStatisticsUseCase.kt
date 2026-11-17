@@ -1,26 +1,53 @@
 package com.example.chessmentor.domain.usecase
 
+import com.example.chessmentor.domain.entity.ExerciseAttempt
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.MistakeType
 import com.example.chessmentor.domain.entity.PredefinedThemes
 import com.example.chessmentor.domain.entity.ProblemTheme
 import com.example.chessmentor.domain.entity.Theme
+import com.example.chessmentor.domain.repository.ExerciseRepository
 import com.example.chessmentor.domain.repository.GameRepository
 import com.example.chessmentor.domain.repository.MistakeRepository
 import com.example.chessmentor.domain.repository.UserRepository
+import com.example.chessmentor.domain.training.CuratedExerciseBank
+import com.example.chessmentor.domain.training.MasteryLevel
+import com.example.chessmentor.domain.training.PatternMastery
+import com.example.chessmentor.domain.training.TrainingRatingCalculator
+import kotlin.math.roundToInt
 
 class GetUserStatisticsUseCase(
     private val userRepository: UserRepository,
     private val gameRepository: GameRepository,
-    private val mistakeRepository: MistakeRepository
+    private val mistakeRepository: MistakeRepository,
+    private val exerciseRepository: ExerciseRepository
 ) {
     companion object {
         private const val BASELINE_RATING = 1200
         private const val MAX_CP_LOSS_FOR_AVG = 1000
+        private const val MAX_SOLVE_SECONDS_FOR_AVG = 600
     }
 
     data class Input(
         val userId: Long
+    )
+
+    /**
+     * Сводка тактической тренировки пользователя.
+     */
+    data class TrainingStatistics(
+        val totalAttempts: Int = 0,
+        val solvedAttempts: Int = 0,
+        val uniqueExercisesSolved: Int = 0,
+        val totalAvailableExercises: Int = 0,
+        val personalMistakeExercises: Int = 0,
+        val unresolvedFailedCount: Int = 0,
+        val solveAccuracyPercent: Int = 0,
+        val currentStreak: Int = 0,
+        val bestStreak: Int = 0,
+        val averageSolveTimeSeconds: Int = 0,
+        val weakPatterns: List<PatternMastery> = emptyList(),
+        val strongPatterns: List<PatternMastery> = emptyList()
     )
 
     data class UserStatistics(
@@ -39,6 +66,7 @@ class GetUserStatisticsUseCase(
         val problemThemes: List<ProblemTheme>,
         val ratingChange: Int,
         val accuracyTrend: String,
+        val training: TrainingStatistics,
         val recommendations: List<String>
     )
 
@@ -62,7 +90,6 @@ class GetUserStatisticsUseCase(
         val averageAccuracy = if (accuracies.isNotEmpty()) accuracies.average() else 0.0
 
         val allMistakes = mistakeRepository.findByUserId(userId)
-
         val blundersCount = allMistakes.count { it.mistakeType == MistakeType.BLUNDER }
         val mistakesCount = allMistakes.count { it.mistakeType == MistakeType.MISTAKE }
         val inaccuraciesCount = allMistakes.count { it.mistakeType == MistakeType.INACCURACY }
@@ -76,6 +103,8 @@ class GetUserStatisticsUseCase(
         val themeFrequency = mistakeRepository.getMostFrequentThemesByUserId(userId, 5)
         val problemThemes = calculateProblemThemes(themeFrequency, allMistakes.size)
 
+        val trainingStats = calculateTrainingStatistics(userId)
+
         val ratingChange = user.rating - BASELINE_RATING
         val accuracyTrend = calculateAccuracyTrend(analyzedGames)
 
@@ -83,7 +112,8 @@ class GetUserStatisticsUseCase(
             analyzedCount = analyzedCount,
             blundersCount = blundersCount,
             problemThemes = problemThemes,
-            averageAccuracy = averageAccuracy
+            averageAccuracy = averageAccuracy,
+            training = trainingStats
         )
 
         val statistics = UserStatistics(
@@ -102,10 +132,101 @@ class GetUserStatisticsUseCase(
             problemThemes = problemThemes,
             ratingChange = ratingChange,
             accuracyTrend = accuracyTrend,
+            training = trainingStats,
             recommendations = recommendations
         )
 
         return Result.Success(statistics)
+    }
+
+    private suspend fun calculateTrainingStatistics(userId: Long): TrainingStatistics {
+        // Гарантируем учёт встроенного банка задач в общем счётчике доступных упражнений
+        CuratedExerciseBank.ensureSeeded(exerciseRepository)
+
+        val accessibleExercises = exerciseRepository.findAccessibleByUserId(userId)
+        val personalCount = accessibleExercises.count { it.sourceGameId != null }
+        val attempts = exerciseRepository.getAttemptsByUserId(userId)
+            .sortedBy { it.attemptedAt }
+
+        if (attempts.isEmpty()) {
+            return TrainingStatistics(
+                totalAvailableExercises = accessibleExercises.size,
+                personalMistakeExercises = personalCount
+            )
+        }
+
+        // Подтягиваем также упражнения, по которым были попытки (на случай если партия позже удалена)
+        val exercisesById = accessibleExercises
+            .mapNotNull { ex -> ex.id?.let { it to ex } }
+            .toMutableMap()
+        val missingIds = attempts.map { it.exerciseId }.distinct().filter { it !in exercisesById }
+        if (missingIds.isNotEmpty()) {
+            exerciseRepository.findByIds(missingIds).forEach { ex ->
+                ex.id?.let { exercisesById[it] = it }
+            }
+        }
+
+        val totalAttempts = attempts.size
+        val solvedAttempts = attempts.count { it.solved }
+        val solveAccuracy = ((solvedAttempts * 100.0) / totalAttempts).roundToInt().coerceIn(0, 100)
+
+        val byExercise = attempts.groupBy { it.exerciseId }
+        val uniqueSolved = byExercise.values.count { list -> list.any { it.solved } }
+        val unresolvedFailed = byExercise.values.count { list ->
+            list.any { !it.solved } && list.none { it.solved }
+        }
+
+        val (currentStreak, bestStreak) = calculateStreaks(attempts)
+
+        val solvedDurations = attempts
+            .filter { it.solved && it.timeSpentSeconds > 0 }
+            .map { it.timeSpentSeconds.coerceAtMost(MAX_SOLVE_SECONDS_FOR_AVG) }
+        val avgSolveSeconds = if (solvedDurations.isNotEmpty()) {
+            solvedDurations.average().roundToInt()
+        } else {
+            0
+        }
+
+        val mastery = TrainingRatingCalculator.computePatternMastery(exercisesById, attempts)
+        val weakPatterns = mastery
+            .filter { it.level == MasteryLevel.WEAK || (it.level == MasteryLevel.LEARNING && it.accuracyPercent < 70) }
+            .take(4)
+        val strongPatterns = mastery
+            .filter { it.level == MasteryLevel.STRONG || (it.solvedAttempts >= 1 && it.accuracyPercent >= 80) }
+            .sortedWith(
+                compareByDescending<PatternMastery> { it.accuracyPercent }
+                    .thenByDescending { it.solvedAttempts }
+            )
+            .take(4)
+
+        return TrainingStatistics(
+            totalAttempts = totalAttempts,
+            solvedAttempts = solvedAttempts,
+            uniqueExercisesSolved = uniqueSolved,
+            totalAvailableExercises = accessibleExercises.size,
+            personalMistakeExercises = personalCount,
+            unresolvedFailedCount = unresolvedFailed,
+            solveAccuracyPercent = solveAccuracy,
+            currentStreak = currentStreak,
+            bestStreak = bestStreak,
+            averageSolveTimeSeconds = avgSolveSeconds,
+            weakPatterns = weakPatterns,
+            strongPatterns = strongPatterns
+        )
+    }
+
+    private fun calculateStreaks(orderedAttempts: List<ExerciseAttempt>): Pair<Int, Int> {
+        var best = 0
+        var running = 0
+        for (attempt in orderedAttempts) {
+            if (attempt.solved) {
+                running++
+                if (running > best) best = running
+            } else {
+                running = 0
+            }
+        }
+        return running to best
     }
 
     private fun calculateProblemThemes(
@@ -153,47 +274,69 @@ class GetUserStatisticsUseCase(
         analyzedCount: Int,
         blundersCount: Int,
         problemThemes: List<ProblemTheme>,
-        averageAccuracy: Double
+        averageAccuracy: Double,
+        training: TrainingStatistics
     ): List<String> {
-        if (analyzedCount == 0) {
-            return listOf("Загрузите и проанализируйте первую партию, чтобы получить персональные советы.")
+        if (analyzedCount == 0 && training.totalAttempts == 0) {
+            return listOf(
+                "Решите «Задачу дня» или загрузите и проанализируйте первую партию, чтобы получить персональные советы."
+            )
         }
 
         val recommendations = mutableListOf<String>()
 
-        if (blundersCount > 5) {
+        if (training.unresolvedFailedCount > 0) {
             recommendations.add(
-                "У вас много грубых ошибок ($blundersCount). " +
-                    "Рекомендуем больше времени уделять проверке угроз соперника."
+                "К повторению осталось ${training.unresolvedFailedCount} нерешённых задач — " +
+                    "откройте тренировку, чтобы закрыть пробелы."
             )
         }
 
-        when {
-            averageAccuracy < 70 -> {
-                recommendations.add(
-                    "Средняя точность игры — ${averageAccuracy.toInt()}%. " +
-                        "Попробуйте играть с более длинным контролем времени."
-                )
-            }
-            averageAccuracy > 85 -> {
-                recommendations.add(
-                    "Отличная точность игры (${averageAccuracy.toInt()}%)! " +
-                        "Можете пробовать играть против более сильных соперников."
-                )
-            }
+        training.weakPatterns.firstOrNull()?.let { weakest ->
+            recommendations.add(
+                "Слабый тактический мотив: «${weakest.pattern.displayName}» " +
+                    "(точность ${weakest.accuracyPercent}%). Рекомендуем режим «Слабые темы»."
+            )
         }
 
-        if (problemThemes.isNotEmpty()) {
-            val topProblem = problemThemes.first()
+        if (analyzedCount > 0) {
+            if (blundersCount > 5) {
+                recommendations.add(
+                    "В партиях много зевков ($blundersCount). " +
+                        "Перед каждым ходом проверяйте шахи, взятия и угрозы соперника."
+                )
+            }
+
+            when {
+                averageAccuracy < 70 -> {
+                    recommendations.add(
+                        "Средняя точность в партиях — ${averageAccuracy.toInt()}%. " +
+                            "Попробуйте контроль времени с добавлением и отработку «Моих ошибок»."
+                    )
+                }
+                averageAccuracy > 85 -> {
+                    recommendations.add(
+                        "Отличная точность игры (${averageAccuracy.toInt()}%)! " +
+                            "Попробуйте сложные комбинации на мат и двойной шах."
+                    )
+                }
+            }
+
+            problemThemes.firstOrNull()?.let { topProblem ->
+                recommendations.add(
+                    "В партиях чаще всего встречается тема «${topProblem.themeName}» " +
+                        "(${topProblem.mistakeCount} раз)."
+                )
+            }
+        } else {
             recommendations.add(
-                "Чаще всего ошибки встречаются в теме «${topProblem.themeName}» " +
-                    "(${topProblem.mistakeCount} раз). Потренируйте похожие задачи."
+                "Загрузите свои партии в формате PGN — мы автоматически создадим задачи по вашим реальным ошибкам."
             )
         }
 
         if (recommendations.isEmpty()) {
             recommendations.add(
-                "Вы играете стабильно! Продолжайте регулярно разбирать свои партии."
+                "Отличная динамика! Продолжайте чередовать разбор собственных партий и ежедневные задачи."
             )
         }
 

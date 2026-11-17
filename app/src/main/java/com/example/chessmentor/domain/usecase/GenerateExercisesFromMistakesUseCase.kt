@@ -276,7 +276,7 @@ class GenerateExercisesFromMistakesUseCase(
         val movingPiece = board.getPiece(firstMove.from)
 
         val motif = semanticAnalyzer.detectMotif(board, firstMoveUci)
-        val pattern = classifyPattern(board, firstMove, movingPiece, motif, mistake)
+        val pattern = classifyPattern(board, firstMove, movingPiece, solutionMoves, motif, mistake)
         val theme = mapPatternToTheme(pattern)
 
         val difficulty = ExerciseClusterer.calculateDifficulty(
@@ -361,9 +361,13 @@ class GenerateExercisesFromMistakesUseCase(
         board: Board,
         firstMove: Move,
         movingPiece: Piece,
+        solutionMoves: List<String>,
         motif: TacticalMotif?,
         mistake: Mistake
     ): TacticalPattern {
+        // Если решение завершается форсированным матом — классифицируем как матовый паттерн
+        detectForcedMatePattern(board, solutionMoves)?.let { return it }
+
         if (firstMove.promotion != Piece.NONE) {
             return TacticalPattern.PAWN_BREAKTHROUGH
         }
@@ -394,6 +398,28 @@ class GenerateExercisesFromMistakesUseCase(
             mistake.mistakeType == MistakeType.INACCURACY -> TacticalPattern.POSITIONAL
             else -> TacticalPattern.MIXED
         }
+    }
+
+    /**
+     * Если серия ходов [solutionMoves] завершается матом, определяет конкретный матовый мотив.
+     */
+    private fun detectForcedMatePattern(board: Board, solutionMoves: List<String>): TacticalPattern? {
+        if (solutionMoves.isEmpty()) return null
+        val sim = Board().apply { loadFromFen(board.fen) }
+        var lastMovedPieceType: PieceType? = null
+        for (uci in solutionMoves) {
+            val move = ChessMoveUtils.parseUciMove(sim, uci) ?: return null
+            lastMovedPieceType = sim.getPiece(move.from).pieceType
+            if (!sim.doMove(move)) return null
+            if (sim.isMated) {
+                return if (lastMovedPieceType == PieceType.KNIGHT) {
+                    TacticalPattern.SMOTHERED_MATE
+                } else {
+                    TacticalPattern.BACK_RANK_MATE
+                }
+            }
+        }
+        return null
     }
 
     /**
