@@ -12,11 +12,20 @@ sealed class TrainingMode {
     /** Адаптивный подбор: повтор ошибок + задачи из партий + встроенный банк. */
     data object All : TrainingMode()
 
+    /** Структурированная осознанная тренировка из 10 задач (разминка → повтор → чередование → защита → расчёт). */
+    data object SmartSession : TrainingMode()
+
     /** Только задачи, сгенерированные из собственных партий пользователя. */
     data object MyMistakes : TrainingMode()
 
     /** Прицельная отработка паттернов с наименьшим процентом решений и интервальный повтор. */
     data object WeakPatterns : TrainingMode()
+
+    /** Быстрое распознавание типовых тактических мотивов (Система 1 / метод «Дятла»). */
+    data object PatternVision : TrainingMode()
+
+    /** Глубокий расчёт многоходовых форсированных вариантов до первого хода (Система 2). */
+    data object DeepCalculation : TrainingMode()
 
     /** Тренировка защиты, профилактики, встречных ударов и спасения трудных позиций. */
     data object Defense : TrainingMode()
@@ -30,8 +39,11 @@ sealed class TrainingMode {
     val displayName: String
         get() = when (this) {
             All -> "Все задачи"
+            SmartSession -> "Сессия 10"
             MyMistakes -> "Мои ошибки"
             WeakPatterns -> "Слабые темы"
+            PatternVision -> "Зоркость"
+            DeepCalculation -> "Расчёт"
             Defense -> "Защита"
             Daily -> "Задача дня"
             is ByTheme -> TrainingLabels.themeDisplayName(theme)
@@ -40,8 +52,11 @@ sealed class TrainingMode {
     val routeKey: String
         get() = when (this) {
             All -> "all"
+            SmartSession -> "smart_session"
             MyMistakes -> "mistakes"
             WeakPatterns -> "weak"
+            PatternVision -> "vision"
+            DeepCalculation -> "calculation"
             Defense -> "defense"
             Daily -> "daily"
             is ByTheme -> "theme_${theme.name}"
@@ -52,8 +67,11 @@ sealed class TrainingMode {
             if (key.isNullOrBlank()) return All
             return when (key) {
                 "all" -> All
+                "smart_session" -> SmartSession
                 "mistakes" -> MyMistakes
                 "weak" -> WeakPatterns
+                "vision" -> PatternVision
+                "calculation" -> DeepCalculation
                 "defense" -> Defense
                 "daily" -> Daily
                 else -> {

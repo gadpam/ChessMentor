@@ -179,9 +179,9 @@ object TrainingRatingCalculator {
 
     /**
      * Минимальное разумное время первичной оценки позиции (в мс) перед первым ходом.
-     * Ошибка быстрее этого порога диагностируется как импульсивный ход («игра руками»).
+     * В режиме «Расчёт» порог строже (требуется просчёт варианта), в режиме «Зоркость» — мягче.
      */
-    fun impulsiveThresholdMs(exercise: Exercise?): Long {
+    fun impulsiveThresholdMs(exercise: Exercise?, mode: TrainingMode? = null): Long {
         if (exercise == null) return 4_000L
         val diff = exercise.getEffectiveDifficulty().coerceIn(0, 100)
         val multiMove = exercise.solutionMoves.size >= 3
@@ -190,7 +190,12 @@ object TrainingRatingCalculator {
             diff < 65 -> 4_500L
             else -> 6_000L
         }
-        return if (multiMove) base + 500L else base
+        val modeAdj = when (mode) {
+            TrainingMode.DeepCalculation -> 2_000L
+            TrainingMode.PatternVision -> -1_000L
+            else -> 0L
+        }
+        return (base + (if (multiMove) 500L else 0L) + modeAdj).coerceAtLeast(1_800L)
     }
 
     /**
@@ -199,11 +204,12 @@ object TrainingRatingCalculator {
     fun isImpulsiveMistake(
         firstMoveThinkMs: Long?,
         exercise: Exercise?,
-        isFirstMoveOfPuzzle: Boolean
+        isFirstMoveOfPuzzle: Boolean,
+        mode: TrainingMode? = null
     ): Boolean {
         if (!isFirstMoveOfPuzzle || firstMoveThinkMs == null) return false
         if (firstMoveThinkMs < 150L) return false
-        return firstMoveThinkMs < impulsiveThresholdMs(exercise)
+        return firstMoveThinkMs < impulsiveThresholdMs(exercise, mode)
     }
 
     /**

@@ -22,12 +22,15 @@ import com.example.chessmentor.domain.training.HintUsage
 import com.example.chessmentor.domain.training.InterleavedPatternQueue
 import com.example.chessmentor.domain.training.PuzzleQualityEvaluator
 import com.example.chessmentor.domain.training.ReviewCardState
+import com.example.chessmentor.domain.training.SessionPhase
+import com.example.chessmentor.domain.training.SessionSummary
 import com.example.chessmentor.domain.training.SolutionReviewHelper
 import com.example.chessmentor.domain.training.SolutionReviewStep
 import com.example.chessmentor.domain.training.SpacedRepetitionScheduler
 import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.training.TrainingRatingCalculator
+import com.example.chessmentor.domain.training.TrainingSessionPlanner
 import com.example.chessmentor.domain.usecase.GenerateExercisesFromMistakesUseCase
 import com.example.chessmentor.domain.usecase.GetTrainingExerciseUseCase
 import com.example.chessmentor.domain.util.ChessMoveUtils
@@ -93,6 +96,12 @@ data class TrainingUiState(
     val currentStepNumber: Int = 1,
     val totalPlayerSteps: Int = 1,
     val isAnimatingIntro: Boolean = false,
+
+    // Структурированная сессия (TrainingMode.SmartSession)
+    val sessionStepNumber: Int = 0,
+    val sessionTotalSteps: Int = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
+    val sessionPhase: SessionPhase? = null,
+    val sessionSummary: SessionSummary? = null,
 
     // Пост-разбор решения и свободный анализ со Stockfish
     val reviewSteps: List<SolutionReviewStep> = emptyList(),
@@ -183,6 +192,31 @@ class TrainingViewModel(
     /** Очередь отложенного чередования мотивов (interleaved practice вместо предсказуемых блоков подряд). */
     private val interleavedQueue = InterleavedPatternQueue()
 
+    // Состояние активной структурированной сессии (10 задач)
+    private var smartSessionStep: Int = 0
+    private var smartSessionCleanCount: Int = 0
+    private var smartSessionSolvedCount: Int = 0
+    private var smartSessionFailedCount: Int = 0
+    private var smartSessionImpulsiveCount: Int = 0
+    private var smartSessionNetElo: Int = 0
+    private var smartSessionTotalSeconds: Int = 0
+    private var smartSessionOutcomeRecorded: Boolean = false
+    private val smartSessionSeenIds = mutableSetOf<Long>()
+    private val smartSessionMissedPatterns = mutableListOf<String>()
+
+    private fun resetSmartSessionTrackers() {
+        smartSessionStep = 0
+        smartSessionCleanCount = 0
+        smartSessionSolvedCount = 0
+        smartSessionFailedCount = 0
+        smartSessionImpulsiveCount = 0
+        smartSessionNetElo = 0
+        smartSessionTotalSeconds = 0
+        smartSessionOutcomeRecorded = false
+        smartSessionSeenIds.clear()
+        smartSessionMissedPatterns.clear()
+    }
+
     // ================================================================
     // ИНИЦИАЛИЗАЦИЯ И ПЕРЕКЛЮЧЕНИЕ РЕЖИМОВ
     // ================================================================
@@ -200,14 +234,47 @@ class TrainingViewModel(
 
         if (isNewUser) {
             interleavedQueue.clear()
+            resetSmartSessionTrackers()
             completedRatedSittings = 0
             val targetMode = initialMode ?: TrainingMode.All
             _uiState.value = TrainingUiState(mode = targetMode)
             initializeExercisesAndLoad(targetMode)
         } else if (modeChangedByNavigation && initialMode != null) {
             selectMode(initialMode)
-        } else if (currentExercise == null && !_uiState.value.isLoading) {
+        } else if (currentExercise == null && !_uiState.value.isLoading && _uiState.value.sessionSummary == null) {
             initializeExercisesAndLoad(_uiState.value.mode)
+        }
+    }
+
+    /**
+     * Запускает новую структурированную сессию из 10 задач с первой разминочной позиции.
+     */
+    fun restartSmartSession() {
+        val userId = currentUser?.id ?: return
+        currentJob?.cancel()
+        interleavedQueue.clear()
+        resetSmartSessionTrackers()
+        smartSessionStep = 1
+        val firstPhase = TrainingSessionPlanner.phaseForStep(1)
+
+        _uiState.value = _uiState.value.copy(
+            mode = TrainingMode.SmartSession,
+            isLoading = true,
+            isInputLocked = true,
+            hasNoUserMistakes = false,
+            sessionSummary = null,
+            sessionStepNumber = 1,
+            sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
+            sessionPhase = firstPhase,
+            arrows = emptyList(),
+            highlights = emptyList(),
+            lastRatingDelta = null,
+            feedbackMessage = "Готовим сессию из ${TrainingSessionPlanner.DEFAULT_SESSION_SIZE} задач..."
+        )
+
+        currentJob = viewModelScope.launch {
+            runCatching { CuratedExerciseBank.ensureSeeded(container.exerciseRepository) }
+            loadNextExerciseInternal(userId, excludeId = -1L, mode = TrainingMode.SmartSession)
         }
     }
 
@@ -216,13 +283,24 @@ class TrainingViewModel(
      */
     fun selectMode(mode: TrainingMode) {
         val userId = currentUser?.id ?: return
+        if (mode is TrainingMode.SmartSession && _uiState.value.sessionSummary != null) {
+            restartSmartSession()
+            return
+        }
         if (_uiState.value.mode == mode && currentExercise != null && !_uiState.value.isLoading) {
             return
         }
 
         currentJob?.cancel()
-        if (mode !is TrainingMode.All) {
+        if (mode !is TrainingMode.All && mode !is TrainingMode.SmartSession) {
             interleavedQueue.clear()
+        }
+        resetSmartSessionTrackers()
+        val initialPhase = if (mode is TrainingMode.SmartSession) {
+            smartSessionStep = 1
+            TrainingSessionPlanner.phaseForStep(1)
+        } else {
+            null
         }
 
         _uiState.value = _uiState.value.copy(
@@ -230,6 +308,10 @@ class TrainingViewModel(
             isLoading = true,
             isInputLocked = true,
             hasNoUserMistakes = false,
+            sessionSummary = null,
+            sessionStepNumber = smartSessionStep,
+            sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
+            sessionPhase = initialPhase,
             similarExercisesQueued = 0,
             arrows = emptyList(),
             highlights = emptyList(),
@@ -261,11 +343,23 @@ class TrainingViewModel(
         val userId = currentUser?.id ?: return
         currentJob?.cancel()
 
+        resetSmartSessionTrackers()
+        val initialPhase = if (mode is TrainingMode.SmartSession) {
+            smartSessionStep = 1
+            TrainingSessionPlanner.phaseForStep(1)
+        } else {
+            null
+        }
+
         _uiState.value = _uiState.value.copy(
             mode = mode,
             isLoading = true,
             isInputLocked = true,
             hasNoUserMistakes = false,
+            sessionSummary = null,
+            sessionStepNumber = smartSessionStep,
+            sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
+            sessionPhase = initialPhase,
             feedbackMessage = "Подготавливаем задачи..."
         )
 
@@ -357,16 +451,56 @@ class TrainingViewModel(
 
     fun loadNextExercise() {
         val userId = currentUser?.id ?: return
-        val currentMode = _uiState.value.mode
+        val state = _uiState.value
+        val currentMode = state.mode
         val excludeId = currentExercise?.id ?: -1L
+
+        // Структурированная сессия из 10 задач: после 10-й позиции открываем тренерский отчёт
+        if (currentMode is TrainingMode.SmartSession) {
+            finalizeCurrentSessionExerciseIfNeeded()
+            val total = TrainingSessionPlanner.DEFAULT_SESSION_SIZE
+            if (smartSessionStep >= total) {
+                currentJob?.cancel()
+                analysisJob?.cancel()
+                currentExercise = null
+                val summary = TrainingSessionPlanner.buildSessionSummary(
+                    totalExercises = total,
+                    cleanFirstTryCount = smartSessionCleanCount,
+                    solvedTotalCount = smartSessionSolvedCount,
+                    failedOrRevealedCount = smartSessionFailedCount,
+                    impulsiveMistakeCount = smartSessionImpulsiveCount,
+                    netRatingDelta = smartSessionNetElo,
+                    totalTimeSeconds = smartSessionTotalSeconds,
+                    missedPatternNames = smartSessionMissedPatterns
+                )
+                _uiState.value = state.copy(
+                    isLoading = false,
+                    isInputLocked = true,
+                    hasActiveExercise = false,
+                    isFreeAnalysisMode = false,
+                    arrows = emptyList(),
+                    highlights = emptyList(),
+                    sessionSummary = summary,
+                    feedbackMessage = null
+                )
+                return
+            }
+            smartSessionStep = (smartSessionStep + 1).coerceIn(1, total)
+        }
 
         // После завершения «Задачи дня» кнопка «Следующая» плавно переводит в общий поток задач
         val effectiveMode = if (currentMode is TrainingMode.Daily &&
-            (_uiState.value.isSolved || _uiState.value.isSolutionRevealed)
+            (state.isSolved || state.isSolutionRevealed)
         ) {
             TrainingMode.All
         } else {
             currentMode
+        }
+
+        val nextPhase = if (effectiveMode is TrainingMode.SmartSession) {
+            TrainingSessionPlanner.phaseForStep(smartSessionStep)
+        } else {
+            null
         }
 
         currentJob?.cancel()
@@ -375,6 +509,9 @@ class TrainingViewModel(
             mode = effectiveMode,
             isLoading = true,
             isInputLocked = true,
+            sessionSummary = null,
+            sessionStepNumber = if (effectiveMode is TrainingMode.SmartSession) smartSessionStep else 0,
+            sessionPhase = nextPhase,
             arrows = emptyList(),
             highlights = emptyList(),
             lastRatingDelta = null,
@@ -385,6 +522,18 @@ class TrainingViewModel(
 
         currentJob = viewModelScope.launch {
             loadNextExerciseInternal(userId, excludeId, effectiveMode)
+        }
+    }
+
+    private fun finalizeCurrentSessionExerciseIfNeeded() {
+        if (_uiState.value.mode !is TrainingMode.SmartSession || smartSessionOutcomeRecorded) return
+        val ex = currentExercise ?: return
+        smartSessionOutcomeRecorded = true
+        val elapsed = ((System.currentTimeMillis() - startTime) / 1000).toInt().coerceIn(1, 600)
+        smartSessionTotalSeconds += elapsed
+        if (attemptFailed || _uiState.value.isSolutionRevealed) {
+            smartSessionFailedCount++
+            smartSessionMissedPatterns.add(ex.tacticalPattern.displayName)
         }
     }
 
@@ -531,34 +680,60 @@ class TrainingViewModel(
         try {
             // Отложенное закрепление (interleaved practice): если подошёл срок мотива после 2+ других задач —
             // незаметно подмешиваем его без предварительной подсказки.
-            val dueInterleavedPattern = if (mode is TrainingMode.All) {
+            val isSmart = mode is TrainingMode.SmartSession
+            val activePhase = if (isSmart) {
+                if (smartSessionStep <= 0) smartSessionStep = 1
+                TrainingSessionPlanner.phaseForStep(smartSessionStep)
+            } else {
+                null
+            }
+            val dueInterleavedPattern = if (mode is TrainingMode.All || activePhase == SessionPhase.CORE_INTERLEAVED) {
                 interleavedQueue.pollDuePattern()
             } else {
                 null
             }
             val avoidRepeatedPattern = interleavedQueue.lastServedPattern
+            val sessionExclusions = if (isSmart) smartSessionSeenIds.toSet() else emptySet()
 
             val result = container.getTrainingExerciseUseCase.execute(
                 GetTrainingExerciseUseCase.Input(
                     userId = userId,
                     excludeExerciseId = excludeId,
+                    excludeExerciseIds = sessionExclusions,
                     preferredPattern = dueInterleavedPattern,
                     avoidPattern = avoidRepeatedPattern,
+                    sessionPhase = activePhase,
                     mode = mode
                 )
             )
 
-            // Если кроме только что решённой задачи других в этом режиме нет — разрешаем повтор
-            val finalResult = if (result is GetTrainingExerciseUseCase.Result.NoSuitableExercises && excludeId != -1L) {
+            // Если кроме только что решённых задач других в этом режиме нет — мягкий откат
+            val finalResult = if (result is GetTrainingExerciseUseCase.Result.NoSuitableExercises &&
+                (excludeId != -1L || sessionExclusions.isNotEmpty())
+            ) {
                 container.getTrainingExerciseUseCase.execute(
                     GetTrainingExerciseUseCase.Input(
                         userId = userId,
-                        excludeExerciseId = -1L,
+                        excludeExerciseId = excludeId,
+                        excludeExerciseIds = emptySet(),
                         preferredPattern = null,
                         avoidPattern = null,
+                        sessionPhase = activePhase,
                         mode = mode
                     )
-                )
+                ).let { second ->
+                    if (second is GetTrainingExerciseUseCase.Result.NoSuitableExercises && excludeId != -1L) {
+                        container.getTrainingExerciseUseCase.execute(
+                            GetTrainingExerciseUseCase.Input(
+                                userId = userId,
+                                excludeExerciseId = -1L,
+                                mode = mode
+                            )
+                        )
+                    } else {
+                        second
+                    }
+                }
             } else {
                 result
             }
@@ -567,6 +742,15 @@ class TrainingViewModel(
                 is GetTrainingExerciseUseCase.Result.Success -> {
                     completedRatedSittings = finalResult.completedRatedSittings
                     interleavedQueue.onExerciseServed(finalResult.exercise.tacticalPattern.name)
+                    if (isSmart) {
+                        finalResult.exercise.id?.let { smartSessionSeenIds.add(it) }
+                        _uiState.value = _uiState.value.copy(
+                            sessionStepNumber = smartSessionStep,
+                            sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
+                            sessionPhase = activePhase,
+                            sessionSummary = null
+                        )
+                    }
                     setupExercise(
                         exercise = finalResult.exercise,
                         mode = mode,
@@ -632,6 +816,7 @@ class TrainingViewModel(
         initialTriggerMoveUci = null
         currentCuratedExplanation = null
         lastMistakeCoachingNote = null
+        smartSessionOutcomeRecorded = false
     }
 
     private suspend fun setupExercise(
@@ -698,6 +883,7 @@ class TrainingViewModel(
             isAlreadySolvedDaily -> "✓ Задача дня уже решена сегодня — можно перерешать без изменения рейтинга"
             reviewState != null -> SpacedRepetitionScheduler.formatReviewBanner(reviewState)
             isReviewOfFailed -> "🔁 Повтор задачи, в которой ранее была ошибка"
+            mode is TrainingMode.DeepCalculation -> "🧠 Досчитайте весь форсированный вариант до первого хода"
             else -> null
         }
 
@@ -1126,11 +1312,13 @@ class TrainingViewModel(
 
         // Детектор импульсивного первого хода («игры руками» без расчёта ответа соперника)
         val thinkMs = firstMoveThinkTimeMs
+        val activeMode = _uiState.value.mode
         val wasImpulsiveFirstMove = isFirstMistakeOnExercise &&
             TrainingRatingCalculator.isImpulsiveMistake(
                 firstMoveThinkMs = thinkMs,
                 exercise = exercise,
-                isFirstMoveOfPuzzle = currentMoveIndex == 0
+                isFirstMoveOfPuzzle = currentMoveIndex == 0,
+                mode = activeMode
             )
 
         attemptMistakeCount++
@@ -1167,6 +1355,13 @@ class TrainingViewModel(
                 if (guessPenalty != 0) {
                     appliedDelta = guessPenalty
                 }
+            }
+        }
+
+        if (activeMode is TrainingMode.SmartSession) {
+            smartSessionNetElo += (appliedDelta ?: 0)
+            if (wasImpulsiveFirstMove) {
+                smartSessionImpulsiveCount++
             }
         }
 
@@ -1406,7 +1601,8 @@ class TrainingViewModel(
      * через 2 и 5 задач на другие темы — без механических «блоков подряд» и без спойлера.
      */
     private fun scheduleInterleavedReinforcement(analysis: MistakeAnalysis?) {
-        if (_uiState.value.mode !is TrainingMode.All) return
+        val mode = _uiState.value.mode
+        if (mode !is TrainingMode.All && mode !is TrainingMode.SmartSession) return
         val pattern = analysis?.tacticalMotif?.let { TacticalPattern.fromMotif(it) }
             ?: currentExercise?.tacticalPattern
             ?: return
@@ -1666,9 +1862,28 @@ class TrainingViewModel(
             0
         }
 
+        val solveSeconds = ((System.currentTimeMillis() - startTime) / 1000).toInt().coerceIn(1, 600)
+        val activeMode = _uiState.value.mode
+        val isCleanFirstTry = !attemptFailed && maxHintUsed == HintUsage.NONE && !isCurrentDailyAlreadySolved
+
+        // Фиксируем результат шага структурированной сессии (10 задач)
+        if (activeMode is TrainingMode.SmartSession && !smartSessionOutcomeRecorded) {
+            smartSessionOutcomeRecorded = true
+            smartSessionTotalSeconds += solveSeconds
+            smartSessionNetElo += ratingDelta
+            if (!usedFullHint) {
+                smartSessionSolvedCount++
+            }
+            if (isCleanFirstTry) {
+                smartSessionCleanCount++
+            } else if (attemptFailed || usedFullHint) {
+                smartSessionFailedCount++
+                exercise?.tacticalPattern?.displayName?.let { smartSessionMissedPatterns.add(it) }
+            }
+        }
+
         // Чистое решение (без раскрытия полного ответа и без ошибок) увеличивает серию
         val stats = _uiState.value.sessionStats
-        val isCleanFirstTry = !attemptFailed && maxHintUsed == HintUsage.NONE && !isCurrentDailyAlreadySolved
         val countsForStreak = !attemptFailed && !usedFullHint && !isCurrentDailyAlreadySolved
         val newStreak = if (countsForStreak) stats.currentStreak + 1 else stats.currentStreak
         val newBestStreak = maxOf(stats.bestStreak, newStreak)
@@ -1679,8 +1894,19 @@ class TrainingViewModel(
             usedFullHint -> " (с подсказкой хода: +0 Эло)"
             else -> ""
         }
+        val cognitiveNote = if (exercise != null) {
+            TrainingSessionPlanner.formatCognitiveModeFeedback(
+                mode = activeMode,
+                exercise = exercise,
+                solveTimeSeconds = solveSeconds,
+                isCleanFirstTry = isCleanFirstTry
+            )?.let { "\n$it" } ?: ""
+        } else {
+            ""
+        }
 
         val postReview = buildPostSolveReviewState()
+        val combinedMessage = msg + ratingInfo + cognitiveNote
 
         soundCounter++
         _uiState.value = _uiState.value.copy(
@@ -1688,7 +1914,7 @@ class TrainingViewModel(
             isInputLocked = true,
             isFreeAnalysisMode = false,
             lastRatingDelta = if (isCurrentDailyAlreadySolved) null else ratingDelta,
-            feedbackMessage = msg + ratingInfo,
+            feedbackMessage = combinedMessage,
             reviewSteps = postReview.first,
             reviewStepIndex = (postReview.first.size - 1).coerceAtLeast(0),
             solutionSanLine = postReview.second.ifBlank { null },
@@ -1711,7 +1937,7 @@ class TrainingViewModel(
         // а подсказка готовым ходом — как нерешённая попытка (коробка 0, повтор через 10 мин)
         val markAsSolvedInDb = !usedFullHint && !isCurrentDailyAlreadySolved
         val markFullHintForReview = usedFullHint && !isCurrentDailyAlreadySolved && !failedAttemptSaved
-        val baseFeedback = msg + ratingInfo
+        val baseFeedback = combinedMessage
 
         viewModelScope.launch {
             try {
@@ -2044,6 +2270,8 @@ class TrainingViewModel(
         currentJob?.cancel()
         generationJob?.cancel()
         analysisJob?.cancel()
+        interleavedQueue.clear()
+        resetSmartSessionTrackers()
         onUserUpdatedCallback = null
     }
 }

@@ -315,9 +315,12 @@ class TrainingRatingCalculatorTest {
     fun trainingMode_routeKeyRoundTripsAllModes() {
         val modes = listOf(
             TrainingMode.All,
+            TrainingMode.SmartSession,
             TrainingMode.Daily,
             TrainingMode.MyMistakes,
             TrainingMode.WeakPatterns,
+            TrainingMode.PatternVision,
+            TrainingMode.DeepCalculation,
             TrainingMode.Defense
         ) + TrainingMode.selectableThemes.map { TrainingMode.ByTheme(it) }
 

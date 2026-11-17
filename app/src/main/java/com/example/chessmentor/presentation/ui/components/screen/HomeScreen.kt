@@ -42,6 +42,7 @@ fun HomeScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToTraining: () -> Unit,
     onNavigateToDailyPuzzle: () -> Unit = onNavigateToTraining,
+    onNavigateToSmartSession: () -> Unit = onNavigateToTraining,
     message: String,
     isLoading: Boolean,
     onMessageDismiss: () -> Unit,
@@ -90,6 +91,7 @@ fun HomeScreen(
             container = container,
             onLogout = onLogout,
             onNavigateToDailyPuzzle = onNavigateToDailyPuzzle,
+            onNavigateToSmartSession = onNavigateToSmartSession,
             onNavigateToSettings = onNavigateToSettings
         )
     }
@@ -493,6 +495,7 @@ fun DashboardContent(
     @Suppress("UNUSED_PARAMETER")
     onLogout: () -> Unit,
     onNavigateToDailyPuzzle: () -> Unit,
+    onNavigateToSmartSession: () -> Unit = onNavigateToDailyPuzzle,
     onNavigateToSettings: () -> Unit
 ) {
     val epochDay = remember { CuratedExerciseBank.currentEpochDay() }
@@ -535,7 +538,8 @@ fun DashboardContent(
                 puzzle = dailyPuzzle,
                 isSolved = isDailySolved,
                 preferredTheme = user.preferredTheme,
-                onClick = onNavigateToDailyPuzzle
+                onClick = onNavigateToDailyPuzzle,
+                onStartSmartSession = onNavigateToSmartSession
             )
         }
 
@@ -629,7 +633,8 @@ fun DailyPuzzleWidget(
     },
     isSolved: Boolean = false,
     preferredTheme: String? = null,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onStartSmartSession: (() -> Unit)? = null
 ) {
     val board = remember(puzzle.fen) {
         Board().apply { loadFromFen(puzzle.fen) }
@@ -748,6 +753,15 @@ fun DailyPuzzleWidget(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Text(if (isSolved) "Повторить" else "Решить сейчас")
+                    }
+                    if (onStartSmartSession != null) {
+                        OutlinedButton(
+                            onClick = onStartSmartSession,
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text("Сессия 10 задач", fontSize = 12.sp)
+                        }
                     }
                 }
             }

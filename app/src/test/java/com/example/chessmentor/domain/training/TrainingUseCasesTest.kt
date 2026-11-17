@@ -615,4 +615,70 @@ class TrainingUseCasesTest {
         assertEquals(TacticalPattern.FORK_KNIGHT, training.weakPatterns.first().pattern)
         assertEquals(TacticalPattern.BACK_RANK_MATE, training.strongPatterns.first().pattern)
     }
+
+    @Test
+    fun smartSessionAndCognitiveModes_serveDistinctTargetedExercises() = runBlocking {
+        val userRepo = FakeUserRepository()
+        val mistakeRepo = FakeMistakeRepository()
+        val exerciseRepo = FakeExerciseRepository()
+        val player = userRepo.save(
+            User(nickname = "Coach", email = "coach@example.com", passwordHash = "h", rating = 1650)
+        )
+        val useCase = GetTrainingExerciseUseCase(userRepo, mistakeRepo, exerciseRepo)
+
+        // 1. Полная «Умная сессия» из 10 задач без единого повтора, с проверкой защиты и глубокого расчёта
+        val servedIds = mutableSetOf<Long>()
+        var lastPattern: String? = null
+        var step7Defensive = false
+        var step9MultiMove = false
+
+        for (step in 1..TrainingSessionPlanner.DEFAULT_SESSION_SIZE) {
+            val phase = TrainingSessionPlanner.phaseForStep(step)
+            val res = useCase.execute(
+                GetTrainingExerciseUseCase.Input(
+                    userId = player.id!!,
+                    excludeExerciseIds = servedIds,
+                    avoidPattern = lastPattern,
+                    sessionPhase = phase,
+                    mode = TrainingMode.SmartSession,
+                    nowMs = 1_000_000L + step * 30_000L
+                )
+            )
+            assertTrue("Step $step must return Success", res is GetTrainingExerciseUseCase.Result.Success)
+            val ex = (res as GetTrainingExerciseUseCase.Result.Success).exercise
+            assertTrue("Session must not repeat exercise ${ex.id}", servedIds.add(ex.id!!))
+            if (step == 7) {
+                step7Defensive = ExerciseMetadata.isDefensiveGoal(ex) || ex.theme == TacticalTheme.KING_SAFETY
+            }
+            if (step == 9) {
+                step9MultiMove = ex.solutionMoves.size >= 3
+            }
+            lastPattern = ex.tacticalPattern.name
+        }
+
+        assertEquals(10, servedIds.size)
+        assertTrue("Step 7 must test defensive/saving alertness", step7Defensive)
+        assertTrue("Step 9 must require multi-move calculation", step9MultiMove)
+
+        // 2. Режим «Защита»
+        val defRes = useCase.execute(
+            GetTrainingExerciseUseCase.Input(userId = player.id!!, mode = TrainingMode.Defense)
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertTrue(
+            ExerciseMetadata.isDefensiveGoal(defRes.exercise) ||
+                defRes.exercise.theme == TacticalTheme.KING_SAFETY
+        )
+
+        // 3. Режим «Зоркость» (короткие паттерны <= 3 полуходов)
+        val visionRes = useCase.execute(
+            GetTrainingExerciseUseCase.Input(userId = player.id!!, mode = TrainingMode.PatternVision)
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertTrue(visionRes.exercise.solutionMoves.size <= 3)
+
+        // 4. Режим «Расчёт» (многоходовые комбинации >= 5 полуходов для 1650 Эло)
+        val calcRes = useCase.execute(
+            GetTrainingExerciseUseCase.Input(userId = player.id!!, mode = TrainingMode.DeepCalculation)
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertTrue(calcRes.exercise.solutionMoves.size >= 5)
+    }
 }

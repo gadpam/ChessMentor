@@ -61,6 +61,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -89,6 +90,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.training.SessionSummary
 import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.util.ChessMoveUtils
@@ -303,6 +305,7 @@ fun TrainingScreen(
             }
         }
     ) { innerPadding ->
+        val activeSummary = uiState.sessionSummary
         when {
             uiState.isLoading -> {
                 Box(
@@ -327,6 +330,20 @@ fun TrainingScreen(
                 }
             }
 
+            activeSummary != null -> {
+                SessionSummaryCard(
+                    summary = activeSummary,
+                    onRestartSession = { viewModel.restartSmartSession() },
+                    onSwitchToFreeTraining = { viewModel.selectMode(TrainingMode.All) },
+                    onPracticeWeakPatterns = { viewModel.selectMode(TrainingMode.WeakPatterns) },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                )
+            }
+
             !uiState.hasActiveExercise -> {
                 EmptyTrainingState(
                     modifier = Modifier
@@ -348,6 +365,11 @@ fun TrainingScreen(
                         .padding(horizontal = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // Прогресс структурированной сессии (10 задач)
+                    if (uiState.mode is TrainingMode.SmartSession && uiState.sessionStepNumber > 0) {
+                        SmartSessionProgressBar(uiState = uiState)
+                    }
+
                     // Компактная информационная строка текущей задачи
                     ExerciseMetaStrip(uiState = uiState)
 
@@ -471,6 +493,14 @@ private fun ModeSelectorRow(
     ) {
         item {
             FilterChip(
+                selected = selectedMode is TrainingMode.SmartSession,
+                onClick = { onSelectMode(TrainingMode.SmartSession) },
+                enabled = enabled,
+                label = { Text("Сессия 10") }
+            )
+        }
+        item {
+            FilterChip(
                 selected = selectedMode is TrainingMode.All,
                 onClick = { onSelectMode(TrainingMode.All) },
                 enabled = enabled,
@@ -483,6 +513,30 @@ private fun ModeSelectorRow(
                 onClick = { onSelectMode(TrainingMode.Daily) },
                 enabled = enabled,
                 label = { Text("Задача дня") }
+            )
+        }
+        item {
+            FilterChip(
+                selected = selectedMode is TrainingMode.PatternVision,
+                onClick = { onSelectMode(TrainingMode.PatternVision) },
+                enabled = enabled,
+                label = { Text("Зоркость") }
+            )
+        }
+        item {
+            FilterChip(
+                selected = selectedMode is TrainingMode.DeepCalculation,
+                onClick = { onSelectMode(TrainingMode.DeepCalculation) },
+                enabled = enabled,
+                label = { Text("Расчёт") }
+            )
+        }
+        item {
+            FilterChip(
+                selected = selectedMode is TrainingMode.Defense,
+                onClick = { onSelectMode(TrainingMode.Defense) },
+                enabled = enabled,
+                label = { Text("Защита") }
             )
         }
         item {
@@ -504,14 +558,6 @@ private fun ModeSelectorRow(
                 onClick = { onSelectMode(TrainingMode.WeakPatterns) },
                 enabled = enabled,
                 label = { Text(reviewLabel) }
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.Defense,
-                onClick = { onSelectMode(TrainingMode.Defense) },
-                enabled = enabled,
-                label = { Text("Защита") }
             )
         }
         item {
@@ -563,6 +609,206 @@ private fun ModeSelectorRow(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SmartSessionProgressBar(uiState: TrainingUiState) {
+    val total = uiState.sessionTotalSteps.coerceAtLeast(1)
+    val step = uiState.sessionStepNumber.coerceIn(1, total)
+    val completed = if (uiState.isSolved || uiState.isSolutionRevealed) step else (step - 1)
+    val progress = (completed.toFloat() / total.toFloat()).coerceIn(0.05f, 1f)
+    val phaseText = uiState.sessionPhase?.let { phase ->
+        if (uiState.isSolved || uiState.isSolutionRevealed) phase.displayName else phase.preSolveLabel
+    } ?: "Тренировка"
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 2.dp, bottom = 2.dp, start = 2.dp, end = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Задача $step из $total • $phaseText",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = "Чисто: ${uiState.sessionStats.cleanFirstTrySolved}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp))
+        )
+    }
+}
+
+@Composable
+private fun SessionSummaryCard(
+    summary: SessionSummary,
+    onRestartSession: () -> Unit,
+    onSwitchToFreeTraining: () -> Unit,
+    onPracticeWeakPatterns: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val eloSign = if (summary.netRatingDelta >= 0) "+${summary.netRatingDelta}" else "${summary.netRatingDelta}"
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Default.EmojiEvents,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(40.dp)
+                )
+                Text(
+                    text = summary.headline,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "Сессия из ${summary.totalExercises} задач завершена",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    SummaryStatPill(
+                        label = "С 1-й попытки",
+                        value = "${summary.cleanFirstTryCount}/${summary.totalExercises} (${summary.firstTryAccuracyPercent}%)"
+                    )
+                    SummaryStatPill(
+                        label = "Рейтинг",
+                        value = "$eloSign Эло"
+                    )
+                    SummaryStatPill(
+                        label = "Ср. время",
+                        value = "${summary.averageTimeSeconds} с"
+                    )
+                }
+
+                if (summary.impulsiveMistakeCount > 0) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "⚡ Поспешных первых ходов: ${summary.impulsiveMistakeCount}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+
+                if (summary.missedPatternNames.isNotEmpty()) {
+                    Text(
+                        text = "Темы для повторения: ${summary.missedPatternNames.joinToString(", ")}",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = summary.coachTakeaway,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+        }
+
+        Button(
+            onClick = onRestartSession,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("Новая сессия (10 задач)", fontWeight = FontWeight.Bold)
+        }
+
+        if (summary.missedPatternNames.isNotEmpty()) {
+            OutlinedButton(
+                onClick = onPracticeWeakPatterns,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Закрепить слабые темы")
+            }
+        }
+
+        TextButton(
+            onClick = onSwitchToFreeTraining,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Перейти в свободную тренировку")
+        }
+    }
+}
+
+@Composable
+private fun SummaryStatPill(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -1182,6 +1428,9 @@ private fun BottomControlPanel(
                     }
                 }
 
+                val isFinalSessionPuzzle = uiState.mode is TrainingMode.SmartSession &&
+                    uiState.sessionStepNumber >= uiState.sessionTotalSteps
+
                 Button(
                     onClick = onNextExercise,
                     modifier = Modifier
@@ -1190,12 +1439,19 @@ private fun BottomControlPanel(
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
-                        text = "Следующая задача",
+                        text = if (isFinalSessionPuzzle) "Подвести итоги сессии" else "Следующая задача",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.width(8.dp))
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
+                    Icon(
+                        imageVector = if (isFinalSessionPuzzle) {
+                            Icons.Default.EmojiEvents
+                        } else {
+                            Icons.AutoMirrored.Filled.ArrowForward
+                        },
+                        contentDescription = null
+                    )
                 }
             } else {
                 val showBetterButton = uiState.showBetterMoveHint && !uiState.betterMoveShown

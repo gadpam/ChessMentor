@@ -11,11 +11,14 @@ import com.example.chessmentor.domain.repository.ExerciseRepository
 import com.example.chessmentor.domain.repository.MistakeRepository
 import com.example.chessmentor.domain.repository.UserRepository
 import com.example.chessmentor.domain.training.CuratedExerciseBank
+import com.example.chessmentor.domain.training.ExerciseMetadata
 import com.example.chessmentor.domain.training.MasteryLevel
 import com.example.chessmentor.domain.training.ReviewCardState
+import com.example.chessmentor.domain.training.SessionPhase
 import com.example.chessmentor.domain.training.SpacedRepetitionScheduler
 import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.training.TrainingRatingCalculator
+import com.example.chessmentor.domain.training.TrainingSessionPlanner
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import kotlin.math.abs
 import kotlin.random.Random
@@ -44,9 +47,13 @@ class GetTrainingExerciseUseCase(
     data class Input(
         val userId: Long,
         val excludeExerciseId: Long = -1,
+        /** Набор уже сыгранных в текущей сессии ID задач — исключает повторы внутри сессии. */
+        val excludeExerciseIds: Set<Long> = emptySet(),
         val preferredPattern: String? = null,
         /** Последний сыгранный мотив — по возможности не выдаём два одинаковых подряд (interleaving). */
         val avoidPattern: String? = null,
+        /** Фаза структурированной сессии (для [TrainingMode.SmartSession]). */
+        val sessionPhase: SessionPhase? = null,
         val mode: TrainingMode = TrainingMode.All,
         val epochDay: Long = CuratedExerciseBank.currentEpochDay(),
         val nowMs: Long = System.currentTimeMillis()
@@ -85,7 +92,18 @@ class GetTrainingExerciseUseCase(
             CuratedExerciseBank.ensureSeeded(exerciseRepository)
         }
 
-        val snapshot = loadLearningSnapshot(userId, input.nowMs)
+        val baseSnapshot = loadLearningSnapshot(userId, input.nowMs)
+        // Если передан список исключённых задач сессии — фильтруем пул заранее
+        val snapshot = if (input.excludeExerciseIds.isNotEmpty()) {
+            baseSnapshot.copy(
+                accessible = baseSnapshot.accessible.filter { ex ->
+                    val id = ex.id
+                    id == null || id !in input.excludeExerciseIds
+                }
+            )
+        } else {
+            baseSnapshot
+        }
 
         Log.d(
             TAG,
@@ -93,7 +111,33 @@ class GetTrainingExerciseUseCase(
         )
 
         return when (val mode = input.mode) {
-            TrainingMode.Daily -> selectDailyExercise(userId, input.epochDay, snapshot)
+            TrainingMode.Daily -> selectDailyExercise(userId, input.epochDay, baseSnapshot)
+            TrainingMode.SmartSession -> selectSmartSessionExercise(
+                user = user,
+                userId = userId,
+                phase = input.sessionPhase ?: TrainingSessionPlanner.phaseForStep(1),
+                excludeId = input.excludeExerciseId,
+                preferredPattern = input.preferredPattern,
+                avoidPattern = input.avoidPattern,
+                nowMs = input.nowMs,
+                snapshot = snapshot
+            )
+            TrainingMode.PatternVision -> selectPatternVisionExercise(
+                user = user,
+                excludeId = input.excludeExerciseId,
+                avoidPattern = input.avoidPattern,
+                nowMs = input.nowMs,
+                snapshot = snapshot,
+                difficultyOffset = -10
+            )
+            TrainingMode.DeepCalculation -> selectDeepCalculationExercise(
+                user = user,
+                excludeId = input.excludeExerciseId,
+                avoidPattern = input.avoidPattern,
+                nowMs = input.nowMs,
+                snapshot = snapshot,
+                difficultyOffset = 10
+            )
             TrainingMode.MyMistakes -> selectUserMistakeExercise(user, userId, input.excludeExerciseId, input.avoidPattern, input.nowMs, snapshot)
             TrainingMode.WeakPatterns -> selectWeakPatternExercise(user, userId, input.excludeExerciseId, input.avoidPattern, input.nowMs, snapshot)
             TrainingMode.Defense -> selectDefenseExercise(user, input.excludeExerciseId, input.avoidPattern, input.nowMs, snapshot)
@@ -295,6 +339,210 @@ class GetTrainingExerciseUseCase(
     }
 
     /**
+     * Структурированная осознанная тренировка из 10 задач:
+     * 1–2 разминка («Зоркость») → 3–5 интервальный повтор и свои партии →
+     * 6, 8 чередование мотивов → 7 проверка защиты → 9–10 глубокий расчёт.
+     */
+    private suspend fun selectSmartSessionExercise(
+        user: User,
+        userId: Long,
+        phase: SessionPhase,
+        excludeId: Long,
+        preferredPattern: String?,
+        avoidPattern: String?,
+        nowMs: Long,
+        snapshot: LearningSnapshot
+    ): Result {
+        val primary = when (phase) {
+            SessionPhase.WARMUP -> selectPatternVisionExercise(
+                user = user,
+                excludeId = excludeId,
+                avoidPattern = avoidPattern,
+                nowMs = nowMs,
+                snapshot = snapshot,
+                difficultyOffset = phase.difficultyOffset
+            )
+            SessionPhase.REVIEW_AND_MISTAKES -> {
+                // Приоритет 1: карточки SM-2 по сроку; Приоритет 2: новые свои ошибки; Приоритет 3: слабые мотивы
+                val ownOrDue = selectUserMistakeExercise(user, userId, excludeId, avoidPattern, nowMs, snapshot)
+                if (ownOrDue is Result.Success) {
+                    ownOrDue
+                } else {
+                    selectWeakPatternExercise(user, userId, excludeId, avoidPattern, nowMs, snapshot)
+                }
+            }
+            SessionPhase.DEFENSE_CHECK -> selectDefenseExercise(
+                user = user,
+                excludeId = excludeId,
+                avoidPattern = avoidPattern,
+                nowMs = nowMs,
+                snapshot = snapshot
+            )
+            SessionPhase.CORE_INTERLEAVED -> selectAdaptiveExercise(
+                user = user,
+                userId = userId,
+                excludeId = excludeId,
+                preferredPattern = preferredPattern,
+                avoidPattern = avoidPattern,
+                nowMs = nowMs,
+                snapshot = snapshot
+            )
+            SessionPhase.DEEP_CALCULATION -> selectDeepCalculationExercise(
+                user = user,
+                excludeId = excludeId,
+                avoidPattern = avoidPattern,
+                nowMs = nowMs,
+                snapshot = snapshot,
+                difficultyOffset = phase.difficultyOffset
+            )
+        }
+
+        if (primary is Result.Success) return primary
+        return selectAdaptiveExercise(user, userId, excludeId, preferredPattern, avoidPattern, nowMs, snapshot)
+    }
+
+    /**
+     * Режим «Зоркость» (Система 1 / метод «Дятла»): короткие (1–2 хода игрока),
+     * кристально чёткие тактические мотивы чуть ниже/около текущего уровня для доведения
+     * распознавания паттернов до автоматизма.
+     */
+    private fun selectPatternVisionExercise(
+        user: User,
+        excludeId: Long,
+        avoidPattern: String?,
+        nowMs: Long,
+        snapshot: LearningSnapshot,
+        difficultyOffset: Int
+    ): Result {
+        val targetDiff = (TrainingRatingCalculator.eloToDifficulty(user.rating) + difficultyOffset)
+            .coerceIn(10, 80)
+        val maxVisionDiff = (targetDiff + 18).coerceAtMost(85)
+        val visionFilter: (Exercise) -> Boolean = { ex ->
+            ex.solutionMoves.size <= 3 && ex.getEffectiveDifficulty() <= maxVisionDiff
+        }
+
+        // 1. Подошедшие к повтору короткие паттерны (идеально для метода «Дятла»)
+        SpacedRepetitionScheduler.rankDueExercises(
+            accessibleExercises = snapshot.accessible,
+            schedule = snapshot.schedule,
+            nowMs = nowMs,
+            excludeId = excludeId,
+            filter = visionFilter
+        ).firstOrNull()?.let { (ex, state) ->
+            return buildReviewSuccess(ex, state, snapshot)
+        }
+
+        // 2. Свежие короткие паттерны с чередованием тем
+        pickUnseenExercise(
+            accessible = snapshot.accessible,
+            schedule = snapshot.schedule,
+            targetDifficulty = targetDiff,
+            excludeId = excludeId,
+            prioritizeOwnMistakes = true,
+            avoidPattern = avoidPattern,
+            filter = visionFilter
+        )?.let { ex ->
+            return buildNewSuccess(ex, snapshot)
+        }
+
+        // 3. Повтор изученных коротких паттернов (не находящихся в свежем 10-мин охлаждении) для скорости
+        SpacedRepetitionScheduler.pickFallbackReview(
+            accessibleExercises = snapshot.accessible,
+            schedule = snapshot.schedule,
+            nowMs = nowMs,
+            excludeId = excludeId,
+            filter = { ex ->
+                visionFilter(ex) && (avoidPattern == null || ex.tacticalPattern.name != avoidPattern)
+            }
+        )?.let { (ex, state) ->
+            return buildReviewSuccess(ex, state, snapshot)
+        }
+
+        SpacedRepetitionScheduler.pickFallbackReview(
+            accessibleExercises = snapshot.accessible,
+            schedule = snapshot.schedule,
+            nowMs = nowMs,
+            excludeId = excludeId,
+            filter = visionFilter
+        )?.let { (ex, state) ->
+            return buildReviewSuccess(ex, state, snapshot)
+        }
+
+        return Result.NoSuitableExercises
+    }
+
+    /**
+     * Режим «Расчёт» (Система 2): многоходовые форсированные комбинации и защиты
+     * (приоритет 3+ ходов игрока = 5+ полуходов, затем 2 хода = 3 полухода) чуть выше
+     * текущего уровня для тренировки полноценного расчёта дерева вариантов до первого хода.
+     */
+    private fun selectDeepCalculationExercise(
+        user: User,
+        excludeId: Long,
+        avoidPattern: String?,
+        nowMs: Long,
+        snapshot: LearningSnapshot,
+        difficultyOffset: Int
+    ): Result {
+        val targetDiff = (TrainingRatingCalculator.eloToDifficulty(user.rating) + difficultyOffset)
+            .coerceIn(30, 95)
+        val deepFilter: (Exercise) -> Boolean = { ex -> ex.solutionMoves.size >= 5 }
+        val multiMoveFilter: (Exercise) -> Boolean = { ex -> ex.solutionMoves.size >= 3 }
+
+        // 1. Подошедшие к повтору многоходовые задачи
+        SpacedRepetitionScheduler.rankDueExercises(
+            accessibleExercises = snapshot.accessible,
+            schedule = snapshot.schedule,
+            nowMs = nowMs,
+            excludeId = excludeId,
+            filter = multiMoveFilter
+        ).firstOrNull()?.let { (ex, state) ->
+            return buildReviewSuccess(ex, state, snapshot)
+        }
+
+        // 2. Свежие трёхходовые+ комбинации (5+ полуходов), если игрок уже готов (targetDiff >= 48)
+        if (targetDiff >= 48) {
+            pickUnseenExercise(
+                accessible = snapshot.accessible,
+                schedule = snapshot.schedule,
+                targetDifficulty = targetDiff,
+                excludeId = excludeId,
+                prioritizeOwnMistakes = true,
+                avoidPattern = avoidPattern,
+                filter = deepFilter
+            )?.let { ex ->
+                return buildNewSuccess(ex, snapshot)
+            }
+        }
+
+        // 3. Свежие многоходовые комбинации (3+ полуходов)
+        pickUnseenExercise(
+            accessible = snapshot.accessible,
+            schedule = snapshot.schedule,
+            targetDifficulty = targetDiff,
+            excludeId = excludeId,
+            prioritizeOwnMistakes = true,
+            avoidPattern = avoidPattern,
+            filter = multiMoveFilter
+        )?.let { ex ->
+            return buildNewSuccess(ex, snapshot)
+        }
+
+        // 4. Повтор наименее закреплённой многоходовой задачи
+        SpacedRepetitionScheduler.pickFallbackReview(
+            accessibleExercises = snapshot.accessible,
+            schedule = snapshot.schedule,
+            nowMs = nowMs,
+            excludeId = excludeId,
+            filter = multiMoveFilter
+        )?.let { (ex, state) ->
+            return buildReviewSuccess(ex, state, snapshot)
+        }
+
+        return Result.NoSuitableExercises
+    }
+
+    /**
      * Подбор задач на защиту, профилактику, контрудар (цвишенцуг) и спасение тяжёлых позиций.
      */
     private fun selectDefenseExercise(
@@ -305,8 +553,7 @@ class GetTrainingExerciseUseCase(
         snapshot: LearningSnapshot
     ): Result {
         val defenseFilter: (Exercise) -> Boolean = { ex ->
-            com.example.chessmentor.domain.training.ExerciseMetadata.isDefensiveGoal(ex) ||
-                ex.theme == TacticalTheme.KING_SAFETY
+            ExerciseMetadata.isDefensiveGoal(ex) || ex.theme == TacticalTheme.KING_SAFETY
         }
         val targetDiff = TrainingRatingCalculator.eloToDifficulty(user.rating)
 

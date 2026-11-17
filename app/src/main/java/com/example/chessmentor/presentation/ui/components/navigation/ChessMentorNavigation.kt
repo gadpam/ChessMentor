@@ -345,6 +345,7 @@ private fun NavigationHost(
             onNavigateToSettings = { onScreenChange("settings") },
             onNavigateToTraining = { onScreenChange("training") },
             onNavigateToDailyPuzzle = { onOpenTrainingWithMode(TrainingMode.Daily) },
+            onNavigateToSmartSession = { onOpenTrainingWithMode(TrainingMode.SmartSession) },
             message = message,
             isLoading = isLoading,
             onMessageDismiss = onMessageDismiss,
