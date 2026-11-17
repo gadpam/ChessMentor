@@ -429,7 +429,9 @@ class TrainingUseCasesTest {
         ) as GetTrainingExerciseUseCase.Result.Success
         assertEquals(TacticalTheme.PIN, pinRes.exercise.theme)
 
-        // Интервальное повторение: Алиса ошибается в pinRes -> при следующем подборе она возвращается как isReviewOfFailed
+        // Интервальное повторение (SM-2/Лейтнер):
+        // 1) Сразу через 1 минуту после ошибки задача в охлаждении — выдаётся ДРУГАЯ новая задача
+        val failAt = 10_000_000L
         exerciseRepo.saveAttempt(
             ExerciseAttempt(
                 userId = alice.id!!,
@@ -437,14 +439,54 @@ class TrainingUseCasesTest {
                 solved = false,
                 timeSpentSeconds = 20,
                 movesMade = listOf("g1h1"),
-                attemptedAt = 2000L
+                attemptedAt = failAt
             )
         )
+        val duringCooldown = useCase.execute(
+            GetTrainingExerciseUseCase.Input(
+                userId = alice.id!!,
+                excludeExerciseId = -1L,
+                mode = TrainingMode.All,
+                nowMs = failAt + SpacedRepetitionScheduler.MINUTE_MS
+            )
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertNotEquals(pinRes.exercise.id, duringCooldown.exercise.id)
+
+        // 2) Через 10 минут охлаждение истекло — задача возвращается с isReviewOfFailed = true и box = 0
         val reviewRes = useCase.execute(
-            GetTrainingExerciseUseCase.Input(userId = alice.id!!, excludeExerciseId = -1L, mode = TrainingMode.All)
+            GetTrainingExerciseUseCase.Input(
+                userId = alice.id!!,
+                excludeExerciseId = -1L,
+                mode = TrainingMode.All,
+                nowMs = failAt + SpacedRepetitionScheduler.FAILURE_COOLDOWN_MS
+            )
         ) as GetTrainingExerciseUseCase.Result.Success
         assertEquals(pinRes.exercise.id, reviewRes.exercise.id)
         assertTrue(reviewRes.isReviewOfFailed)
+        assertEquals(0, reviewRes.reviewState?.box)
+
+        // 3) Если Алиса дорешала её со 2-й попытки — через 4 часа она СНОВА возвращается для чистой проверки!
+        exerciseRepo.saveAttempt(
+            ExerciseAttempt(
+                userId = alice.id!!,
+                exerciseId = pinRes.exercise.id!!,
+                solved = true,
+                timeSpentSeconds = 32,
+                movesMade = AttemptMetadata.buildTaggedMoves(listOf("g1h1") + pinRes.exercise.solutionMoves, retryCount = 1),
+                attemptedAt = failAt + 2 * SpacedRepetitionScheduler.MINUTE_MS
+            )
+        )
+        val retryConsolidation = useCase.execute(
+            GetTrainingExerciseUseCase.Input(
+                userId = alice.id!!,
+                excludeExerciseId = -1L,
+                mode = TrainingMode.All,
+                nowMs = failAt + 2 * SpacedRepetitionScheduler.MINUTE_MS + SpacedRepetitionScheduler.RETRY_CONSOLIDATION_MS
+            )
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertEquals(pinRes.exercise.id, retryConsolidation.exercise.id)
+        assertTrue(retryConsolidation.isReviewOfFailed)
+        assertEquals(AttemptQuality.RETRY_SOLVE, retryConsolidation.reviewState?.lastQuality)
     }
 
     @Test

@@ -230,6 +230,7 @@ fun TrainingScreen(
                 )
                 ModeSelectorRow(
                     selectedMode = uiState.mode,
+                    dueReviewCount = uiState.dueReviewCount,
                     enabled = !uiState.isLoading && !uiState.isAnimatingPunishment,
                     onSelectMode = { mode ->
                         selectedSquare = null
@@ -412,6 +413,7 @@ fun TrainingScreen(
 @Composable
 private fun ModeSelectorRow(
     selectedMode: TrainingMode,
+    dueReviewCount: Int,
     enabled: Boolean,
     onSelectMode: (TrainingMode) -> Unit
 ) {
@@ -448,11 +450,16 @@ private fun ModeSelectorRow(
             )
         }
         item {
+            val reviewLabel = if (dueReviewCount > 0) {
+                "Повтор ($dueReviewCount)"
+            } else {
+                "Слабые темы"
+            }
             FilterChip(
                 selected = selectedMode is TrainingMode.WeakPatterns,
                 onClick = { onSelectMode(TrainingMode.WeakPatterns) },
                 enabled = enabled,
-                label = { Text("Слабые темы") }
+                label = { Text(reviewLabel) }
             )
         }
         item {
@@ -529,6 +536,21 @@ private fun ExerciseMetaStrip(uiState: TrainingUiState) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            uiState.reviewBox?.let { box ->
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = "Ур. $box/5",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
             if (uiState.totalPlayerSteps > 1 && !uiState.isSolved && !uiState.isSolutionRevealed) {
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,

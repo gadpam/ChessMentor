@@ -13,6 +13,7 @@ import com.example.chessmentor.domain.repository.UserRepository
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.MasteryLevel
 import com.example.chessmentor.domain.training.PatternMastery
+import com.example.chessmentor.domain.training.SpacedRepetitionScheduler
 import com.example.chessmentor.domain.training.TrainingRatingCalculator
 import kotlin.math.roundToInt
 
@@ -29,7 +30,8 @@ class GetUserStatisticsUseCase(
     }
 
     data class Input(
-        val userId: Long
+        val userId: Long,
+        val nowMs: Long = System.currentTimeMillis()
     )
 
     /**
@@ -42,6 +44,10 @@ class GetUserStatisticsUseCase(
         val totalAvailableExercises: Int = 0,
         val personalMistakeExercises: Int = 0,
         val unresolvedFailedCount: Int = 0,
+        val dueForReviewCount: Int = 0,
+        val inLearningCount: Int = 0,
+        val masteredExercisesCount: Int = 0,
+        val firstTryAccuracyPercent: Int = 0,
         val solveAccuracyPercent: Int = 0,
         val currentStreak: Int = 0,
         val bestStreak: Int = 0,
@@ -103,7 +109,7 @@ class GetUserStatisticsUseCase(
         val themeFrequency = mistakeRepository.getMostFrequentThemesByUserId(userId, 5)
         val problemThemes = calculateProblemThemes(themeFrequency, allMistakes.size)
 
-        val trainingStats = calculateTrainingStatistics(userId)
+        val trainingStats = calculateTrainingStatistics(userId, input.nowMs)
 
         val ratingChange = user.rating - BASELINE_RATING
         val accuracyTrend = calculateAccuracyTrend(analyzedGames)
@@ -139,7 +145,7 @@ class GetUserStatisticsUseCase(
         return Result.Success(statistics)
     }
 
-    private suspend fun calculateTrainingStatistics(userId: Long): TrainingStatistics {
+    private suspend fun calculateTrainingStatistics(userId: Long, nowMs: Long): TrainingStatistics {
         // Гарантируем учёт встроенного банка задач в общем счётчике доступных упражнений
         CuratedExerciseBank.ensureSeeded(exerciseRepository)
 
@@ -176,6 +182,24 @@ class GetUserStatisticsUseCase(
             list.any { !it.solved } && list.none { it.solved }
         }
 
+        // Расчёт долговременного усвоения (Лейтнер / SM-2) и честной точности с 1-й попытки
+        val allSittings = byExercise.flatMap { (exId, list) ->
+            SpacedRepetitionScheduler.groupIntoSittings(list, exercisesById[exId])
+        }
+        val firstTryClean = allSittings.count { it.quality.isCleanFirstTry }
+        val firstTryAccuracy = if (allSittings.isNotEmpty()) {
+            ((firstTryClean * 100.0) / allSittings.size).roundToInt().coerceIn(0, 100)
+        } else {
+            0
+        }
+
+        val schedule = SpacedRepetitionScheduler.buildSchedule(attempts, exercisesById)
+        val accessibleIds = accessibleExercises.mapNotNull { it.id }.toSet()
+        val accessibleCards = schedule.filterKeys { it in accessibleIds }.values
+        val dueCount = accessibleCards.count { it.isDue(nowMs) }
+        val masteredCount = accessibleCards.count { it.isMastered }
+        val inLearningCount = accessibleCards.count { !it.isMastered }
+
         val (currentStreak, bestStreak) = calculateStreaks(attempts)
 
         val solvedDurations = attempts
@@ -206,6 +230,10 @@ class GetUserStatisticsUseCase(
             totalAvailableExercises = accessibleExercises.size,
             personalMistakeExercises = personalCount,
             unresolvedFailedCount = unresolvedFailed,
+            dueForReviewCount = dueCount,
+            inLearningCount = inLearningCount,
+            masteredExercisesCount = masteredCount,
+            firstTryAccuracyPercent = firstTryAccuracy,
             solveAccuracyPercent = solveAccuracy,
             currentStreak = currentStreak,
             bestStreak = bestStreak,
@@ -285,7 +313,12 @@ class GetUserStatisticsUseCase(
 
         val recommendations = mutableListOf<String>()
 
-        if (training.unresolvedFailedCount > 0) {
+        if (training.dueForReviewCount > 0) {
+            recommendations.add(
+                "По расписанию интервального повторения подошло задач: ${training.dueForReviewCount} — " +
+                    "пройдите повтор, чтобы закрепить мотивы в долговременной памяти."
+            )
+        } else if (training.unresolvedFailedCount > 0) {
             recommendations.add(
                 "К повторению осталось ${training.unresolvedFailedCount} нерешённых задач — " +
                     "откройте тренировку, чтобы закрыть пробелы."

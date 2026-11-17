@@ -15,9 +15,12 @@ import com.example.chessmentor.domain.entity.ExerciseAttempt
 import com.example.chessmentor.domain.entity.TacticalPattern
 import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.training.AttemptMetadata
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.ExerciseMetadata
 import com.example.chessmentor.domain.training.HintUsage
+import com.example.chessmentor.domain.training.ReviewCardState
+import com.example.chessmentor.domain.training.SpacedRepetitionScheduler
 import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.training.TrainingRatingCalculator
@@ -81,6 +84,8 @@ data class TrainingUiState(
     val sourceLabel: String = "",
     val isDailyAlreadySolved: Boolean = false,
     val isReviewOfFailed: Boolean = false,
+    val reviewBox: Int? = null,
+    val dueReviewCount: Int = 0,
     val currentStepNumber: Int = 1,
     val totalPlayerSteps: Int = 1,
 
@@ -137,6 +142,8 @@ class TrainingViewModel(
     private val recordedMoves = mutableListOf<String>()
     private var currentMoveIndex = 0
     private var startTime: Long = 0
+    private var firstMoveThinkTimeMs: Long? = null
+    private var attemptMistakeCount: Int = 0
     private var attemptFailed = false
     private var failedAttemptSaved = false
     private var maxHintUsed: HintUsage = HintUsage.NONE
@@ -340,7 +347,9 @@ class TrainingViewModel(
                     exercise = nextFromQueue,
                     mode = effectiveMode,
                     isAlreadySolvedDaily = false,
-                    isReviewOfFailed = false
+                    isReviewOfFailed = false,
+                    reviewState = null,
+                    dueReviewCount = _uiState.value.dueReviewCount
                 )
             }
             return
@@ -437,7 +446,7 @@ class TrainingViewModel(
             )
 
             if (shouldRecordFail) {
-                runCatching { saveAttempt(solved = false) }
+                runCatching { saveAttempt(solved = false, solutionRevealed = true) }
             }
 
             // Пошагово разыгрываем оставшуюся линию решения
@@ -463,11 +472,14 @@ class TrainingViewModel(
                 delay(ANIMATION_DELAY_MS / 2)
             }
 
+            val scheduleNote = refreshCardAndDueCount()?.let { "\n${SpacedRepetitionScheduler.formatNextIntervalNote(it)}" }
+                ?: "\n📅 Вернёмся к задаче через 10 мин"
+
             _uiState.value = _uiState.value.copy(
                 isSolutionRevealed = true,
                 isInputLocked = true,
                 arrows = emptyList(),
-                feedbackMessage = "💡 Решение: $sanNotation\nЗадача вернётся позже для закрепления."
+                feedbackMessage = "💡 Решение: $sanNotation$scheduleNote"
             )
         }
     }
@@ -520,7 +532,9 @@ class TrainingViewModel(
                         exercise = finalResult.exercise,
                         mode = mode,
                         isAlreadySolvedDaily = finalResult.isAlreadySolvedDaily,
-                        isReviewOfFailed = finalResult.isReviewOfFailed
+                        isReviewOfFailed = finalResult.isReviewOfFailed,
+                        reviewState = finalResult.reviewState,
+                        dueReviewCount = finalResult.dueReviewCount
                     )
                 }
                 is GetTrainingExerciseUseCase.Result.NoSuitableExercises -> {
@@ -565,11 +579,13 @@ class TrainingViewModel(
         targetSequence.clear()
         recordedMoves.clear()
         currentMoveIndex = 0
+        attemptMistakeCount = 0
         attemptFailed = false
         failedAttemptSaved = false
         maxHintUsed = HintUsage.NONE
         isCurrentDailyAlreadySolved = false
         startTime = System.currentTimeMillis()
+        firstMoveThinkTimeMs = null
         positionBeforePlayerMove = ""
         lastMoveBeforePlayerMove = null
     }
@@ -578,7 +594,9 @@ class TrainingViewModel(
         exercise: Exercise,
         mode: TrainingMode,
         isAlreadySolvedDaily: Boolean,
-        isReviewOfFailed: Boolean
+        isReviewOfFailed: Boolean,
+        reviewState: ReviewCardState? = null,
+        dueReviewCount: Int = 0
     ) {
         currentExercise = exercise
         isCurrentDailyAlreadySolved = isAlreadySolvedDaily
@@ -622,9 +640,14 @@ class TrainingViewModel(
 
         val initialBanner = when {
             isAlreadySolvedDaily -> "✓ Задача дня уже решена сегодня — можно перерешать без изменения рейтинга"
+            reviewState != null -> SpacedRepetitionScheduler.formatReviewBanner(reviewState)
             isReviewOfFailed -> "🔁 Повтор задачи, в которой ранее была ошибка"
             else -> null
         }
+
+        // Отсчитываем время решения строго с момента, когда доска готова к ходу игрока
+        startTime = System.currentTimeMillis()
+        firstMoveThinkTimeMs = null
 
         _uiState.value = _uiState.value.copy(
             board = newBoard,
@@ -653,6 +676,8 @@ class TrainingViewModel(
             sourceLabel = TrainingLabels.sourceLabel(exercise, isDailyMode = mode is TrainingMode.Daily),
             isDailyAlreadySolved = isAlreadySolvedDaily,
             isReviewOfFailed = isReviewOfFailed,
+            reviewBox = reviewState?.box,
+            dueReviewCount = dueReviewCount,
             currentStepNumber = 1,
             totalPlayerSteps = totalPlayerSteps,
             similarExercisesQueued = sessionQueue.size,
@@ -745,6 +770,10 @@ class TrainingViewModel(
                 }
             }
             return
+        }
+
+        if (firstMoveThinkTimeMs == null && currentMoveIndex == 0 && attemptMistakeCount == 0) {
+            firstMoveThinkTimeMs = (System.currentTimeMillis() - startTime).coerceAtLeast(0L)
         }
 
         positionBeforePlayerMove = state.board.fen
@@ -965,6 +994,7 @@ class TrainingViewModel(
 
     private suspend fun handleMistakeComprehensive(fenBefore: String, userMove: Move) {
         val isFirstMistakeOnExercise = !attemptFailed
+        attemptMistakeCount++
         attemptFailed = true
         val stats = _uiState.value.sessionStats
 
@@ -1321,10 +1351,24 @@ class TrainingViewModel(
         onUserUpdatedCallback?.invoke(updated)
     }
 
-    private suspend fun saveAttempt(solved: Boolean) {
+    private suspend fun saveAttempt(
+        solved: Boolean,
+        solutionRevealed: Boolean = false,
+        wasImpulsive: Boolean = false
+    ) {
         val userId = currentUser?.id ?: return
         val exerciseId = currentExercise?.id ?: return
-        val timeSpent = ((System.currentTimeMillis() - startTime) / 1000).toInt().coerceAtLeast(0)
+        val now = System.currentTimeMillis()
+        val timeSpent = ((now - startTime) / 1000).toInt().coerceAtLeast(0)
+
+        val taggedMoves = AttemptMetadata.buildTaggedMoves(
+            rawUciMoves = recordedMoves,
+            hintUsage = maxHintUsed,
+            retryCount = if (solved) attemptMistakeCount else attemptMistakeCount.coerceAtLeast(0),
+            firstMoveThinkMs = firstMoveThinkTimeMs,
+            solutionRevealed = solutionRevealed,
+            wasImpulsive = wasImpulsive
+        )
 
         val attempt = ExerciseAttempt(
             id = null,
@@ -1332,10 +1376,47 @@ class TrainingViewModel(
             exerciseId = exerciseId,
             solved = solved,
             timeSpentSeconds = timeSpent,
-            movesMade = recordedMoves.toList(),
-            attemptedAt = System.currentTimeMillis()
+            movesMade = taggedMoves,
+            attemptedAt = now
         )
         container.exerciseRepository.saveAttempt(attempt)
+    }
+
+    /**
+     * Пересчитывает состояние SM-2/Лейтнера для текущей задачи и счётчик подошедших повторов.
+     */
+    private suspend fun refreshCardAndDueCount(): ReviewCardState? {
+        val userId = currentUser?.id ?: return null
+        val exercise = currentExercise
+        val exerciseId = exercise?.id
+        return try {
+            val now = System.currentTimeMillis()
+            val accessible = container.exerciseRepository.findAccessibleByUserId(userId)
+            val byId = accessible.mapNotNull { ex -> ex.id?.let { it to ex } }.toMap()
+            val attempts = container.exerciseRepository.getAttemptsByUserId(userId)
+            val schedule = SpacedRepetitionScheduler.buildSchedule(attempts, byId)
+            val dueCount = accessible.count { ex ->
+                val id = ex.id ?: return@count false
+                schedule[id]?.isDue(now) == true
+            }
+            val currentCard = exerciseId?.let { id ->
+                schedule[id] ?: SpacedRepetitionScheduler.computeCardState(
+                    id,
+                    attempts.filter { it.exerciseId == id },
+                    exercise
+                )
+            }
+            _uiState.value = _uiState.value.copy(
+                dueReviewCount = dueCount,
+                reviewBox = currentCard?.box ?: _uiState.value.reviewBox
+            )
+            currentCard
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to refresh spaced-repetition state", e)
+            null
+        }
     }
 
     // ================================================================
@@ -1459,8 +1540,11 @@ class TrainingViewModel(
             soundEventId = soundCounter
         )
 
-        // Засчитываем задачу как самостоятельно решённую, если не показывался готовый ход стрелкой
+        // Самостоятельное решение (без готовой стрелки) сохраняется как solved = true,
+        // а подсказка готовым ходом — как нерешённая попытка (коробка 0, повтор через 10 мин)
         val markAsSolvedInDb = !usedFullHint && !isCurrentDailyAlreadySolved
+        val markFullHintForReview = usedFullHint && !isCurrentDailyAlreadySolved && !failedAttemptSaved
+        val baseFeedback = msg + ratingInfo + queueInfo
 
         viewModelScope.launch {
             try {
@@ -1469,8 +1553,24 @@ class TrainingViewModel(
                 }
                 if (markAsSolvedInDb) {
                     saveAttempt(solved = true)
-                    exercise?.id?.let { id ->
-                        container.exerciseRepository.incrementTimesSolved(id)
+                    // В глобальную успешность задачи засчитываем только чистое решение с 1-й попытки без подсказок
+                    if (!attemptFailed && maxHintUsed == HintUsage.NONE) {
+                        exercise?.id?.let { id ->
+                            container.exerciseRepository.incrementTimesSolved(id)
+                        }
+                    }
+                } else if (markFullHintForReview) {
+                    failedAttemptSaved = true
+                    saveAttempt(solved = false)
+                }
+
+                if (!isCurrentDailyAlreadySolved) {
+                    val updatedCard = refreshCardAndDueCount()
+                    if (updatedCard != null && _uiState.value.isSolved && currentExercise?.id == exercise?.id) {
+                        val scheduleNote = SpacedRepetitionScheduler.formatNextIntervalNote(updatedCard)
+                        _uiState.value = _uiState.value.copy(
+                            feedbackMessage = "$baseFeedback\n$scheduleNote"
+                        )
                     }
                 }
             } catch (e: CancellationException) {
