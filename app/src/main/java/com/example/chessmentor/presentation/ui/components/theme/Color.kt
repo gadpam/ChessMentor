@@ -1,4 +1,4 @@
-package com.example.chessmentor.presentation.ui.theme
+package com.example.chessmentor.presentation.ui.components.theme
 
 import androidx.compose.ui.graphics.Color
 
