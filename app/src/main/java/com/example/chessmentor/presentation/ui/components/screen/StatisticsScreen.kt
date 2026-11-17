@@ -15,10 +15,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.MistakeType
 import com.example.chessmentor.domain.entity.ProblemTheme
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.presentation.viewmodel.ChessMentorViewModelFactory
 import com.example.chessmentor.presentation.viewmodel.StatisticsViewModel
 
 @Composable
@@ -27,9 +29,10 @@ fun StatisticsScreen(
     user: User,
     container: AppContainer
 ) {
-    val viewModel = remember { StatisticsViewModel(container) }
+    val factory = remember(container) { ChessMentorViewModelFactory(container) }
+    val viewModel: StatisticsViewModel = viewModel(factory = factory)
 
-    LaunchedEffect(user.id) {
+    LaunchedEffect(user.id, user.rating) {
         viewModel.loadStatistics(user)
     }
 

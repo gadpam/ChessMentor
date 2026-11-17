@@ -26,13 +26,12 @@ import kotlin.collections.get
 fun GamesListScreen(
     paddingValues: PaddingValues,
     gameViewModel: GameViewModel,
-    container: AppContainer,
+    @Suppress("unused") container: AppContainer,
     onGameClick: (Game) -> Unit
 ) {
     val games = gameViewModel.userGames
+    val mistakesByGame = gameViewModel.mistakesByGameId
     val message by gameViewModel.message
-
-    val mistakesByGame = remember { mutableStateMapOf<Long, List<Mistake>>() }
 
     LazyColumn(
         modifier = Modifier
@@ -56,35 +55,23 @@ fun GamesListScreen(
             }
         }
 
-        // Список партий
+        // Список партий (без N+1 запросов к БД на каждую карточку)
         if (games.isEmpty()) {
             item {
                 EmptyGamesPlaceholder()
             }
         } else {
-            items(games) { game ->
-                val gameMistakes = mistakesByGame[game.id] ?: emptyList()
-                var isLoading by remember { mutableStateOf(game.id !in mistakesByGame) }
-
-                LaunchedEffect(game.id) {
-                    if (game.id != null && game.id !in mistakesByGame) {
-                        isLoading = true
-                        try {
-                            val mistakes = container.mistakeRepository.findByGameId(game.id)
-                            mistakesByGame[game.id] = mistakes
-                        } catch (e: Exception) {
-                            // Обработка ошибки
-                        } finally {
-                            isLoading = false
-                        }
-                    }
-                }
+            items(
+                items = games,
+                key = { game -> game.id ?: game.hashCode() }
+            ) { game ->
+                val gameMistakes = game.id?.let { mistakesByGame[it] }.orEmpty()
 
                 GameCard(
                     game = game,
                     mistakes = gameMistakes,
                     onClick = { onGameClick(game) },
-                    onDelete = { gameViewModel.deleteGame(game.id!!) }
+                    onDelete = { game.id?.let { gameViewModel.deleteGame(it) } }
                 )
             }
         }

@@ -40,6 +40,16 @@ object BoardThemes {
     val Wood = BoardTheme(Color(0xFFFFCE9E), Color(0xFFD18B47), Color(0xCC64DD17), Color(0x99FF6F00), "Дерево")
 
     fun getAll() = listOf(Classic, Blue, Green, Wood)
+
+    fun getByName(name: String?): BoardTheme {
+        return when (name) {
+            null, "Classic", Classic.name -> Classic
+            "Blue", Blue.name -> Blue
+            "Green", Green.name -> Green
+            "Wood", Wood.name -> Wood
+            else -> getAll().find { it.name == name } ?: Classic
+        }
+    }
 }
 
 data class PieceAnimation(
@@ -62,6 +72,7 @@ fun ChessBoard(
     onSquareClick: ((Square) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val currentOnSquareClick by rememberUpdatedState(onSquareClick)
 
     // Состояние анимации (используем Pair, чтобы не путаться с классами)
     var animatingPieceState by remember { mutableStateOf<Pair<Piece, Pair<Square, Square>>?>(null) }
@@ -99,7 +110,7 @@ fun ChessBoard(
                         if (file in 0..7 && rank in 0..7) {
                             val actualRank = if (flipped) rank else 7 - rank
                             val actualFile = if (flipped) 7 - file else file
-                            onSquareClick?.invoke(Square.squareAt(actualRank * 8 + actualFile))
+                            currentOnSquareClick?.invoke(Square.squareAt(actualRank * 8 + actualFile))
                         }
                     }
                 }

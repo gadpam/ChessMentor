@@ -109,9 +109,7 @@ object AccuracyCalculator {
         val cpLoss = -cpChange
 
         // Позиция игрока до хода
-        val wasWinning = playerCpBefore > 100
         val wasLosing = playerCpBefore < -100
-        val wasEqual = !wasWinning && !wasLosing
 
         return when {
             // Зевок: потеря 300+ cp
@@ -123,6 +121,9 @@ object AccuracyCalculator {
             // Неточность: потеря 30-100 cp
             cpLoss >= 30 -> MoveQuality.INACCURACY
 
+            // Теория (первые 10 ходов без существенных потерь)
+            moveNumber <= 10 && cpLoss <= 15 -> MoveQuality.BOOK
+
             // Блестящий ход: значительное улучшение в плохой позиции
             cpChange >= 200 && wasLosing -> MoveQuality.BRILLIANT
 
@@ -132,16 +133,10 @@ object AccuracyCalculator {
             // Лучший ход: совпадает с движком (или очень близко)
             cpLoss <= 5 -> MoveQuality.BEST_MOVE
 
-            // Превосходный ход: в пределах 10cp
-            cpLoss <= 10 -> MoveQuality.EXCELLENT
+            // Превосходный ход: в пределах 15cp
+            cpLoss <= 15 -> MoveQuality.EXCELLENT
 
-            // Хороший ход: в пределах 30cp
-            cpLoss <= 30 -> MoveQuality.GOOD
-
-            // Теория (первые 10 ходов без потерь)
-            moveNumber <= 10 && cpLoss <= 20 -> MoveQuality.BOOK
-
-            // По умолчанию — хороший
+            // Хороший ход: в пределах 29cp
             else -> MoveQuality.GOOD
         }
     }

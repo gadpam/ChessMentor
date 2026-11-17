@@ -6,9 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.presentation.ui.components.BoardThemes
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class SettingsViewModel(
     private val container: AppContainer
@@ -19,50 +18,67 @@ class SettingsViewModel(
     // Состояния полей для редактирования
     var tempNickname = mutableStateOf("")
     var isSoundEnabled = mutableStateOf(true)
-    var selectedThemeName = mutableStateOf("Classic")
+    var selectedThemeName = mutableStateOf(BoardThemes.Classic.name)
 
     var message = mutableStateOf<String?>(null)
+    private var initializedUserId: Long? = null
 
     fun init(user: User) {
-        currentUser.value = user
-        tempNickname.value = user.nickname
-        isSoundEnabled.value = user.isSoundEnabled
-        selectedThemeName.value = user.preferredTheme
+        if (initializedUserId != user.id || currentUser.value == null) {
+            initializedUserId = user.id
+            currentUser.value = user
+            tempNickname.value = user.nickname
+            isSoundEnabled.value = user.isSoundEnabled
+            selectedThemeName.value = BoardThemes.getByName(user.preferredTheme).name
+        }
     }
 
-    fun saveSettings() {
+    fun saveSettings(onUserUpdated: (User) -> Unit = {}) {
         val user = currentUser.value ?: return
+        val nickname = tempNickname.value.trim()
 
-        if (tempNickname.value.isBlank()) {
-            message.value = "❌ Никнейм не может быть пустым"
+        if (nickname.length < 3) {
+            message.value = "❌ Никнейм должен содержать не менее 3 символов"
+            return
+        }
+        if (nickname.length > 50) {
+            message.value = "❌ Никнейм должен содержать не более 50 символов"
             return
         }
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch {
             try {
-                // Создаем обновленного пользователя
+                // Проверяем уникальность никнейма, если он изменился
+                if (nickname != user.nickname) {
+                    val existing = container.userRepository.findByNickname(nickname)
+                    if (existing != null && existing.id != user.id) {
+                        message.value = "❌ Этот никнейм уже занят"
+                        return@launch
+                    }
+                }
+
                 val updatedUser = user.copy(
-                    nickname = tempNickname.value,
+                    nickname = nickname,
                     isSoundEnabled = isSoundEnabled.value,
                     preferredTheme = selectedThemeName.value
                 )
 
-                // Сохраняем в БД
                 container.userRepository.update(updatedUser)
 
-                withContext(Dispatchers.Main) {
-                    currentUser.value = updatedUser
-                    message.value = "✅ Настройки сохранены"
-                }
+                tempNickname.value = nickname
+                currentUser.value = updatedUser
+                message.value = "✅ Настройки сохранены"
+                onUserUpdated(updatedUser)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    message.value = "❌ Ошибка сохранения: ${e.message}"
-                }
+                message.value = "❌ Ошибка сохранения: ${e.message}"
             }
         }
     }
 
     fun logout(onLogout: () -> Unit) {
+        initializedUserId = null
         currentUser.value = null
         onLogout()
     }

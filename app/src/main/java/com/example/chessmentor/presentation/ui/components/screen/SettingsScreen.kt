@@ -13,9 +13,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.presentation.ui.components.BoardThemes
+import com.example.chessmentor.presentation.viewmodel.ChessMentorViewModelFactory
 import com.example.chessmentor.presentation.viewmodel.SettingsViewModel
 
 @Composable
@@ -23,11 +25,13 @@ fun SettingsScreen(
     paddingValues: PaddingValues,
     user: User,
     container: AppContainer,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onUserUpdated: (User) -> Unit = {}
 ) {
-    val viewModel = remember { SettingsViewModel(container) }
+    val factory = remember(container) { ChessMentorViewModelFactory(container) }
+    val viewModel: SettingsViewModel = viewModel(factory = factory)
 
-    LaunchedEffect(user) {
+    LaunchedEffect(user.id) {
         viewModel.init(user)
     }
 
@@ -85,7 +89,7 @@ fun SettingsScreen(
         // Кнопка сохранения
         item {
             Button(
-                onClick = { viewModel.saveSettings() },
+                onClick = { viewModel.saveSettings(onUserUpdated = onUserUpdated) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
@@ -115,7 +119,7 @@ fun SettingsScreen(
         item {
             Spacer(Modifier.height(32.dp))
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("Версия 1.0.0 (Stockfish)", color = Color.Gray, fontSize = 12.sp)
+                Text("Версия 1.0.0 (Stockfish 19)", color = Color.Gray, fontSize = 12.sp)
             }
         }
     }
@@ -142,7 +146,10 @@ private fun SettingsMessage(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Icon(
                     if (isError) Icons.Default.Error else Icons.Default.CheckCircle,
                     null,
@@ -150,7 +157,7 @@ private fun SettingsMessage(
                     else MaterialTheme.colorScheme.tertiary
                 )
                 Spacer(Modifier.width(8.dp))
-                Text(cleanMessage, modifier = Modifier.weight(1f))
+                Text(cleanMessage)
             }
             IconButton(onClick = onDismiss) {
                 Icon(Icons.Default.Close, null)

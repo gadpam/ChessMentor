@@ -38,8 +38,22 @@ fun UploadGameScreen(
     val isLoading by gameViewModel.isLoading
 
     val analysisProgress by gameViewModel.analysisProgress.collectAsState(initial = null)
+    val currentOnAnalysisComplete by rememberUpdatedState(onAnalysisComplete)
+    val currentOnGameUploaded by rememberUpdatedState(onGameUploaded)
 
-    // ✅ НОВОЕ: Получаем текущие настройки движка для отображения
+    // Автоматический переход к сводке после успешного завершения анализа
+    LaunchedEffect(analysisProgress) {
+        val completed = analysisProgress as? AnalyzeGameUseCase.AnalysisProgress.Completed
+        if (completed != null) {
+            gameViewModel.clearAnalysisProgress()
+            if (completed.result is AnalyzeGameUseCase.Result.Success) {
+                currentOnGameUploaded()
+                currentOnAnalysisComplete()
+            }
+        }
+    }
+
+    // Получаем актуальные настройки движка для отображения
     val engineSettings = remember { engineSettingsRepository.getSettings() }
 
     LazyColumn(
@@ -95,13 +109,9 @@ fun UploadGameScreen(
         progress = analysisProgress,
         onDismiss = {
             gameViewModel.clearAnalysisProgress()
-
-            if (analysisProgress is AnalyzeGameUseCase.AnalysisProgress.Completed) {
-                val result = (analysisProgress as AnalyzeGameUseCase.AnalysisProgress.Completed).result
-                if (result is AnalyzeGameUseCase.Result.Success) {
-                    onAnalysisComplete()
-                }
-            }
+        },
+        onCancel = {
+            gameViewModel.cancelAnalysis()
         }
     )
 }

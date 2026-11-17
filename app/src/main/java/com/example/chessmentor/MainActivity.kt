@@ -1,18 +1,24 @@
 // MainActivity.kt
 package com.example.chessmentor
 
+import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.presentation.ui.components.navigation.ChessMentorApp
 import com.example.chessmentor.presentation.ui.components.theme.ChessMentorTheme
+import com.example.chessmentor.presentation.viewmodel.ChessMentorViewModelFactory
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -23,18 +29,22 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         container = AppContainer.getInstance(applicationContext)
-        val gameViewModel = GameViewModel(container)
+        val factory = ChessMentorViewModelFactory(container)
+        val gameViewModel = ViewModelProvider(this, factory)[GameViewModel::class.java]
 
-        // Логируем архитектуру для отладки
-        android.util.Log.i("CPU_ARCH", "ABI: ${android.os.Build.SUPPORTED_ABIS.joinToString()}")
+        Log.i("CPU_ARCH", "ABI: ${Build.SUPPORTED_ABIS.joinToString()}")
 
-        // Прогреваем движок в фоне
-        lifecycleScope.launch {
-            try {
-                val initialized = container.chessEngine.init()
-                android.util.Log.i("MainActivity", "Chess engine initialized: $initialized")
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Failed to init engine", e)
+        // Прогреваем движок в фоне только при первом запуске Activity (init() идемпотентен)
+        if (savedInstanceState == null) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val initialized = container.chessEngine.init()
+                    Log.i("MainActivity", "Chess engine initialized: $initialized")
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Failed to init engine", e)
+                }
             }
         }
 
@@ -52,6 +62,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        container.cleanup()
+        // Не уничтожаем Stockfish при повороте экрана / смене конфигурации
+        if (isFinishing && !isChangingConfigurations && ::container.isInitialized) {
+            container.cleanup()
+        }
     }
 }

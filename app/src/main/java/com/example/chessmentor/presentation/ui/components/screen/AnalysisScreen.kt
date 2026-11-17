@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.sp
 import com.example.chessmentor.domain.entity.MistakeType
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import com.example.chessmentor.domain.entity.Mistake
 
 @Composable
@@ -49,7 +49,7 @@ fun AnalysisScreen(
         ) {
             IconButton(onClick = onNavigateBack) {
                 Icon(
-                    imageVector = Icons.Default.ArrowBack,
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Назад"
                 )
             }
@@ -289,7 +289,11 @@ fun MistakeCard(mistake: Mistake) {
             }
 
             Text(
-                "Потеря: ${mistake.evaluationLoss / 100.0} пешки",
+                text = if (mistake.evaluationLoss > 50_000) {
+                    "Потеря: форсированный мат"
+                } else {
+                    "Потеря: ${String.format(java.util.Locale.US, "%.1f", mistake.evaluationLoss / 100.0)} пешки"
+                },
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

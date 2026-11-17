@@ -14,13 +14,15 @@ import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.domain.usecase.UploadGameUseCase
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel для управления партиями
+ * ViewModel для управления партиями и текущей пользовательской сессией
  */
 class GameViewModel(
     private val container: AppContainer
@@ -32,41 +34,34 @@ class GameViewModel(
 
     // ==================== СОСТОЯНИЯ ====================
 
-    // Текущий пользователь
     var currentUser = mutableStateOf<User?>(null)
 
-    // Список партий пользователя
     val userGames = mutableStateListOf<Game>()
 
-    // Все ошибки пользователя
     private val _userMistakes = mutableStateListOf<Mistake>()
     val userMistakes: List<Mistake> = _userMistakes
 
-    // Текущая партия для просмотра
+    // Кэш ошибок по gameId для O(1) доступа в списке партий (без N+1 фильтраций)
+    private val _mistakesByGameId = mutableStateOf<Map<Long, List<Mistake>>>(emptyMap())
+    val mistakesByGameId: Map<Long, List<Mistake>> get() = _mistakesByGameId.value
+
     var selectedGame = mutableStateOf<Game?>(null)
-
-    // Ошибки в текущей партии (для обратной совместимости)
     val selectedGameMistakes = mutableStateListOf<Mistake>()
-
-    // Анализированные ходы текущей партии
     val selectedGameAnalyzedMoves = mutableStateListOf<AnalyzedMove>()
-
-    // ✅ НОВОЕ: Оценки текущей партии (сохраняются в БД)
     val selectedGameEvaluations = mutableStateListOf<Int>()
 
-    // Поля формы загрузки
     var pgnInput = mutableStateOf("")
     var selectedColor = mutableStateOf(ChessColor.WHITE)
     var timeControl = mutableStateOf("")
 
-    // Сообщения
     var message = mutableStateOf("")
     var isLoading = mutableStateOf(false)
 
-    // Прогресс анализа
     private val _analysisProgress = MutableStateFlow<AnalyzeGameUseCase.AnalysisProgress?>(null)
     val analysisProgress: StateFlow<AnalyzeGameUseCase.AnalysisProgress?> =
         _analysisProgress.asStateFlow()
+
+    private var analysisJob: Job? = null
 
     // ==================== ПУБЛИЧНЫЕ МЕТОДЫ ====================
 
@@ -74,8 +69,34 @@ class GameViewModel(
      * Установить текущего пользователя и загрузить его данные
      */
     fun setUser(user: User) {
+        val previousId = currentUser.value?.id
         currentUser.value = user
-        loadUserData()
+        if (previousId != user.id || userGames.isEmpty()) {
+            loadUserData()
+        }
+    }
+
+    /**
+     * Обновить данные текущего пользователя (после сохранения настроек или изменения рейтинга)
+     */
+    fun updateCurrentUser(user: User) {
+        currentUser.value = user
+    }
+
+    /**
+     * Выход из аккаунта с очисткой сессии
+     */
+    fun logout() {
+        cancelAnalysis()
+        currentUser.value = null
+        userGames.clear()
+        _userMistakes.clear()
+        _mistakesByGameId.value = emptyMap()
+        closeGameView()
+        pgnInput.value = ""
+        timeControl.value = ""
+        message.value = ""
+        isLoading.value = false
     }
 
     /**
@@ -86,20 +107,26 @@ class GameViewModel(
 
         viewModelScope.launch {
             try {
-                // Загружаем партии
+                val userFromDb = container.userRepository.findById(userId)
+                if (userFromDb != null) {
+                    currentUser.value = userFromDb
+                }
+
                 val games = container.gameRepository.findByUserId(userId)
                 userGames.clear()
                 userGames.addAll(games.sortedByDescending { it.playedAt })
 
-                // Загружаем ошибки
                 val mistakes = container.mistakeRepository.findByUserId(userId)
                 _userMistakes.clear()
                 _userMistakes.addAll(mistakes)
+                _mistakesByGameId.value = mistakes.groupBy { it.gameId }
 
                 Log.d(
                     TAG,
                     "Loaded ${games.size} games and ${mistakes.size} mistakes for user $userId"
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 message.value = "❌ Ошибка загрузки данных: ${e.message}"
                 Log.e(TAG, "Error loading user data", e)
@@ -108,10 +135,10 @@ class GameViewModel(
     }
 
     /**
-     * Получить ошибки для конкретной игры
+     * Получить ошибки для конкретной игры (O(1) по индексированной карте)
      */
     fun getMistakesForGame(gameId: Long): List<Mistake> {
-        return _userMistakes.filter { it.gameId == gameId }
+        return _mistakesByGameId.value[gameId].orEmpty()
     }
 
     /**
@@ -138,7 +165,6 @@ class GameViewModel(
 
         viewModelScope.launch {
             try {
-                // Загрузка партии
                 val input = UploadGameUseCase.Input(
                     userId = userId,
                     pgnData = pgn,
@@ -149,13 +175,16 @@ class GameViewModel(
 
                 when (val uploadResult = container.uploadGameUseCase.execute(input)) {
                     is UploadGameUseCase.Result.Success -> {
-                        val gameId = uploadResult.game.id!!
+                        val gameId = uploadResult.game.id
+                        if (gameId == null) {
+                            message.value = "❌ Не удалось сохранить партию"
+                            isLoading.value = false
+                            return@launch
+                        }
 
-                        // Очищаем форму
                         pgnInput.value = ""
                         timeControl.value = ""
 
-                        // Запускаем анализ с прогрессом
                         analyzeGameWithProgress(gameId)
                     }
 
@@ -164,7 +193,8 @@ class GameViewModel(
                         isLoading.value = false
                     }
                 }
-
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 message.value = "❌ Ошибка: ${e.message}"
                 isLoading.value = false
@@ -176,149 +206,106 @@ class GameViewModel(
     /**
      * Анализировать партию С ПРОГРЕССОМ
      */
-    fun analyzeGameWithProgress(gameId: Long) {
-        viewModelScope.launch {
-            container.analyzeGameUseCase.executeWithProgress(
-                AnalyzeGameUseCase.Input(gameId)
-            ).collect { progress: AnalyzeGameUseCase.AnalysisProgress ->
-                _analysisProgress.value = progress
-
-                when (progress) {
-                    is AnalyzeGameUseCase.AnalysisProgress.Starting -> {
-                        Log.d(TAG, "Analysis starting for game $gameId")
-                    }
-
-                    is AnalyzeGameUseCase.AnalysisProgress.InProgress -> {
-                        // Прогресс обновляется автоматически
-                    }
-
-                    is AnalyzeGameUseCase.AnalysisProgress.Completed -> {
-                        isLoading.value = false
-                        when (val result = progress.result) {
-                            is AnalyzeGameUseCase.Result.Success -> {
-                                // Обновляем данные
-                                loadUserData()
-
-                                // ✅ ОБНОВЛЕНО: Выбираем партию со всеми данными
-                                selectGameWithData(
-                                    game = result.game,
-                                    mistakes = result.mistakes,
-                                    analyzedMoves = result.analyzedMoves,
-                                    evaluations = result.evaluations
-                                )
-
-                                val errorsCount = result.analyzedMoves.count { it.isMistake() }
-                                val goodMovesCount = result.analyzedMoves.count { it.isGoodMove() }
-                                message.value =
-                                    "✅ Анализ завершён! Ошибок: $errorsCount, хороших ходов: $goodMovesCount"
-
-                                Log.i(
-                                    TAG,
-                                    "Analysis completed: ${result.evaluations.size} evaluations saved"
-                                )
-                            }
-
-                            is AnalyzeGameUseCase.Result.Error -> {
-                                message.value = "❌ ${result.message}"
-                            }
-                        }
-                    }
-
-                    is AnalyzeGameUseCase.AnalysisProgress.Failed -> {
-                        isLoading.value = false
-                        message.value = "❌ ${progress.error}"
-                        Log.e(TAG, "Analysis failed: ${progress.error}")
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Загрузить партию на анализ (старый метод, без прогресса)
-     */
-    fun uploadGame() {
-        val userId = currentUser.value?.id
-        if (userId == null) {
-            message.value = "❌ Необходимо войти в систему"
-            return
-        }
-
-        if (pgnInput.value.isBlank()) {
-            message.value = "❌ Введите PGN партии"
+    fun analyzeGameWithProgress(gameId: Long, forceReanalyze: Boolean = false) {
+        if (analysisJob?.isActive == true) {
+            message.value = "Дождитесь завершения текущего анализа"
             return
         }
 
         isLoading.value = true
-
-        viewModelScope.launch {
+        analysisJob = viewModelScope.launch {
             try {
-                val input = UploadGameUseCase.Input(
-                    userId = userId,
-                    pgnData = pgnInput.value,
-                    playerColor = selectedColor.value,
-                    timeControl = timeControl.value.ifBlank { null },
-                    playedAt = System.currentTimeMillis()
-                )
+                container.analyzeGameUseCase.executeWithProgress(
+                    AnalyzeGameUseCase.Input(gameId = gameId, forceReanalyze = forceReanalyze)
+                ).collect { progress ->
+                    _analysisProgress.value = progress
 
-                when (val result = container.uploadGameUseCase.execute(input)) {
-                    is UploadGameUseCase.Result.Success -> {
-                        message.value = "✅ Партия загружена! Запускаем анализ..."
+                    when (progress) {
+                        is AnalyzeGameUseCase.AnalysisProgress.Starting -> {
+                            Log.d(TAG, "Analysis starting for game $gameId")
+                        }
 
-                        pgnInput.value = ""
-                        timeControl.value = ""
+                        is AnalyzeGameUseCase.AnalysisProgress.InProgress -> {
+                            // Прогресс обновляется реактивно через StateFlow
+                        }
 
-                        analyzeGame(result.game.id!!)
-                    }
+                        is AnalyzeGameUseCase.AnalysisProgress.Completed -> {
+                            isLoading.value = false
+                            when (val result = progress.result) {
+                                is AnalyzeGameUseCase.Result.Success -> {
+                                    loadUserData()
 
-                    is UploadGameUseCase.Result.Error -> {
-                        message.value = "❌ Ошибка: ${result.message}"
-                        isLoading.value = false
+                                    selectGameWithData(
+                                        game = result.game,
+                                        mistakes = result.mistakes,
+                                        analyzedMoves = result.analyzedMoves,
+                                        evaluations = result.evaluations
+                                    )
+
+                                    val errorsCount = result.analyzedMoves.count { it.isMistake() }
+                                    val goodMovesCount = result.analyzedMoves.count { it.isGoodMove() }
+                                    message.value =
+                                        "✅ Анализ завершён! Ошибок: $errorsCount, хороших ходов: $goodMovesCount"
+
+                                    Log.i(
+                                        TAG,
+                                        "Analysis completed: ${result.evaluations.size} evaluations saved"
+                                    )
+                                }
+
+                                is AnalyzeGameUseCase.Result.Error -> {
+                                    message.value = "❌ ${result.message}"
+                                }
+                            }
+                        }
+
+                        is AnalyzeGameUseCase.AnalysisProgress.Failed -> {
+                            isLoading.value = false
+                            loadUserData()
+                            message.value = "❌ ${progress.error}"
+                            Log.e(TAG, "Analysis failed: ${progress.error}")
+                        }
                     }
                 }
-            } catch (e: Exception) {
-                message.value = "❌ Ошибка: ${e.message}"
+            } catch (e: CancellationException) {
                 isLoading.value = false
+                _analysisProgress.value = null
+                loadUserData()
+                throw e
+            } catch (e: Exception) {
+                isLoading.value = false
+                _analysisProgress.value = AnalyzeGameUseCase.AnalysisProgress.Failed(
+                    e.message ?: "Неизвестная ошибка"
+                )
+                message.value = "❌ Ошибка анализа: ${e.message}"
+                Log.e(TAG, "Analysis flow crashed", e)
             }
         }
     }
 
     /**
-     * Анализировать партию (старый метод, без прогресса)
+     * Отменить текущий анализ и остановить поиск Stockfish
+     */
+    fun cancelAnalysis() {
+        container.chessEngine.stop()
+        analysisJob?.cancel()
+        analysisJob = null
+        isLoading.value = false
+        _analysisProgress.value = null
+    }
+
+    /**
+     * Загрузить партию на анализ (делегирует в прогрессивный анализ)
+     */
+    fun uploadGame() {
+        uploadAndAnalyzeGame()
+    }
+
+    /**
+     * Анализировать партию
      */
     fun analyzeGame(gameId: Long) {
-        viewModelScope.launch {
-            try {
-                val input = AnalyzeGameUseCase.Input(gameId = gameId)
-
-                when (val result = container.analyzeGameUseCase.execute(input)) {
-                    is AnalyzeGameUseCase.Result.Success -> {
-                        val errorsCount = result.analyzedMoves.count { it.isMistake() }
-                        val goodMovesCount = result.analyzedMoves.count { it.isGoodMove() }
-                        message.value =
-                            "✅ Анализ завершён! Ошибок: $errorsCount, хороших ходов: $goodMovesCount"
-                        isLoading.value = false
-
-                        loadUserData()
-
-                        selectGameWithData(
-                            game = result.game,
-                            mistakes = result.mistakes,
-                            analyzedMoves = result.analyzedMoves,
-                            evaluations = result.evaluations
-                        )
-                    }
-
-                    is AnalyzeGameUseCase.Result.Error -> {
-                        message.value = "❌ Ошибка анализа: ${result.message}"
-                        isLoading.value = false
-                    }
-                }
-            } catch (e: Exception) {
-                message.value = "❌ Ошибка анализа: ${e.message}"
-                isLoading.value = false
-            }
-        }
+        analyzeGameWithProgress(gameId)
     }
 
     /**
@@ -330,11 +317,6 @@ class GameViewModel(
 
     /**
      * Выбрать партию для просмотра (из списка игр)
-     * ✅ ОБНОВЛЕНО: Загружает evaluations из Game.evaluationsJson
-     */
-    /**
-     * Выбрать партию для просмотра (из списка игр)
-     * ✅ ОБНОВЛЕНО: Загружает evaluations из Game.evaluationsJson
      */
     fun selectGame(game: Game) {
         viewModelScope.launch {
@@ -343,40 +325,33 @@ class GameViewModel(
             selectedGameAnalyzedMoves.clear()
             selectedGameEvaluations.clear()
 
-            if (game.id != null) {
-                try {
-                    // Загрузка ошибок
-                    val mistakes = getMistakesForGame(game.id)
-                    selectedGameMistakes.clear()
-                    selectedGameMistakes.addAll(mistakes.sortedBy { it.moveNumber })
+            val gameId = game.id ?: return@launch
+            try {
+                val mistakes = container.mistakeRepository.findByGameId(gameId)
+                selectedGameMistakes.clear()
+                selectedGameMistakes.addAll(mistakes.sortedBy { it.moveNumber })
 
-                    // ✅ ИСПРАВЛЕНО: Загружаем analyzedMoves сразу при выборе игры
-                    val analyzedMoves = container.analyzedMoveRepository.findByGameId(game.id)
-                    selectedGameAnalyzedMoves.clear()
-                    selectedGameAnalyzedMoves.addAll(analyzedMoves.sortedBy { it.moveIndex })
+                val analyzedMoves = container.analyzedMoveRepository.findByGameId(gameId)
+                selectedGameAnalyzedMoves.clear()
+                selectedGameAnalyzedMoves.addAll(analyzedMoves.sortedBy { it.moveIndex })
 
-                    // ✅ Загрузка evaluations из Game
-                    val evaluations = game.getEvaluations()
-                    selectedGameEvaluations.clear()
-                    selectedGameEvaluations.addAll(evaluations)
+                val evaluations = game.getEvaluations()
+                selectedGameEvaluations.clear()
+                selectedGameEvaluations.addAll(evaluations)
 
-                    Log.d(
-                        TAG, "Selected game ${game.id}: " +
-                                "${mistakes.size} mistakes, " +
-                                "${analyzedMoves.size} analyzed moves, " +
-                                "${evaluations.size} evaluations (hasEvaluations=${game.hasEvaluations()})"
-                    )
-
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error loading game data", e)
-                }
+                Log.d(
+                    TAG,
+                    "Selected game $gameId: ${mistakes.size} mistakes, " +
+                        "${analyzedMoves.size} analyzed moves, ${evaluations.size} evaluations"
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading game data", e)
             }
         }
     }
 
-    /**
-     * Выбрать партию с полными данными (после анализа)
-     */
     private fun selectGameWithData(
         game: Game,
         mistakes: List<Mistake>,
@@ -391,66 +366,40 @@ class GameViewModel(
         selectedGameAnalyzedMoves.clear()
         selectedGameAnalyzedMoves.addAll(analyzedMoves.sortedBy { it.moveIndex })
 
-        // ✅ НОВОЕ: Сохраняем evaluations
         selectedGameEvaluations.clear()
         selectedGameEvaluations.addAll(evaluations)
-
-        Log.d(
-            TAG, "Selected game with data: ${game.id}, " +
-                    "${mistakes.size} mistakes, ${analyzedMoves.size} moves, ${evaluations.size} evals"
-        )
     }
 
-    /**
-     * ✅ НОВЫЙ МЕТОД: Получить evaluations для текущей партии
-     */
-    fun getEvaluationsForCurrentGame(): List<Int> {
-        return selectedGameEvaluations.toList()
-    }
+    fun getEvaluationsForCurrentGame(): List<Int> = selectedGameEvaluations.toList()
 
-    /**
-     * ✅ НОВЫЙ МЕТОД: Проверить, есть ли сохранённые evaluations
-     */
-    fun hasEvaluations(): Boolean {
-        return selectedGameEvaluations.isNotEmpty()
-    }
+    fun hasEvaluations(): Boolean = selectedGameEvaluations.isNotEmpty()
 
-    /**
-     * Закрыть просмотр партии
-     */
     fun closeGameView() {
         selectedGame.value = null
         selectedGameMistakes.clear()
         selectedGameAnalyzedMoves.clear()
-        selectedGameEvaluations.clear()  // ✅ Очищаем evaluations
+        selectedGameEvaluations.clear()
     }
 
-    /**
-     * Удалить партию
-     */
     fun deleteGame(gameId: Long) {
         viewModelScope.launch {
             try {
-                // Удаляем analyzedMoves из БД
                 container.analyzedMoveRepository.deleteByGameId(gameId)
-
-                // Удаляем ошибки из БД
                 container.mistakeRepository.deleteByGameId(gameId)
-
-                // Удаляем игру из БД (CASCADE должен сработать, но на всякий случай)
                 container.gameRepository.deleteById(gameId)
 
-                // Удаляем из локальных списков
                 userGames.removeAll { it.id == gameId }
                 _userMistakes.removeAll { it.gameId == gameId }
+                _mistakesByGameId.value = _userMistakes.groupBy { it.gameId }
 
-                // Если удаляем текущую выбранную игру
                 if (selectedGame.value?.id == gameId) {
                     closeGameView()
                 }
 
                 message.value = "✅ Партия удалена"
                 Log.d(TAG, "Game $gameId deleted")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 message.value = "❌ Ошибка удаления: ${e.message}"
                 Log.e(TAG, "Error deleting game", e)
@@ -458,11 +407,14 @@ class GameViewModel(
         }
     }
 
-    /**
-     * Очистить сообщение
-     */
     fun clearMessage() {
         message.value = ""
     }
 
+    override fun onCleared() {
+        super.onCleared()
+        if (analysisJob?.isActive == true) {
+            container.chessEngine.stop()
+        }
+    }
 }

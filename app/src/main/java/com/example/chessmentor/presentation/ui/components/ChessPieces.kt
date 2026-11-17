@@ -2,6 +2,8 @@ package com.example.chessmentor.presentation.ui.components
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Paint
+import android.util.LruCache
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.core.content.ContextCompat
@@ -11,7 +13,13 @@ import com.github.bhlangonijr.chesslib.Piece
 
 object ChessPieces {
 
-    private val bitmapCache = mutableMapOf<Piece, Bitmap>()
+    private data class CacheKey(val piece: Piece, val size: Int)
+
+    // Кэшируем несколько размеров доски одновременно (например, мини-виджет + основная доска)
+    private val bitmapCache = object : LruCache<CacheKey, Bitmap>(48) {}
+
+    // Переиспользуемый Paint вместо аллокации на каждую фигуру в каждом кадре
+    private val sharedPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
     fun draw(
         drawScope: DrawScope,
@@ -22,26 +30,23 @@ object ChessPieces {
         context: Context,
         alpha: Float = 1f
     ) {
-        val bitmap = getBitmap(piece, context, size.toInt()) ?: return
+        val targetSize = size.toInt()
+        if (targetSize <= 0) return
 
-        val paint = android.graphics.Paint().apply {
-            this.alpha = (alpha * 255).toInt()
-            isAntiAlias = true
-            isFilterBitmap = true
-        }
+        val bitmap = getBitmap(piece, context, targetSize) ?: return
+        sharedPaint.alpha = (alpha.coerceIn(0f, 1f) * 255).toInt()
 
         drawScope.drawContext.canvas.nativeCanvas.drawBitmap(
             bitmap,
             x,
             y,
-            paint
+            sharedPaint
         )
     }
 
     private fun getBitmap(piece: Piece, context: Context, size: Int): Bitmap? {
-        if (bitmapCache.containsKey(piece) && bitmapCache[piece]?.width == size) {
-            return bitmapCache[piece]
-        }
+        val key = CacheKey(piece, size)
+        bitmapCache.get(key)?.takeIf { !it.isRecycled }?.let { return it }
 
         val resId = when (piece) {
             Piece.WHITE_PAWN -> R.drawable.ic_pawn_white
@@ -61,8 +66,7 @@ object ChessPieces {
 
         val drawable = ContextCompat.getDrawable(context, resId) ?: return null
         val bitmap = drawable.toBitmap(width = size, height = size)
-
-        bitmapCache[piece] = bitmap
+        bitmapCache.put(key, bitmap)
         return bitmap
     }
 }

@@ -545,10 +545,13 @@ private fun findClosestEvalIndex(offset: Offset, canvasWidth: Float, totalEvalua
 }
 
 private fun formatEvaluationChange(change: Int): String {
+    if (ChessEngine.isMateScore(change) || abs(change) > 50_000) {
+        return if (change > 0) "+Мат" else "-Мат"
+    }
     val pawns = change / 100.0
     return when {
-        change > 0 -> "+%.2f".format(pawns)
-        change < 0 -> "%.2f".format(pawns)
+        change > 0 -> String.format(java.util.Locale.US, "+%.2f", pawns)
+        change < 0 -> String.format(java.util.Locale.US, "%.2f", pawns)
         else -> "0.00"
     }
 }

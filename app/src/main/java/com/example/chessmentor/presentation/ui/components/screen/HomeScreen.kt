@@ -439,19 +439,31 @@ private fun RegisterForm(
 
     OutlinedTextField(
         value = rating,
-        onValueChange = onRatingChange,
-        label = { Text("Рейтинг") },
+        onValueChange = { value ->
+            if (value.length <= 4 && value.all { it.isDigit() }) {
+                onRatingChange(value)
+            }
+        },
+        label = { Text("Рейтинг (0–3500)") },
         leadingIcon = { Icon(Icons.Default.Star, null) },
+        singleLine = true,
         modifier = Modifier.fillMaxWidth(),
         enabled = !isLoading
     )
 
+    val isFormValid = nickname.trim().length >= 3 &&
+        email.contains("@") &&
+        password.length >= 6
+
     Button(
-        onClick = { onRegister(nickname, email, password, rating.toIntOrNull() ?: 1200) },
+        onClick = {
+            val parsedRating = (rating.toIntOrNull() ?: 1200).coerceIn(0, 3500)
+            onRegister(nickname.trim(), email.trim(), password, parsedRating)
+        },
         modifier = Modifier
             .fillMaxWidth()
             .height(50.dp),
-        enabled = !isLoading && nickname.isNotBlank()
+        enabled = !isLoading && isFormValid
     ) {
         if (isLoading) {
             CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
@@ -542,7 +554,7 @@ private fun UserHeader(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
-                        text = user.nickname.first().uppercase(),
+                        text = user.nickname.firstOrNull()?.uppercase() ?: "?",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 20.sp
