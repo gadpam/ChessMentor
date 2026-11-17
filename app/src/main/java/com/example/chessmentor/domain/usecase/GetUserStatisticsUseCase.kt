@@ -10,7 +10,10 @@ import com.example.chessmentor.domain.repository.ExerciseRepository
 import com.example.chessmentor.domain.repository.GameRepository
 import com.example.chessmentor.domain.repository.MistakeRepository
 import com.example.chessmentor.domain.repository.UserRepository
+import com.example.chessmentor.domain.training.AttemptMetadata
+import com.example.chessmentor.domain.training.AttemptQuality
 import com.example.chessmentor.domain.training.CuratedExerciseBank
+import com.example.chessmentor.domain.training.ExerciseSitting
 import com.example.chessmentor.domain.training.MasteryLevel
 import com.example.chessmentor.domain.training.PatternMastery
 import com.example.chessmentor.domain.training.SpacedRepetitionScheduler
@@ -49,6 +52,9 @@ class GetUserStatisticsUseCase(
         val masteredExercisesCount: Int = 0,
         val firstTryAccuracyPercent: Int = 0,
         val solveAccuracyPercent: Int = 0,
+        val impulsiveMistakeCount: Int = 0,
+        val impulsiveMistakeRatePercent: Int = 0,
+        val isRatingProvisional: Boolean = true,
         val currentStreak: Int = 0,
         val bestStreak: Int = 0,
         val averageSolveTimeSeconds: Int = 0,
@@ -109,7 +115,7 @@ class GetUserStatisticsUseCase(
         val themeFrequency = mistakeRepository.getMostFrequentThemesByUserId(userId, 5)
         val problemThemes = calculateProblemThemes(themeFrequency, allMistakes.size)
 
-        val trainingStats = calculateTrainingStatistics(userId, input.nowMs)
+        val trainingStats = calculateTrainingStatistics(userId, user.rating, input.nowMs)
 
         val ratingChange = user.rating - BASELINE_RATING
         val accuracyTrend = calculateAccuracyTrend(analyzedGames)
@@ -145,7 +151,11 @@ class GetUserStatisticsUseCase(
         return Result.Success(statistics)
     }
 
-    private suspend fun calculateTrainingStatistics(userId: Long, nowMs: Long): TrainingStatistics {
+    private suspend fun calculateTrainingStatistics(
+        userId: Long,
+        playerElo: Int,
+        nowMs: Long
+    ): TrainingStatistics {
         // Гарантируем учёт встроенного банка задач в общем счётчике доступных упражнений
         CuratedExerciseBank.ensureSeeded(exerciseRepository)
 
@@ -182,13 +192,29 @@ class GetUserStatisticsUseCase(
             list.any { !it.solved } && list.none { it.solved }
         }
 
-        // Расчёт долговременного усвоения (Лейтнер / SM-2) и честной точности с 1-й попытки
+        // Расчёт долговременного усвоения (Лейтнер / SM-2), честной точности с 1-й попытки
+        // и диагностики импульсивных ошибок («игры руками»)
         val allSittings = byExercise.flatMap { (exId, list) ->
             SpacedRepetitionScheduler.groupIntoSittings(list, exercisesById[exId])
-        }
+        }.sortedBy { it.finishedAt }
+
         val firstTryClean = allSittings.count { it.quality.isCleanFirstTry }
         val firstTryAccuracy = if (allSittings.isNotEmpty()) {
             ((firstTryClean * 100.0) / allSittings.size).roundToInt().coerceIn(0, 100)
+        } else {
+            0
+        }
+
+        val errorSittings = allSittings.count {
+            it.quality == AttemptQuality.FAILED || it.quality == AttemptQuality.RETRY_SOLVE
+        }
+        val impulsiveCount = attempts.count { attempt ->
+            !attempt.solved && AttemptMetadata.parse(attempt.movesMade).wasImpulsive
+        }
+        val impulsiveRate = if (errorSittings > 0) {
+            ((impulsiveCount.coerceAtMost(errorSittings) * 100.0) / errorSittings)
+                .roundToInt()
+                .coerceIn(0, 100)
         } else {
             0
         }
@@ -200,7 +226,7 @@ class GetUserStatisticsUseCase(
         val masteredCount = accessibleCards.count { it.isMastered }
         val inLearningCount = accessibleCards.count { !it.isMastered }
 
-        val (currentStreak, bestStreak) = calculateStreaks(attempts)
+        val (currentStreak, bestStreak) = calculateCleanStreaks(allSittings)
 
         val solvedDurations = attempts
             .filter { it.solved && it.timeSpentSeconds > 0 }
@@ -211,14 +237,19 @@ class GetUserStatisticsUseCase(
             0
         }
 
-        val mastery = TrainingRatingCalculator.computePatternMastery(exercisesById, attempts)
+        val mastery = TrainingRatingCalculator.computePatternMastery(
+            exercisesById = exercisesById,
+            attempts = attempts,
+            playerElo = playerElo
+        )
         val weakPatterns = mastery
-            .filter { it.level == MasteryLevel.WEAK || (it.level == MasteryLevel.LEARNING && it.accuracyPercent < 70) }
+            .filter { it.level == MasteryLevel.WEAK || (it.level == MasteryLevel.LEARNING && it.masteryPercent < 68) }
             .take(4)
         val strongPatterns = mastery
-            .filter { it.level == MasteryLevel.STRONG || (it.solvedAttempts >= 1 && it.accuracyPercent >= 80) }
+            .filter { it.level == MasteryLevel.STRONG || (it.solvedAttempts >= 1 && it.masteryPercent >= 80) }
             .sortedWith(
-                compareByDescending<PatternMastery> { it.accuracyPercent }
+                compareByDescending<PatternMastery> { it.masteryPercent }
+                    .thenByDescending { it.firstTryAccuracyPercent }
                     .thenByDescending { it.solvedAttempts }
             )
             .take(4)
@@ -235,6 +266,9 @@ class GetUserStatisticsUseCase(
             masteredExercisesCount = masteredCount,
             firstTryAccuracyPercent = firstTryAccuracy,
             solveAccuracyPercent = solveAccuracy,
+            impulsiveMistakeCount = impulsiveCount,
+            impulsiveMistakeRatePercent = impulsiveRate,
+            isRatingProvisional = allSittings.size < 10,
             currentStreak = currentStreak,
             bestStreak = bestStreak,
             averageSolveTimeSeconds = avgSolveSeconds,
@@ -243,15 +277,25 @@ class GetUserStatisticsUseCase(
         )
     }
 
-    private fun calculateStreaks(orderedAttempts: List<ExerciseAttempt>): Pair<Int, Int> {
+    /**
+     * Честная серия решений без ошибок и без раскрытия полного ответа:
+     * дорешивание со 2-й попытки после промаха НЕ раздувает серию.
+     */
+    private fun calculateCleanStreaks(orderedSittings: List<ExerciseSitting>): Pair<Int, Int> {
         var best = 0
         var running = 0
-        for (attempt in orderedAttempts) {
-            if (attempt.solved) {
-                running++
-                if (running > best) best = running
-            } else {
-                running = 0
+        for (sitting in orderedSittings) {
+            when (sitting.quality) {
+                AttemptQuality.CLEAN_FAST_SOLVE,
+                AttemptQuality.SLOW_CLEAN_SOLVE,
+                AttemptQuality.HINT_SOLVE -> {
+                    running++
+                    if (running > best) best = running
+                }
+                AttemptQuality.RETRY_SOLVE,
+                AttemptQuality.FAILED -> {
+                    running = 0
+                }
             }
         }
         return running to best
@@ -325,10 +369,19 @@ class GetUserStatisticsUseCase(
             )
         }
 
+        if (training.impulsiveMistakeCount >= 2 && training.impulsiveMistakeRatePercent >= 30) {
+            recommendations.add(
+                "Дисциплина расчёта: ${training.impulsiveMistakeRatePercent}% ваших ошибок " +
+                    "(${training.impulsiveMistakeCount}) сделаны поспешно за первые секунды. " +
+                    "Перед ходом проверяйте все шахи, взятия и сильнейший ответ соперника."
+            )
+        }
+
         training.weakPatterns.firstOrNull()?.let { weakest ->
             recommendations.add(
                 "Слабый тактический мотив: «${weakest.pattern.displayName}» " +
-                    "(точность ${weakest.accuracyPercent}%). Рекомендуем режим «Слабые темы»."
+                    "(владение ${weakest.masteryPercent}%, с 1-й попытки ${weakest.firstTryAccuracyPercent}%). " +
+                    "Рекомендуем режим «Слабые темы»."
             )
         }
 

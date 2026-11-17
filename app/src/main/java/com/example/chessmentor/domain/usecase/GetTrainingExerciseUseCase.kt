@@ -45,6 +45,8 @@ class GetTrainingExerciseUseCase(
         val userId: Long,
         val excludeExerciseId: Long = -1,
         val preferredPattern: String? = null,
+        /** Последний сыгранный мотив — по возможности не выдаём два одинаковых подряд (interleaving). */
+        val avoidPattern: String? = null,
         val mode: TrainingMode = TrainingMode.All,
         val epochDay: Long = CuratedExerciseBank.currentEpochDay(),
         val nowMs: Long = System.currentTimeMillis()
@@ -56,7 +58,8 @@ class GetTrainingExerciseUseCase(
             val isAlreadySolvedDaily: Boolean = false,
             val isReviewOfFailed: Boolean = false,
             val reviewState: ReviewCardState? = null,
-            val dueReviewCount: Int = 0
+            val dueReviewCount: Int = 0,
+            val completedRatedSittings: Int = 0
         ) : Result()
 
         data class Error(val message: String) : Result()
@@ -67,7 +70,8 @@ class GetTrainingExerciseUseCase(
         val accessible: List<Exercise>,
         val exercisesById: Map<Long, Exercise>,
         val schedule: Map<Long, ReviewCardState>,
-        val dueReviewCount: Int
+        val dueReviewCount: Int,
+        val completedRatedSittings: Int
     )
 
     suspend fun execute(input: Input): Result {
@@ -90,11 +94,19 @@ class GetTrainingExerciseUseCase(
 
         return when (val mode = input.mode) {
             TrainingMode.Daily -> selectDailyExercise(userId, input.epochDay, snapshot)
-            TrainingMode.MyMistakes -> selectUserMistakeExercise(user, userId, input.excludeExerciseId, input.nowMs, snapshot)
-            TrainingMode.WeakPatterns -> selectWeakPatternExercise(user, userId, input.excludeExerciseId, input.nowMs, snapshot)
-            TrainingMode.Defense -> selectDefenseExercise(user, input.excludeExerciseId, input.nowMs, snapshot)
-            is TrainingMode.ByTheme -> selectThemeExercise(user, input.excludeExerciseId, mode.theme, input.nowMs, snapshot)
-            TrainingMode.All -> selectAdaptiveExercise(user, userId, input.excludeExerciseId, input.preferredPattern, input.nowMs, snapshot)
+            TrainingMode.MyMistakes -> selectUserMistakeExercise(user, userId, input.excludeExerciseId, input.avoidPattern, input.nowMs, snapshot)
+            TrainingMode.WeakPatterns -> selectWeakPatternExercise(user, userId, input.excludeExerciseId, input.avoidPattern, input.nowMs, snapshot)
+            TrainingMode.Defense -> selectDefenseExercise(user, input.excludeExerciseId, input.avoidPattern, input.nowMs, snapshot)
+            is TrainingMode.ByTheme -> selectThemeExercise(user, input.excludeExerciseId, mode.theme, input.avoidPattern, input.nowMs, snapshot)
+            TrainingMode.All -> selectAdaptiveExercise(
+                user = user,
+                userId = userId,
+                excludeId = input.excludeExerciseId,
+                preferredPattern = input.preferredPattern,
+                avoidPattern = input.avoidPattern,
+                nowMs = input.nowMs,
+                snapshot = snapshot
+            )
         }
     }
 
@@ -107,11 +119,13 @@ class GetTrainingExerciseUseCase(
             val id = ex.id ?: return@count false
             schedule[id]?.isDue(nowMs) == true
         }
+        val completedSittings = schedule.values.sumOf { it.totalSittings }
         return LearningSnapshot(
             accessible = accessible,
             exercisesById = byId,
             schedule = schedule,
-            dueReviewCount = dueCount
+            dueReviewCount = dueCount,
+            completedRatedSittings = completedSittings
         )
     }
 
@@ -138,7 +152,8 @@ class GetTrainingExerciseUseCase(
         return Result.Success(
             exercise = dailyExercise,
             isAlreadySolvedDaily = alreadySolved,
-            dueReviewCount = snapshot.dueReviewCount
+            dueReviewCount = snapshot.dueReviewCount,
+            completedRatedSittings = snapshot.completedRatedSittings
         )
     }
 
@@ -146,6 +161,7 @@ class GetTrainingExerciseUseCase(
         user: User,
         userId: Long,
         excludeId: Long,
+        avoidPattern: String?,
         nowMs: Long,
         snapshot: LearningSnapshot
     ): Result {
@@ -160,7 +176,7 @@ class GetTrainingExerciseUseCase(
             excludeId = excludeId,
             filter = isOwn
         ).firstOrNull()?.let { (ex, state) ->
-            return buildReviewSuccess(ex, state, snapshot.dueReviewCount)
+            return buildReviewSuccess(ex, state, snapshot)
         }
 
         // 2. Ещё ни разу не решённые задачи из своих партий (не находящиеся в охлаждении)
@@ -170,14 +186,15 @@ class GetTrainingExerciseUseCase(
             targetDifficulty = targetDiff,
             excludeId = excludeId,
             prioritizeOwnMistakes = true,
+            avoidPattern = avoidPattern,
             filter = isOwn
         )?.let { ex ->
-            return Result.Success(exercise = ex, dueReviewCount = snapshot.dueReviewCount)
+            return buildNewSuccess(ex, snapshot)
         }
 
         // 3. Резерв: создать из ещё не обработанной ошибки партии
         createFallbackExerciseFromMistake(user, userId)?.let { fallback ->
-            return Result.Success(exercise = fallback, dueReviewCount = snapshot.dueReviewCount)
+            return buildNewSuccess(fallback, snapshot)
         }
 
         // 4. Внеочередное повторение собственных задач (начиная с наименьшей коробки Лейтнера)
@@ -188,7 +205,7 @@ class GetTrainingExerciseUseCase(
             excludeId = excludeId,
             filter = isOwn
         )?.let { (ex, state) ->
-            return buildReviewSuccess(ex, state, snapshot.dueReviewCount)
+            return buildReviewSuccess(ex, state, snapshot)
         }
 
         return Result.NoSuitableExercises
@@ -198,6 +215,7 @@ class GetTrainingExerciseUseCase(
         user: User,
         userId: Long,
         excludeId: Long,
+        avoidPattern: String?,
         nowMs: Long,
         snapshot: LearningSnapshot
     ): Result {
@@ -210,16 +228,28 @@ class GetTrainingExerciseUseCase(
             nowMs = nowMs,
             excludeId = excludeId
         ).firstOrNull()?.let { (ex, state) ->
-            return buildReviewSuccess(ex, state, snapshot.dueReviewCount)
+            return buildReviewSuccess(ex, state, snapshot)
         }
 
-        // 2. Новые задачи по наиболее слабым тактическим мотивам пользователя
+        // 2. Новые задачи по наиболее слабым тактическим мотивам (с чередованием, чтобы не давать один мотив подряд)
         val attempts = exerciseRepository.getAttemptsByUserId(userId)
         if (attempts.isNotEmpty()) {
-            val mastery = TrainingRatingCalculator.computePatternMastery(snapshot.exercisesById, attempts)
-            val candidatePatterns = mastery
+            val mastery = TrainingRatingCalculator.computePatternMastery(
+                exercisesById = snapshot.exercisesById,
+                attempts = attempts,
+                playerElo = user.rating
+            )
+            val rawCandidates = mastery
                 .filter { it.level == MasteryLevel.WEAK || it.level == MasteryLevel.LEARNING }
                 .ifEmpty { mastery.take(3) }
+            // Если слабых тем несколько, чередуем их (не повторяя только что сыгранную подряд)
+            val candidatePatterns = if (!avoidPattern.isNullOrBlank() && rawCandidates.size >= 2) {
+                val different = rawCandidates.filter { it.pattern.name != avoidPattern }
+                val same = rawCandidates.filter { it.pattern.name == avoidPattern }
+                different + same
+            } else {
+                rawCandidates
+            }
 
             for (pm in candidatePatterns) {
                 val patternFilter: (Exercise) -> Boolean = { it.tacticalPattern == pm.pattern }
@@ -232,7 +262,7 @@ class GetTrainingExerciseUseCase(
                     prioritizeOwnMistakes = true,
                     filter = patternFilter
                 )?.let { ex ->
-                    return Result.Success(exercise = ex, dueReviewCount = snapshot.dueReviewCount)
+                    return buildNewSuccess(ex, snapshot)
                 }
 
                 // Если новых по слабому мотиву нет — берём наименее закреплённую (не только что сыгранную)
@@ -247,13 +277,21 @@ class GetTrainingExerciseUseCase(
                                 nowMs - (snapshot.schedule[ex.id]?.lastAttemptAt ?: 0L) >= SpacedRepetitionScheduler.FAILURE_COOLDOWN_MS)
                     }
                 )?.let { (ex, state) ->
-                    return buildReviewSuccess(ex, state, snapshot.dueReviewCount)
+                    return buildReviewSuccess(ex, state, snapshot)
                 }
             }
         }
 
         // 3. Если статистики пока мало — адаптивный подбор
-        return selectAdaptiveExercise(user, userId, excludeId, preferredPattern = null, nowMs = nowMs, snapshot = snapshot)
+        return selectAdaptiveExercise(
+            user = user,
+            userId = userId,
+            excludeId = excludeId,
+            preferredPattern = null,
+            avoidPattern = avoidPattern,
+            nowMs = nowMs,
+            snapshot = snapshot
+        )
     }
 
     /**
@@ -262,6 +300,7 @@ class GetTrainingExerciseUseCase(
     private fun selectDefenseExercise(
         user: User,
         excludeId: Long,
+        avoidPattern: String?,
         nowMs: Long,
         snapshot: LearningSnapshot
     ): Result {
@@ -278,7 +317,7 @@ class GetTrainingExerciseUseCase(
             excludeId = excludeId,
             filter = defenseFilter
         ).firstOrNull()?.let { (ex, state) ->
-            return buildReviewSuccess(ex, state, snapshot.dueReviewCount)
+            return buildReviewSuccess(ex, state, snapshot)
         }
 
         pickUnseenExercise(
@@ -287,9 +326,10 @@ class GetTrainingExerciseUseCase(
             targetDifficulty = targetDiff,
             excludeId = excludeId,
             prioritizeOwnMistakes = true,
+            avoidPattern = avoidPattern,
             filter = defenseFilter
         )?.let { ex ->
-            return Result.Success(exercise = ex, dueReviewCount = snapshot.dueReviewCount)
+            return buildNewSuccess(ex, snapshot)
         }
 
         SpacedRepetitionScheduler.pickFallbackReview(
@@ -299,7 +339,7 @@ class GetTrainingExerciseUseCase(
             excludeId = excludeId,
             filter = defenseFilter
         )?.let { (ex, state) ->
-            return buildReviewSuccess(ex, state, snapshot.dueReviewCount)
+            return buildReviewSuccess(ex, state, snapshot)
         }
 
         return Result.NoSuitableExercises
@@ -309,6 +349,7 @@ class GetTrainingExerciseUseCase(
         user: User,
         excludeId: Long,
         theme: TacticalTheme,
+        avoidPattern: String?,
         nowMs: Long,
         snapshot: LearningSnapshot
     ): Result {
@@ -323,7 +364,7 @@ class GetTrainingExerciseUseCase(
             excludeId = excludeId,
             filter = themeFilter
         ).firstOrNull()?.let { (ex, state) ->
-            return buildReviewSuccess(ex, state, snapshot.dueReviewCount)
+            return buildReviewSuccess(ex, state, snapshot)
         }
 
         // 2. Новые (ещё не открывавшиеся) задачи выбранной темы в зоне ближайшего развития
@@ -333,9 +374,10 @@ class GetTrainingExerciseUseCase(
             targetDifficulty = targetDiff,
             excludeId = excludeId,
             prioritizeOwnMistakes = true,
+            avoidPattern = avoidPattern,
             filter = themeFilter
         )?.let { ex ->
-            return Result.Success(exercise = ex, dueReviewCount = snapshot.dueReviewCount)
+            return buildNewSuccess(ex, snapshot)
         }
 
         // 3. Внеочередное повторение наименее закреплённой задачи темы
@@ -346,7 +388,7 @@ class GetTrainingExerciseUseCase(
             excludeId = excludeId,
             filter = themeFilter
         )?.let { (ex, state) ->
-            return buildReviewSuccess(ex, state, snapshot.dueReviewCount)
+            return buildReviewSuccess(ex, state, snapshot)
         }
 
         return Result.NoSuitableExercises
@@ -357,12 +399,13 @@ class GetTrainingExerciseUseCase(
         userId: Long,
         excludeId: Long,
         preferredPattern: String?,
+        avoidPattern: String?,
         nowMs: Long,
         snapshot: LearningSnapshot
     ): Result {
         val targetDiff = TrainingRatingCalculator.eloToDifficulty(user.rating)
 
-        // 1. Целевое закрепление запрошенного паттерна (только среди новых или уже подошедших по сроку!)
+        // 1. Отложенное чередование мотива (Interleaved Practice): только среди новых или подошедших по сроку
         if (!preferredPattern.isNullOrBlank()) {
             val patternFilter: (Exercise) -> Boolean = { it.tacticalPattern.name == preferredPattern }
 
@@ -373,7 +416,7 @@ class GetTrainingExerciseUseCase(
                 excludeId = excludeId,
                 filter = patternFilter
             ).firstOrNull()?.let { (ex, state) ->
-                return buildReviewSuccess(ex, state, snapshot.dueReviewCount)
+                return buildReviewSuccess(ex, state, snapshot)
             }
 
             pickUnseenExercise(
@@ -384,48 +427,51 @@ class GetTrainingExerciseUseCase(
                 prioritizeOwnMistakes = true,
                 filter = patternFilter
             )?.let { ex ->
-                return Result.Success(exercise = ex, dueReviewCount = snapshot.dueReviewCount)
+                return buildNewSuccess(ex, snapshot)
             }
         }
 
         // 2. Интервальное повторение (SM-2 / Лейтнер): подошедшие к сроку карточки
-        // (проваленные после 10-мин охлаждения, решённые со 2-й попытки через 4 ч,
-        // с подсказкой через 1 дн., медленные и плановые повторы через 3/7/21+ дн.)
-        SpacedRepetitionScheduler.rankDueExercises(
+        val dueList = SpacedRepetitionScheduler.rankDueExercises(
             accessibleExercises = snapshot.accessible,
             schedule = snapshot.schedule,
             nowMs = nowMs,
             excludeId = excludeId
-        ).firstOrNull()?.let { (ex, state) ->
-            return buildReviewSuccess(ex, state, snapshot.dueReviewCount)
+        )
+        val pickedDue = if (!avoidPattern.isNullOrBlank() && dueList.size >= 2) {
+            dueList.firstOrNull { (ex, _) -> ex.tacticalPattern.name != avoidPattern } ?: dueList.first()
+        } else {
+            dueList.firstOrNull()
+        }
+        if (pickedDue != null) {
+            return buildReviewSuccess(pickedDue.first, pickedDue.second, snapshot)
         }
 
-        // 3. Новая (ранее не решавшаяся) задача подходящей сложности.
-        // Задачи в 10-минутном охлаждении после ошибки уже находятся в schedule и сюда не попадают!
+        // 3. Новая задача подходящей сложности с чередованием мотивов (interleaving)
         pickUnseenExercise(
             accessible = snapshot.accessible,
             schedule = snapshot.schedule,
             targetDifficulty = targetDiff,
             excludeId = excludeId,
-            prioritizeOwnMistakes = true
+            prioritizeOwnMistakes = true,
+            avoidPattern = avoidPattern
         )?.let { ex ->
-            return Result.Success(exercise = ex, dueReviewCount = snapshot.dueReviewCount)
+            return buildNewSuccess(ex, snapshot)
         }
 
         // 4. Резерв: если есть ещё не сконвертированные ошибки партий
         createFallbackExerciseFromMistake(user, userId)?.let { fallback ->
-            return Result.Success(exercise = fallback, dueReviewCount = snapshot.dueReviewCount)
+            return buildNewSuccess(fallback, snapshot)
         }
 
-        // 5. Если просмотрены все задачи банка и ни одна ещё не подошла по таймеру —
-        // выдаём наименее закреплённую и наиболее отдохнувшую карточку
+        // 5. Если просмотрены все задачи банка — наименее закреплённая карточка
         SpacedRepetitionScheduler.pickFallbackReview(
             accessibleExercises = snapshot.accessible,
             schedule = snapshot.schedule,
             nowMs = nowMs,
             excludeId = excludeId
         )?.let { (ex, state) ->
-            return buildReviewSuccess(ex, state, snapshot.dueReviewCount)
+            return buildReviewSuccess(ex, state, snapshot)
         }
 
         return Result.NoSuitableExercises
@@ -433,8 +479,8 @@ class GetTrainingExerciseUseCase(
 
     /**
      * Подбирает ещё не встречавшуюся пользователю задачу в зоне ближайшего развития
-     * ([targetDifficulty] ± [ZPD_HALF_WINDOW]), с приоритетом задач из собственных партий
-     * и лёгкой рандомизацией среди лучших кандидатов, чтобы порядок не был механическим.
+     * ([targetDifficulty] ± [ZPD_HALF_WINDOW]), с приоритетом задач из собственных партий,
+     * чередованием мотивов ([avoidPattern]) и лёгкой рандомизацией среди лучших кандидатов.
      */
     private fun pickUnseenExercise(
         accessible: List<Exercise>,
@@ -442,6 +488,7 @@ class GetTrainingExerciseUseCase(
         targetDifficulty: Int,
         excludeId: Long,
         prioritizeOwnMistakes: Boolean,
+        avoidPattern: String? = null,
         filter: (Exercise) -> Boolean = { true }
     ): Exercise? {
         val unseen = accessible.filter { ex ->
@@ -458,16 +505,21 @@ class GetTrainingExerciseUseCase(
         if (prioritizeOwnMistakes) {
             val ownPool = pool.filter { it.sourceGameId != null }
             if (ownPool.isNotEmpty()) {
-                return pickNearDifficulty(ownPool, targetDifficulty)
+                return pickNearDifficulty(preferVariedPattern(ownPool, avoidPattern), targetDifficulty)
             }
-            // Если в ZPD нет своих задач, но есть неразобранные свои ошибки чуть вне окна — всё равно берём их
             val anyOwn = unseen.filter { it.sourceGameId != null }
             if (anyOwn.isNotEmpty()) {
-                return pickNearDifficulty(anyOwn, targetDifficulty)
+                return pickNearDifficulty(preferVariedPattern(anyOwn, avoidPattern), targetDifficulty)
             }
         }
 
-        return pickNearDifficulty(pool, targetDifficulty)
+        return pickNearDifficulty(preferVariedPattern(pool, avoidPattern), targetDifficulty)
+    }
+
+    private fun preferVariedPattern(candidates: List<Exercise>, avoidPattern: String?): List<Exercise> {
+        if (avoidPattern.isNullOrBlank() || candidates.size <= 1) return candidates
+        val varied = candidates.filter { it.tacticalPattern.name != avoidPattern }
+        return varied.ifEmpty { candidates }
     }
 
     private fun pickNearDifficulty(candidates: List<Exercise>, targetDifficulty: Int): Exercise? {
@@ -478,15 +530,25 @@ class GetTrainingExerciseUseCase(
         return sorted[Random.nextInt(topCount)]
     }
 
+    private fun buildNewSuccess(
+        exercise: Exercise,
+        snapshot: LearningSnapshot
+    ): Result.Success = Result.Success(
+        exercise = exercise,
+        dueReviewCount = snapshot.dueReviewCount,
+        completedRatedSittings = snapshot.completedRatedSittings
+    )
+
     private fun buildReviewSuccess(
         exercise: Exercise,
         state: ReviewCardState,
-        dueReviewCount: Int
+        snapshot: LearningSnapshot
     ): Result.Success = Result.Success(
         exercise = exercise,
         isReviewOfFailed = state.needsConsolidation,
         reviewState = state,
-        dueReviewCount = dueReviewCount
+        dueReviewCount = snapshot.dueReviewCount,
+        completedRatedSittings = snapshot.completedRatedSittings
     )
 
     private suspend fun createFallbackExerciseFromMistake(user: User, userId: Long): Exercise? {

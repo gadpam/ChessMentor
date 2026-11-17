@@ -311,8 +311,14 @@ private fun TrainingProgressCard(
                     if (training.averageSolveTimeSeconds > 0) {
                         add("Ср. время: ${training.averageSolveTimeSeconds} с")
                     }
+                    if (training.impulsiveMistakeCount > 0) {
+                        add("Поспешных: ${training.impulsiveMistakeCount} (${training.impulsiveMistakeRatePercent}%)")
+                    }
                     if (training.personalMistakeExercises > 0) {
                         add("Из партий: ${training.personalMistakeExercises}")
+                    }
+                    if (training.isRatingProvisional) {
+                        add("Калибровка рейтинга")
                     }
                 }.joinToString(" • ")
 
@@ -430,7 +436,7 @@ private fun PatternMasteryRow(
             shape = RoundedCornerShape(6.dp)
         ) {
             Text(
-                text = "${mastery.accuracyPercent}% (${mastery.solvedAttempts}/${mastery.totalAttempts})",
+                text = "${mastery.masteryPercent}% • 1-я: ${mastery.firstTryAccuracyPercent}%",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = if (isWeak) {

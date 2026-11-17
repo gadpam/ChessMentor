@@ -19,6 +19,7 @@ import com.example.chessmentor.domain.training.AttemptMetadata
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.ExerciseMetadata
 import com.example.chessmentor.domain.training.HintUsage
+import com.example.chessmentor.domain.training.InterleavedPatternQueue
 import com.example.chessmentor.domain.training.PuzzleQualityEvaluator
 import com.example.chessmentor.domain.training.ReviewCardState
 import com.example.chessmentor.domain.training.SolutionReviewHelper
@@ -123,7 +124,9 @@ data class TrainingUiState(
 
 data class SessionStats(
     val solved: Int = 0,
+    val cleanFirstTrySolved: Int = 0,
     val failed: Int = 0,
+    val impulsiveMistakes: Int = 0,
     val skipped: Int = 0,
     val currentStreak: Int = 0,
     val bestStreak: Int = 0,
@@ -143,7 +146,6 @@ class TrainingViewModel(
         private const val HUMAN_REACTION_DELAY_MS = 650L
         private const val ANIMATION_DELAY_MS = 600L
         private const val PUNISHMENT_DISPLAY_MS = 2200L
-        private const val SIMILAR_EXERCISES_COUNT = 2
         private const val MAX_SOLUTION_PLIES = PuzzleQualityEvaluator.MAX_QUIESCENCE_PLIES
         private const val FREE_ANALYSIS_DEPTH = 12
     }
@@ -174,10 +176,12 @@ class TrainingViewModel(
     private var lastMoveBeforePlayerMove: Pair<Square, Square>? = null
     private var initialTriggerMoveUci: String? = null
     private var currentCuratedExplanation: String? = null
+    private var lastMistakeCoachingNote: String? = null
+    private var completedRatedSittings: Int = 0
     private val analysisHistory = mutableListOf<Pair<String, Pair<Square, Square>?>>()
 
-    private val sessionQueue = mutableListOf<Exercise>()
-    private var lastMistakePattern: String? = null
+    /** Очередь отложенного чередования мотивов (interleaved practice вместо предсказуемых блоков подряд). */
+    private val interleavedQueue = InterleavedPatternQueue()
 
     // ================================================================
     // ИНИЦИАЛИЗАЦИЯ И ПЕРЕКЛЮЧЕНИЕ РЕЖИМОВ
@@ -195,8 +199,8 @@ class TrainingViewModel(
         val modeChangedByNavigation = initialMode != null && initialMode != _uiState.value.mode
 
         if (isNewUser) {
-            sessionQueue.clear()
-            lastMistakePattern = null
+            interleavedQueue.clear()
+            completedRatedSittings = 0
             val targetMode = initialMode ?: TrainingMode.All
             _uiState.value = TrainingUiState(mode = targetMode)
             initializeExercisesAndLoad(targetMode)
@@ -208,7 +212,7 @@ class TrainingViewModel(
     }
 
     /**
-     * Переключение режима тренировки пользователем (Все / Мои ошибки / Слабые темы / По теме / Задача дня).
+     * Переключение режима тренировки пользователем.
      */
     fun selectMode(mode: TrainingMode) {
         val userId = currentUser?.id ?: return
@@ -217,9 +221,8 @@ class TrainingViewModel(
         }
 
         currentJob?.cancel()
-        sessionQueue.clear()
         if (mode !is TrainingMode.All) {
-            lastMistakePattern = null
+            interleavedQueue.clear()
         }
 
         _uiState.value = _uiState.value.copy(
@@ -317,9 +320,17 @@ class TrainingViewModel(
     private suspend fun loadCurrentStreak(userId: Long): Int {
         return runCatching {
             val attempts = container.exerciseRepository.getAttemptsByUserId(userId)
+            val sittings = attempts.groupBy { it.exerciseId }
+                .flatMap { (_, list) -> SpacedRepetitionScheduler.groupIntoSittings(list) }
+                .sortedBy { it.finishedAt }
             var streak = 0
-            for (attempt in attempts.asReversed()) {
-                if (attempt.solved) streak++ else break
+            for (sitting in sittings.asReversed()) {
+                if (sitting.quality == com.example.chessmentor.domain.training.AttemptQuality.FAILED ||
+                    sitting.quality == com.example.chessmentor.domain.training.AttemptQuality.RETRY_SOLVE
+                ) {
+                    break
+                }
+                streak++
             }
             streak
         }.getOrDefault(0)
@@ -360,24 +371,6 @@ class TrainingViewModel(
 
         currentJob?.cancel()
 
-        // 1. В общем режиме сначала отрабатываем очередь похожих задач после ошибки
-        if (effectiveMode is TrainingMode.All && sessionQueue.isNotEmpty()) {
-            val nextFromQueue = sessionQueue.removeFirst()
-            currentJob = viewModelScope.launch {
-                resetStateForNewExercise()
-                setupExercise(
-                    exercise = nextFromQueue,
-                    mode = effectiveMode,
-                    isAlreadySolvedDaily = false,
-                    isReviewOfFailed = false,
-                    reviewState = null,
-                    dueReviewCount = _uiState.value.dueReviewCount
-                )
-            }
-            return
-        }
-
-        // 2. Загружаем следующую задачу из БД
         _uiState.value = _uiState.value.copy(
             mode = effectiveMode,
             isLoading = true,
@@ -468,7 +461,11 @@ class TrainingViewModel(
             )
 
             if (shouldRecordFail) {
-                runCatching { saveAttempt(solved = false, solutionRevealed = true) }
+                runCatching {
+                    saveAttempt(solved = false, solutionRevealed = true)
+                    completedRatedSittings++
+                }
+                scheduleInterleavedReinforcement(null)
             }
 
             // Пошагово разыгрываем оставшуюся линию решения
@@ -532,12 +529,21 @@ class TrainingViewModel(
     ) {
         resetStateForNewExercise()
         try {
-            val preferred = if (mode is TrainingMode.All) lastMistakePattern else null
+            // Отложенное закрепление (interleaved practice): если подошёл срок мотива после 2+ других задач —
+            // незаметно подмешиваем его без предварительной подсказки.
+            val dueInterleavedPattern = if (mode is TrainingMode.All) {
+                interleavedQueue.pollDuePattern()
+            } else {
+                null
+            }
+            val avoidRepeatedPattern = interleavedQueue.lastServedPattern
+
             val result = container.getTrainingExerciseUseCase.execute(
                 GetTrainingExerciseUseCase.Input(
                     userId = userId,
                     excludeExerciseId = excludeId,
-                    preferredPattern = preferred,
+                    preferredPattern = dueInterleavedPattern,
+                    avoidPattern = avoidRepeatedPattern,
                     mode = mode
                 )
             )
@@ -549,6 +555,7 @@ class TrainingViewModel(
                         userId = userId,
                         excludeExerciseId = -1L,
                         preferredPattern = null,
+                        avoidPattern = null,
                         mode = mode
                     )
                 )
@@ -558,6 +565,8 @@ class TrainingViewModel(
 
             when (finalResult) {
                 is GetTrainingExerciseUseCase.Result.Success -> {
+                    completedRatedSittings = finalResult.completedRatedSittings
+                    interleavedQueue.onExerciseServed(finalResult.exercise.tacticalPattern.name)
                     setupExercise(
                         exercise = finalResult.exercise,
                         mode = mode,
@@ -622,6 +631,7 @@ class TrainingViewModel(
         lastMoveBeforePlayerMove = null
         initialTriggerMoveUci = null
         currentCuratedExplanation = null
+        lastMistakeCoachingNote = null
     }
 
     private suspend fun setupExercise(
@@ -719,7 +729,7 @@ class TrainingViewModel(
             dueReviewCount = dueReviewCount,
             currentStepNumber = 1,
             totalPlayerSteps = totalPlayerSteps,
-            similarExercisesQueued = sessionQueue.size,
+            similarExercisesQueued = interleavedQueue.pendingCount,
             currentMistakeAnalysis = null,
             showBetterMoveHint = false,
             betterMoveShown = false,
@@ -1111,21 +1121,57 @@ class TrainingViewModel(
 
     private suspend fun handleMistakeComprehensive(fenBefore: String, userMove: Move) {
         val isFirstMistakeOnExercise = !attemptFailed
+        val exercise = currentExercise
+        val user = currentUser
+
+        // Детектор импульсивного первого хода («игры руками» без расчёта ответа соперника)
+        val thinkMs = firstMoveThinkTimeMs
+        val wasImpulsiveFirstMove = isFirstMistakeOnExercise &&
+            TrainingRatingCalculator.isImpulsiveMistake(
+                firstMoveThinkMs = thinkMs,
+                exercise = exercise,
+                isFirstMoveOfPuzzle = currentMoveIndex == 0
+            )
+
         attemptMistakeCount++
         attemptFailed = true
-        val stats = _uiState.value.sessionStats
 
+        // Тренерская диагностика дисциплины расчёта
+        lastMistakeCoachingNote = when {
+            wasImpulsiveFirstMove && thinkMs != null -> {
+                val secs = String.format(java.util.Locale.US, "%.1f", thinkMs / 1000.0)
+                "⚡ Поспешный ход ($secs с)! Сначала проверьте шахи, взятия и лучший ответ соперника."
+            }
+            attemptMistakeCount >= 2 -> {
+                "🛑 Не перебирайте ходы наугад — посчитайте ответ соперника или возьмите подсказку фигуры."
+            }
+            else -> null
+        }
+
+        val stats = _uiState.value.sessionStats
+        var shouldSaveFirstFailedAttempt = false
         var appliedDelta: Int? = null
-        if (isFirstMistakeOnExercise && !failedAttemptSaved && !isCurrentDailyAlreadySolved) {
-            failedAttemptSaved = true
-            val exercise = currentExercise
-            val user = currentUser
-            if (exercise != null && user != null) {
-                appliedDelta = TrainingRatingCalculator.calculateFailureDelta(user.rating, exercise)
+
+        if (!isCurrentDailyAlreadySolved && exercise != null && user != null) {
+            if (isFirstMistakeOnExercise && !failedAttemptSaved) {
+                failedAttemptSaved = true
+                shouldSaveFirstFailedAttempt = true
+                appliedDelta = TrainingRatingCalculator.calculateFailureDelta(
+                    playerElo = user.rating,
+                    exercise = exercise,
+                    completedRatedSittings = completedRatedSittings
+                )
+            } else {
+                // Мягкий дисциплинирующий штраф за повторный слепой перебор ходов в той же задаче
+                val guessPenalty = TrainingRatingCalculator.calculateRepeatedGuessPenalty(attemptMistakeCount)
+                if (guessPenalty != 0) {
+                    appliedDelta = guessPenalty
+                }
             }
         }
 
         val updatedNet = stats.netRatingDelta + (appliedDelta ?: 0)
+        val updatedImpulsive = if (wasImpulsiveFirstMove) stats.impulsiveMistakes + 1 else stats.impulsiveMistakes
         soundCounter++
         _uiState.value = _uiState.value.copy(
             isInputLocked = true,
@@ -1133,6 +1179,7 @@ class TrainingViewModel(
             lastRatingDelta = appliedDelta,
             sessionStats = stats.copy(
                 failed = stats.failed + 1,
+                impulsiveMistakes = updatedImpulsive,
                 currentStreak = 0,
                 netRatingDelta = updatedNet
             ),
@@ -1141,14 +1188,24 @@ class TrainingViewModel(
             soundEventId = soundCounter
         )
 
-        if (appliedDelta != null) {
+        if (shouldSaveFirstFailedAttempt || appliedDelta != null) {
             runCatching {
-                saveAttempt(solved = false)
-                updateRating(appliedDelta)
+                if (shouldSaveFirstFailedAttempt) {
+                    saveAttempt(solved = false, wasImpulsive = wasImpulsiveFirstMove)
+                    completedRatedSittings++
+                }
+                if (appliedDelta != null) {
+                    updateRating(appliedDelta)
+                }
             }.onFailure { e ->
                 if (e is CancellationException) throw e
                 Log.e(TAG, "Error saving failed attempt", e)
             }
+        }
+
+        // Отложенное чередование мотива (даже если движок недоступен — по мотиву самой задачи)
+        if (isFirstMistakeOnExercise) {
+            scheduleInterleavedReinforcement(null)
         }
 
         try {
@@ -1194,7 +1251,9 @@ class TrainingViewModel(
                 return
             }
 
-            loadSimilarExercisesIntoQueue(analysis)
+            if (isFirstMistakeOnExercise) {
+                scheduleInterleavedReinforcement(analysis)
+            }
             displayMistakeAnalysis(boardAfterPlayer, analysis, punishmentLineObj.principalVariation)
         } catch (e: CancellationException) {
             throw e
@@ -1209,16 +1268,11 @@ class TrainingViewModel(
         analysis: MistakeAnalysis,
         punishmentMoves: List<String>
     ) {
-        val queueInfo = if (sessionQueue.isNotEmpty() && _uiState.value.mode is TrainingMode.All) {
-            "\n📚 +${sessionQueue.size} похожих задач для закрепления"
-        } else {
-            ""
-        }
-
         val cleanExplanation = cleanEvaluationText(analysis.explanation)
+        val coachingSuffix = lastMistakeCoachingNote?.let { "\n$it" } ?: ""
 
         _uiState.value = _uiState.value.copy(
-            feedbackMessage = cleanExplanation + queueInfo,
+            feedbackMessage = cleanExplanation + coachingSuffix,
             currentMistakeAnalysis = analysis,
             showBetterMoveHint = analysis.shouldShowBetterMove()
         )
@@ -1317,10 +1371,17 @@ class TrainingViewModel(
         } else {
             null
         }
-        val prompt = if (keptExplanation != null) {
-            "$keptExplanation\nПопробуйте ещё раз!"
-        } else {
-            "Попробуйте ещё раз!"
+        val coaching = lastMistakeCoachingNote
+        val prompt = buildString {
+            if (keptExplanation != null) {
+                append(keptExplanation)
+                append('\n')
+            }
+            if (coaching != null) {
+                append(coaching)
+                append('\n')
+            }
+            append("Попробуйте ещё раз!")
         }
 
         _uiState.value = prev.copy(
@@ -1340,43 +1401,19 @@ class TrainingViewModel(
     // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
     // ================================================================
 
-    private suspend fun loadSimilarExercisesIntoQueue(analysis: MistakeAnalysis) {
+    /**
+     * Планирует отложенный (interleaved) возврат к ошибочному тактическому мотиву
+     * через 2 и 5 задач на другие темы — без механических «блоков подряд» и без спойлера.
+     */
+    private fun scheduleInterleavedReinforcement(analysis: MistakeAnalysis?) {
         if (_uiState.value.mode !is TrainingMode.All) return
-        val userId = currentUser?.id ?: return
-
-        val pattern = analysis.tacticalMotif?.let { TacticalPattern.fromMotif(it) }
+        val pattern = analysis?.tacticalMotif?.let { TacticalPattern.fromMotif(it) }
             ?: currentExercise?.tacticalPattern
             ?: return
-        val patternName = pattern.name
-        lastMistakePattern = patternName
-
-        try {
-            val currentId = currentExercise?.id ?: -1L
-            val currentDifficulty = currentExercise?.getEffectiveDifficulty() ?: 50
-            val alreadyQueuedIds = sessionQueue.mapNotNull { it.id }.toSet()
-
-            val remainingSlots = (4 - sessionQueue.size).coerceAtLeast(0)
-            if (remainingSlots == 0) return
-
-            val similarExercises = container.exerciseRepository.findForMistakeRepetition(
-                userId = userId,
-                pattern = patternName,
-                difficulty = currentDifficulty,
-                excludeId = currentId,
-                limit = minOf(SIMILAR_EXERCISES_COUNT, remainingSlots)
-            ).filter { it.id !in alreadyQueuedIds }
-
-            if (similarExercises.isNotEmpty()) {
-                sessionQueue.addAll(similarExercises)
-                _uiState.value = _uiState.value.copy(
-                    similarExercisesQueued = sessionQueue.size
-                )
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading similar exercises", e)
-        }
+        interleavedQueue.scheduleAfterMistake(pattern.name)
+        _uiState.value = _uiState.value.copy(
+            similarExercisesQueued = interleavedQueue.pendingCount
+        )
     }
 
     private suspend fun checkMoveQuality(fen: String, userMove: Move): TrainingMoveQuality {
@@ -1621,7 +1658,9 @@ class TrainingViewModel(
                 exercise = exercise,
                 hadMistake = attemptFailed,
                 maxHintUsed = maxHintUsed,
-                solutionRevealed = false
+                solutionRevealed = false,
+                completedRatedSittings = completedRatedSittings,
+                mistakeCount = attemptMistakeCount
             )
         } else {
             0
@@ -1629,6 +1668,7 @@ class TrainingViewModel(
 
         // Чистое решение (без раскрытия полного ответа и без ошибок) увеличивает серию
         val stats = _uiState.value.sessionStats
+        val isCleanFirstTry = !attemptFailed && maxHintUsed == HintUsage.NONE && !isCurrentDailyAlreadySolved
         val countsForStreak = !attemptFailed && !usedFullHint && !isCurrentDailyAlreadySolved
         val newStreak = if (countsForStreak) stats.currentStreak + 1 else stats.currentStreak
         val newBestStreak = maxOf(stats.bestStreak, newStreak)
@@ -1639,11 +1679,6 @@ class TrainingViewModel(
             usedFullHint -> " (с подсказкой хода: +0 Эло)"
             else -> ""
         }
-        val queueInfo = if (sessionQueue.isNotEmpty() && _uiState.value.mode is TrainingMode.All) {
-            "\n📚 Ещё ${sessionQueue.size} похожих задач для закрепления"
-        } else {
-            ""
-        }
 
         val postReview = buildPostSolveReviewState()
 
@@ -1653,20 +1688,21 @@ class TrainingViewModel(
             isInputLocked = true,
             isFreeAnalysisMode = false,
             lastRatingDelta = if (isCurrentDailyAlreadySolved) null else ratingDelta,
-            feedbackMessage = msg + ratingInfo + queueInfo,
+            feedbackMessage = msg + ratingInfo,
             reviewSteps = postReview.first,
             reviewStepIndex = (postReview.first.size - 1).coerceAtLeast(0),
             solutionSanLine = postReview.second.ifBlank { null },
             postSolveExplanation = postReview.third,
             sessionStats = stats.copy(
                 solved = stats.solved + 1,
+                cleanFirstTrySolved = if (isCleanFirstTry) stats.cleanFirstTrySolved + 1 else stats.cleanFirstTrySolved,
                 currentStreak = newStreak,
                 bestStreak = newBestStreak,
                 netRatingDelta = stats.netRatingDelta + ratingDelta
             ),
             currentMistakeAnalysis = null,
             showBetterMoveHint = false,
-            similarExercisesQueued = sessionQueue.size,
+            similarExercisesQueued = interleavedQueue.pendingCount,
             soundEvent = TrainingSoundEvent.SOLVED,
             soundEventId = soundCounter
         )
@@ -1675,7 +1711,7 @@ class TrainingViewModel(
         // а подсказка готовым ходом — как нерешённая попытка (коробка 0, повтор через 10 мин)
         val markAsSolvedInDb = !usedFullHint && !isCurrentDailyAlreadySolved
         val markFullHintForReview = usedFullHint && !isCurrentDailyAlreadySolved && !failedAttemptSaved
-        val baseFeedback = msg + ratingInfo + queueInfo
+        val baseFeedback = msg + ratingInfo
 
         viewModelScope.launch {
             try {
@@ -1684,6 +1720,9 @@ class TrainingViewModel(
                 }
                 if (markAsSolvedInDb) {
                     saveAttempt(solved = true)
+                    if (!attemptFailed) {
+                        completedRatedSittings++
+                    }
                     // В глобальную успешность задачи засчитываем только чистое решение с 1-й попытки без подсказок
                     if (!attemptFailed && maxHintUsed == HintUsage.NONE) {
                         exercise?.id?.let { id ->
@@ -1693,6 +1732,7 @@ class TrainingViewModel(
                 } else if (markFullHintForReview) {
                     failedAttemptSaved = true
                     saveAttempt(solved = false)
+                    completedRatedSittings++
                 }
 
                 if (!isCurrentDailyAlreadySolved) {
@@ -1993,8 +2033,7 @@ class TrainingViewModel(
     }
 
     fun clearSessionQueue() {
-        sessionQueue.clear()
-        lastMistakePattern = null
+        interleavedQueue.clear()
         _uiState.value = _uiState.value.copy(
             similarExercisesQueued = 0
         )

@@ -13,6 +13,7 @@ import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.usecase.GenerateExercisesFromMistakesUseCase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -184,7 +185,130 @@ class TrainingRatingCalculatorTest {
         assertEquals(TacticalPattern.FORK_KNIGHT, strongest.pattern)
         assertEquals(MasteryLevel.STRONG, strongest.level)
         assertEquals(100, strongest.accuracyPercent)
+        assertEquals(100, strongest.masteryPercent)
         assertEquals(0, strongest.unresolvedCount)
+    }
+
+    @Test
+    fun symmetricKFactor_eliminatesInflationAndCalibratesNewPlayersFaster() {
+        val equalPuzzle = makeExercise(difficulty = 50) // 1600 Elo
+        for (experience in listOf(0, 5, 15, 45)) {
+            val gain = TrainingRatingCalculator.calculateSolveDelta(
+                playerElo = 1600,
+                exercise = equalPuzzle,
+                hadMistake = false,
+                maxHintUsed = HintUsage.NONE,
+                completedRatedSittings = experience
+            )
+            val loss = TrainingRatingCalculator.calculateFailureDelta(
+                playerElo = 1600,
+                exercise = equalPuzzle,
+                completedRatedSittings = experience
+            )
+            assertEquals("Zero Elo drift at 50% win rate (exp=$experience)", 0, gain + loss)
+        }
+
+        val provisionalGain = TrainingRatingCalculator.calculateSolveDelta(
+            playerElo = 1600,
+            exercise = equalPuzzle,
+            hadMistake = false,
+            maxHintUsed = HintUsage.NONE,
+            completedRatedSittings = 2
+        )
+        val establishedGain = TrainingRatingCalculator.calculateSolveDelta(
+            playerElo = 1600,
+            exercise = equalPuzzle,
+            hadMistake = false,
+            maxHintUsed = HintUsage.NONE,
+            completedRatedSittings = 50
+        )
+        assertTrue(
+            "Provisional K must adapt faster than established K ($provisionalGain vs $establishedGain)",
+            provisionalGain > establishedGain
+        )
+        assertEquals(0, TrainingRatingCalculator.calculateRepeatedGuessPenalty(1))
+        assertTrue(TrainingRatingCalculator.calculateRepeatedGuessPenalty(2) < 0)
+        assertTrue(TrainingRatingCalculator.calculateRepeatedGuessPenalty(3) < 0)
+    }
+
+    @Test
+    fun computePatternMastery_rewardsRecentCleanSolvesAndWeightsDifficulty() {
+        val dayMs = 86_400_000L
+        val exercises = (1L..9L).associateWith { id ->
+            makeExercise(id = id, difficulty = 50, pattern = TacticalPattern.FORK_KNIGHT)
+        }
+        // 3 старых провала месяц назад + 6 свежих чистых решений с 1-й попытки
+        val attempts = buildList {
+            for (i in 1..3) {
+                add(
+                    ExerciseAttempt(
+                        userId = 1L,
+                        exerciseId = i.toLong(),
+                        solved = false,
+                        timeSpentSeconds = 20,
+                        movesMade = listOf("a2a3"),
+                        attemptedAt = 1_000_000L + i * dayMs
+                    )
+                )
+            }
+            for (i in 4..9) {
+                add(
+                    ExerciseAttempt(
+                        userId = 1L,
+                        exerciseId = i.toLong(),
+                        solved = true,
+                        timeSpentSeconds = 7,
+                        movesMade = listOf("d1d8"),
+                        attemptedAt = 1_000_000L + (30 + i) * dayMs
+                    )
+                )
+            }
+        }
+
+        val pm = TrainingRatingCalculator.computePatternMastery(exercises, attempts, playerElo = 1600).single()
+        assertEquals(67, pm.accuracyPercent)
+        assertTrue(
+            "Recency-weighted mastery (${pm.masteryPercent}%) should exceed raw lifetime average (${pm.accuracyPercent}%)",
+            pm.masteryPercent > pm.accuracyPercent
+        )
+        assertEquals(MasteryLevel.STRONG, pm.level)
+    }
+
+    @Test
+    fun isImpulsiveMistake_detectsRushedFirstMoveBlundersOnly() {
+        val medium = makeExercise(difficulty = 45)
+        assertTrue(TrainingRatingCalculator.isImpulsiveMistake(1_800L, medium, isFirstMoveOfPuzzle = true))
+        assertFalse(TrainingRatingCalculator.isImpulsiveMistake(9_500L, medium, isFirstMoveOfPuzzle = true))
+        assertFalse(TrainingRatingCalculator.isImpulsiveMistake(1_500L, medium, isFirstMoveOfPuzzle = false))
+        assertFalse(TrainingRatingCalculator.isImpulsiveMistake(null, medium, isFirstMoveOfPuzzle = true))
+    }
+
+    @Test
+    fun interleavedPatternQueue_delaysMotifReturnAcrossOtherPatterns() {
+        val queue = InterleavedPatternQueue()
+        queue.onExerciseServed("FORK_KNIGHT")
+        queue.scheduleAfterMistake("FORK_KNIGHT")
+
+        // Сразу на следующем шаге НЕ должен выдать ту же тему (никакого предсказуемого блока подряд)
+        assertNull(queue.pollDuePattern())
+
+        // Задача 1 на другую тему (связка)
+        queue.onExerciseServed("PIN_ABSOLUTE")
+        assertNull(queue.pollDuePattern())
+
+        // Задача 2 на другую тему (мат по 8-й горизонтали) -> теперь подошёл 1-й отложенный повтор!
+        queue.onExerciseServed("BACK_RANK_MATE")
+        assertEquals("FORK_KNIGHT", queue.pollDuePattern())
+        queue.onExerciseServed("FORK_KNIGHT")
+
+        // Сразу после повтора снова тишина до 2-го контрольного слота (ещё 3 других задачи)
+        assertNull(queue.pollDuePattern())
+        queue.onExerciseServed("DEFLECTION")
+        assertNull(queue.pollDuePattern())
+        queue.onExerciseServed("SKEWER")
+        assertNull(queue.pollDuePattern())
+        queue.onExerciseServed("DEFENSIVE_MOVE")
+        assertEquals("FORK_KNIGHT", queue.pollDuePattern())
     }
 
     @Test
