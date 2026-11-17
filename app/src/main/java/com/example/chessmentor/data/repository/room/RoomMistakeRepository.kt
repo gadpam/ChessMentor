@@ -1,4 +1,4 @@
-﻿package com.example.chessmentor.data.repository.room
+package com.example.chessmentor.data.repository.room
 
 import com.example.chessmentor.data.local.dao.MistakeDao
 import com.example.chessmentor.domain.entity.Mistake
@@ -9,7 +9,7 @@ import kotlinx.coroutines.withContext
 
 class RoomMistakeRepository(private val mistakeDao: MistakeDao) : MistakeRepository {
     override suspend fun findById(id: Long): Mistake? = withContext(Dispatchers.IO) {
-        null // TODO: Реализовать при необходимости
+        mistakeDao.findById(id)
     }
 
     override suspend fun findByGameId(gameId: Long): List<Mistake> = withContext(Dispatchers.IO) {
@@ -19,29 +19,30 @@ class RoomMistakeRepository(private val mistakeDao: MistakeDao) : MistakeReposit
     override suspend fun findByUserId(userId: Long): List<Mistake> = withContext(Dispatchers.IO) {
         mistakeDao.findByUserId(userId)
     }
-    
-    // ✅ НОВОЕ: Поиск по нескольким играм
+
     override suspend fun findByGameIds(gameIds: List<Long>): List<Mistake> = withContext(Dispatchers.IO) {
         if (gameIds.isEmpty()) return@withContext emptyList()
         mistakeDao.findByGameIds(gameIds)
     }
 
     override suspend fun save(mistake: Mistake): Mistake = withContext(Dispatchers.IO) {
-        mistakeDao.insertAll(listOf(mistake))
-        mistake
+        val id = mistakeDao.insert(mistake)
+        mistake.copy(id = id)
     }
 
     override suspend fun saveAll(mistakes: List<Mistake>): List<Mistake> = withContext(Dispatchers.IO) {
-        mistakeDao.insertAll(mistakes)
-        mistakes
+        if (mistakes.isEmpty()) return@withContext emptyList()
+        val ids = mistakeDao.insertAll(mistakes)
+        mistakes.mapIndexed { index, mistake -> mistake.copy(id = ids[index]) }
     }
 
     override suspend fun update(mistake: Mistake): Mistake = withContext(Dispatchers.IO) {
-        mistake // TODO: Реализовать при необходимости
+        mistakeDao.update(mistake)
+        mistake
     }
 
     override suspend fun deleteById(id: Long) = withContext(Dispatchers.IO) {
-        // TODO: Реализовать при необходимости
+        mistakeDao.deleteById(id)
     }
 
     override suspend fun deleteByGameId(gameId: Long) = withContext(Dispatchers.IO) {
@@ -49,30 +50,36 @@ class RoomMistakeRepository(private val mistakeDao: MistakeDao) : MistakeReposit
     }
 
     override suspend fun findByThemeId(themeId: Long): List<Mistake> = withContext(Dispatchers.IO) {
-        emptyList() // TODO: Реализовать при необходимости
+        mistakeDao.findByThemeId(themeId)
     }
 
-    override suspend fun findByGameIdAndType(gameId: Long, type: MistakeType): List<Mistake> = withContext(Dispatchers.IO) {
-        emptyList() // TODO: Реализовать при необходимости
-    }
+    override suspend fun findByGameIdAndType(gameId: Long, type: MistakeType): List<Mistake> =
+        withContext(Dispatchers.IO) {
+            mistakeDao.findByGameIdAndType(gameId, type)
+        }
 
-    override suspend fun findByUserIdAndTheme(userId: Long, themeId: Long): List<Mistake> = withContext(Dispatchers.IO) {
-        emptyList() // TODO: Реализовать при необходимости
-    }
+    override suspend fun findByUserIdAndTheme(userId: Long, themeId: Long): List<Mistake> =
+        withContext(Dispatchers.IO) {
+            mistakeDao.findByUserIdAndTheme(userId, themeId)
+        }
 
     override suspend fun countByGameId(gameId: Long): Int = withContext(Dispatchers.IO) {
         findByGameId(gameId).size
     }
 
-    override suspend fun countByUserIdAndType(userId: Long, type: MistakeType): Int = withContext(Dispatchers.IO) {
-        0 // TODO: Реализовать при необходимости
-    }
+    override suspend fun countByUserIdAndType(userId: Long, type: MistakeType): Int =
+        withContext(Dispatchers.IO) {
+            mistakeDao.countByUserIdAndType(userId, type)
+        }
 
-    override suspend fun getMostFrequentThemesByUserId(userId: Long, limit: Int): Map<Long, Int> = withContext(Dispatchers.IO) {
-        emptyMap() // TODO: Реализовать при необходимости
-    }
+    override suspend fun getMostFrequentThemesByUserId(userId: Long, limit: Int): Map<Long, Int> =
+        withContext(Dispatchers.IO) {
+            mistakeDao.getMostFrequentThemesByUserId(userId, limit)
+                .associate { it.themeId to it.count }
+        }
 
-    override suspend fun getAverageEvaluationLossByUserId(userId: Long): Double? = withContext(Dispatchers.IO) {
-        null // TODO: Реализовать при необходимости
-    }
+    override suspend fun getAverageEvaluationLossByUserId(userId: Long): Double? =
+        withContext(Dispatchers.IO) {
+            mistakeDao.getAverageEvaluationLossByUserId(userId)
+        }
 }

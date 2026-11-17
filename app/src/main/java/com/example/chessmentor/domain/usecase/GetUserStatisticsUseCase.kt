@@ -1,19 +1,23 @@
 package com.example.chessmentor.domain.usecase
 
+import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.MistakeType
 import com.example.chessmentor.domain.entity.PredefinedThemes
+import com.example.chessmentor.domain.entity.ProblemTheme
 import com.example.chessmentor.domain.entity.Theme
-import com.example.chessmentor.domain.entity.ProblemTheme  // ДОБАВИТЬ
 import com.example.chessmentor.domain.repository.GameRepository
 import com.example.chessmentor.domain.repository.MistakeRepository
 import com.example.chessmentor.domain.repository.UserRepository
-
 
 class GetUserStatisticsUseCase(
     private val userRepository: UserRepository,
     private val gameRepository: GameRepository,
     private val mistakeRepository: MistakeRepository
 ) {
+    companion object {
+        private const val BASELINE_RATING = 1200
+        private const val MAX_CP_LOSS_FOR_AVG = 1000
+    }
 
     data class Input(
         val userId: Long
@@ -32,13 +36,11 @@ class GetUserStatisticsUseCase(
         val mistakes: Int,
         val inaccuracies: Int,
         val averageEvaluationLoss: Double,
-        val problemThemes: List<ProblemTheme>,  // ИЗМЕНЕНО
+        val problemThemes: List<ProblemTheme>,
         val ratingChange: Int,
         val accuracyTrend: String,
         val recommendations: List<String>
     )
-
-    // УДАЛИТЬ ThemeStatistics - теперь используем ProblemTheme
 
     sealed class Result {
         data class Success(val statistics: UserStatistics) : Result()
@@ -49,44 +51,43 @@ class GetUserStatisticsUseCase(
         val user = userRepository.findById(input.userId)
             ?: return Result.Error("Пользователь не найден")
 
-        val allGames = gameRepository.findByUserId(input.userId)
+        val userId = user.id ?: return Result.Error("Некорректный идентификатор пользователя")
+
+        val allGames = gameRepository.findByUserId(userId)
         val analyzedGames = allGames.filter { it.isAnalyzed() }
 
         val totalGames = allGames.size
         val analyzedCount = analyzedGames.size
-        val averageAccuracy = if (analyzedGames.isNotEmpty()) {
-            analyzedGames.mapNotNull { it.accuracy }.average()
-        } else {
-            0.0
-        }
+        val accuracies = analyzedGames.mapNotNull { it.accuracy }
+        val averageAccuracy = if (accuracies.isNotEmpty()) accuracies.average() else 0.0
 
-        val allMistakes = mistakeRepository.findByUserId(input.userId)
+        val allMistakes = mistakeRepository.findByUserId(userId)
 
         val blundersCount = allMistakes.count { it.mistakeType == MistakeType.BLUNDER }
         val mistakesCount = allMistakes.count { it.mistakeType == MistakeType.MISTAKE }
         val inaccuraciesCount = allMistakes.count { it.mistakeType == MistakeType.INACCURACY }
 
         val avgEvalLoss = if (allMistakes.isNotEmpty()) {
-            allMistakes.map { it.evaluationLoss }.average()
+            allMistakes.map { it.evaluationLoss.coerceIn(0, MAX_CP_LOSS_FOR_AVG) }.average()
         } else {
             0.0
         }
 
-        val themeFrequency = mistakeRepository.getMostFrequentThemesByUserId(input.userId, 5)
+        val themeFrequency = mistakeRepository.getMostFrequentThemesByUserId(userId, 5)
         val problemThemes = calculateProblemThemes(themeFrequency, allMistakes.size)
 
-        val ratingChange = calculateRatingChange(user.rating)
+        val ratingChange = user.rating - BASELINE_RATING
         val accuracyTrend = calculateAccuracyTrend(analyzedGames)
 
         val recommendations = generateRecommendations(
+            analyzedCount = analyzedCount,
             blundersCount = blundersCount,
-            mistakesCount = mistakesCount,
             problemThemes = problemThemes,
             averageAccuracy = averageAccuracy
         )
 
         val statistics = UserStatistics(
-            userId = user.id!!,
+            userId = userId,
             nickname = user.nickname,
             currentRating = user.rating,
             skillLevel = user.skillLevel.getDisplayName(),
@@ -107,18 +108,17 @@ class GetUserStatisticsUseCase(
         return Result.Success(statistics)
     }
 
-    private suspend fun calculateProblemThemes(
+    private fun calculateProblemThemes(
         themeFrequency: Map<Long, Int>,
         totalMistakes: Int
-    ): List<ProblemTheme> {  // ИЗМЕНЕНО
+    ): List<ProblemTheme> {
         if (themeFrequency.isEmpty() || totalMistakes == 0) {
             return emptyList()
         }
 
         return themeFrequency.map { (themeId, count) ->
             val theme = getThemeById(themeId)
-
-            ProblemTheme(  // ИЗМЕНЕНО
+            ProblemTheme(
                 themeName = theme.description,
                 category = theme.category.getDisplayName(),
                 mistakeCount = count,
@@ -127,64 +127,58 @@ class GetUserStatisticsUseCase(
         }.sortedByDescending { it.mistakeCount }
     }
 
-    private suspend fun getThemeById(id: Long): Theme {
+    private fun getThemeById(id: Long): Theme {
         return PredefinedThemes.getAll().firstOrNull { it.id == id }
             ?: PredefinedThemes.PIECE_ACTIVITY
     }
 
-    private suspend fun calculateRatingChange(currentRating: Int): Int {
-        return +12
-    }
-
-    private suspend fun calculateAccuracyTrend(
-        analyzedGames: List<com.example.chessmentor.domain.entity.Game>
-    ): String {
-        if (analyzedGames.size < 5) {
-            return "stable"
+    private fun calculateAccuracyTrend(analyzedGames: List<Game>): String {
+        val withAccuracy = analyzedGames.filter { it.accuracy != null }.sortedBy { it.playedAt }
+        if (withAccuracy.size < 4) {
+            return "Стабильно"
         }
 
-        val sortedByDate = analyzedGames.sortedBy { it.playedAt }
-        val midpoint = sortedByDate.size / 2
-
-        val firstHalf = sortedByDate.take(midpoint)
-        val secondHalf = sortedByDate.drop(midpoint)
-
-        val firstAvg = firstHalf.mapNotNull { it.accuracy }.average()
-        val secondAvg = secondHalf.mapNotNull { it.accuracy }.average()
+        val midpoint = withAccuracy.size / 2
+        val firstAvg = withAccuracy.take(midpoint).mapNotNull { it.accuracy }.average()
+        val secondAvg = withAccuracy.drop(midpoint).mapNotNull { it.accuracy }.average()
 
         return when {
-            secondAvg > firstAvg + 5 -> "improving"
-            secondAvg < firstAvg - 5 -> "declining"
-            else -> "stable"
+            secondAvg > firstAvg + 5 -> "↑ Растёт"
+            secondAvg < firstAvg - 5 -> "↓ Снижается"
+            else -> "Стабильно"
         }
     }
 
-    private suspend fun generateRecommendations(
+    private fun generateRecommendations(
+        analyzedCount: Int,
         blundersCount: Int,
-        mistakesCount: Int,
-        problemThemes: List<ProblemTheme>,  // ИЗМЕНЕНО
+        problemThemes: List<ProblemTheme>,
         averageAccuracy: Double
     ): List<String> {
+        if (analyzedCount == 0) {
+            return listOf("Загрузите и проанализируйте первую партию, чтобы получить персональные советы.")
+        }
+
         val recommendations = mutableListOf<String>()
 
         if (blundersCount > 5) {
             recommendations.add(
                 "У вас много грубых ошибок ($blundersCount). " +
-                        "Рекомендуем больше времени уделять расчёту вариантов."
+                    "Рекомендуем больше времени уделять проверке угроз соперника."
             )
         }
 
         when {
             averageAccuracy < 70 -> {
                 recommendations.add(
-                    "Ваша средняя точность игры низкая (${averageAccuracy.toInt()}%). " +
-                            "Попробуйте играть в более медленный контроль времени."
+                    "Средняя точность игры — ${averageAccuracy.toInt()}%. " +
+                        "Попробуйте играть с более длинным контролем времени."
                 )
             }
             averageAccuracy > 85 -> {
                 recommendations.add(
                     "Отличная точность игры (${averageAccuracy.toInt()}%)! " +
-                            "Можете попробовать играть против более сильных соперников."
+                        "Можете пробовать играть против более сильных соперников."
                 )
             }
         }
@@ -192,14 +186,14 @@ class GetUserStatisticsUseCase(
         if (problemThemes.isNotEmpty()) {
             val topProblem = problemThemes.first()
             recommendations.add(
-                "Чаще всего ошибки в теме '${topProblem.themeName}' " +
-                        "(${topProblem.mistakeCount} раз). Изучите эту тему подробнее."
+                "Чаще всего ошибки встречаются в теме «${topProblem.themeName}» " +
+                    "(${topProblem.mistakeCount} раз). Потренируйте похожие задачи."
             )
         }
 
         if (recommendations.isEmpty()) {
             recommendations.add(
-                "Вы играете стабильно! Продолжайте регулярно анализировать партии."
+                "Вы играете стабильно! Продолжайте регулярно разбирать свои партии."
             )
         }
 

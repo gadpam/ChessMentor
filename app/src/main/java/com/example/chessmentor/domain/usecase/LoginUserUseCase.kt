@@ -3,41 +3,29 @@ package com.example.chessmentor.domain.usecase
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.repository.UserRepository
 import com.example.chessmentor.domain.security.PasswordHasher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Use Case: Вход пользователя в систему
- *
- * Бизнес-логика авторизации:
- * 1. Поиск пользователя по email
- * 2. Проверка пароля
- * 3. Обновление времени последнего входа
  */
 class LoginUserUseCase(
-    private  val userRepository: UserRepository
+    private val userRepository: UserRepository
 ) {
 
-    /**
-     * Входные данные для входа
-     */
     data class Input(
         val email: String,
         val password: String
     )
 
-    /**
-     * Результат входа
-     */
     sealed class Result {
         data class Success(val user: User) : Result()
         data class Error(val message: String) : Result()
     }
 
-    /**
-     * Выполнить вход
-     */
     suspend fun execute(input: Input): Result {
-        // Валидация входных данных
-        if (input.email.isBlank()) {
+        val normalizedEmail = input.email.trim()
+        if (normalizedEmail.isBlank()) {
             return Result.Error("Email не может быть пустым")
         }
 
@@ -45,29 +33,31 @@ class LoginUserUseCase(
             return Result.Error("Пароль не может быть пустым")
         }
 
-        // Поиск пользователя по email
-        val user = userRepository.findByEmail(input.email)
+        val user = userRepository.findByEmail(normalizedEmail)
             ?: return Result.Error("Пользователь с таким email не найден")
 
-        // Проверка пароля: новый формат PBKDF2 или старый "hashed_" (для миграции)
+        // PBKDF2 (310 000 итераций) выполняем вне главного потока, чтобы не блокировать UI
         val legacy = PasswordHasher.isLegacyHash(user.passwordHash)
-        val passwordOk = if (legacy) {
-            PasswordHasher.verifyLegacy(input.password, user.passwordHash)
-        } else {
-            PasswordHasher.verify(input.password, user.passwordHash)
+        val passwordOk = withContext(Dispatchers.Default) {
+            if (legacy) {
+                PasswordHasher.verifyLegacy(input.password, user.passwordHash)
+            } else {
+                PasswordHasher.verify(input.password, user.passwordHash)
+            }
         }
         if (!passwordOk) {
             return Result.Error("Неверный пароль")
         }
 
-        // Старые записи переписываем в новом формате
         val rehashedUser = if (legacy) {
-            user.withPasswordHash(PasswordHasher.hash(input.password))
+            val upgradedHash = withContext(Dispatchers.Default) {
+                PasswordHasher.hash(input.password)
+            }
+            user.withPasswordHash(upgradedHash)
         } else {
             user
         }
 
-        // Обновление времени последнего входа
         val updatedUser = rehashedUser.withLogin()
         userRepository.update(updatedUser)
 

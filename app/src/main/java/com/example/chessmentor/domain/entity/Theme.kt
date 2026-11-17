@@ -51,6 +51,7 @@ object PredefinedThemes {
 
     // ТАКТИЧЕСКИЕ ТЕМЫ
     val FORK = Theme(
+        id = 1L,
         name = "fork",
         category = ThemeCategory.TACTICS,
         description = "Вилка",
@@ -58,6 +59,7 @@ object PredefinedThemes {
     )
 
     val PIN = Theme(
+        id = 2L,
         name = "pin",
         category = ThemeCategory.TACTICS,
         description = "Связка",
@@ -65,6 +67,7 @@ object PredefinedThemes {
     )
 
     val SKEWER = Theme(
+        id = 3L,
         name = "skewer",
         category = ThemeCategory.TACTICS,
         description = "Рентген",
@@ -72,6 +75,7 @@ object PredefinedThemes {
     )
 
     val DISCOVERED_ATTACK = Theme(
+        id = 4L,
         name = "discovered_attack",
         category = ThemeCategory.TACTICS,
         description = "Вскрытая атака",
@@ -79,6 +83,7 @@ object PredefinedThemes {
     )
 
     val DOUBLE_CHECK = Theme(
+        id = 5L,
         name = "double_check",
         category = ThemeCategory.TACTICS,
         description = "Двойной шах",
@@ -86,6 +91,7 @@ object PredefinedThemes {
     )
 
     val SACRIFICE = Theme(
+        id = 6L,
         name = "sacrifice",
         category = ThemeCategory.TACTICS,
         description = "Жертва",
@@ -93,6 +99,7 @@ object PredefinedThemes {
     )
 
     val BACK_RANK = Theme(
+        id = 7L,
         name = "back_rank",
         category = ThemeCategory.TACTICS,
         description = "Слабость последней горизонтали",
@@ -101,6 +108,7 @@ object PredefinedThemes {
 
     // СТРАТЕГИЧЕСКИЕ ТЕМЫ
     val WEAK_SQUARES = Theme(
+        id = 8L,
         name = "weak_squares",
         category = ThemeCategory.STRATEGY,
         description = "Слабые поля",
@@ -108,6 +116,7 @@ object PredefinedThemes {
     )
 
     val PAWN_STRUCTURE = Theme(
+        id = 9L,
         name = "pawn_structure",
         category = ThemeCategory.STRATEGY,
         description = "Пешечная структура",
@@ -115,6 +124,7 @@ object PredefinedThemes {
     )
 
     val PIECE_ACTIVITY = Theme(
+        id = 10L,
         name = "piece_activity",
         category = ThemeCategory.STRATEGY,
         description = "Активность фигур",
@@ -123,6 +133,7 @@ object PredefinedThemes {
 
     // ДЕБЮТНЫЕ ТЕМЫ
     val OPENING_PRINCIPLES = Theme(
+        id = 11L,
         name = "opening_principles",
         category = ThemeCategory.OPENING,
         description = "Принципы дебюта",
@@ -130,6 +141,7 @@ object PredefinedThemes {
     )
 
     val DEVELOPMENT = Theme(
+        id = 12L,
         name = "development",
         category = ThemeCategory.OPENING,
         description = "Развитие фигур",
@@ -137,6 +149,7 @@ object PredefinedThemes {
     )
 
     val CENTER_CONTROL = Theme(
+        id = 13L,
         name = "center_control",
         category = ThemeCategory.OPENING,
         description = "Контроль центра",
@@ -145,6 +158,7 @@ object PredefinedThemes {
 
     // ЭНДШПИЛЬНЫЕ ТЕМЫ
     val KING_ACTIVITY = Theme(
+        id = 14L,
         name = "king_activity",
         category = ThemeCategory.ENDGAME,
         description = "Активность короля",
@@ -152,6 +166,7 @@ object PredefinedThemes {
     )
 
     val PAWN_ENDGAME = Theme(
+        id = 15L,
         name = "pawn_endgame",
         category = ThemeCategory.ENDGAME,
         description = "Пешечный эндшпиль",
@@ -160,6 +175,7 @@ object PredefinedThemes {
 
     // БЕЗОПАСНОСТЬ КОРОЛЯ
     val KING_SAFETY = Theme(
+        id = 16L,
         name = "king_safety",
         category = ThemeCategory.KING_SAFETY,
         description = "Безопасность короля",
@@ -167,6 +183,7 @@ object PredefinedThemes {
     )
 
     val CASTLING = Theme(
+        id = 17L,
         name = "castling",
         category = ThemeCategory.KING_SAFETY,
         description = "Рокировка",

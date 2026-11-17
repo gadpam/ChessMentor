@@ -59,9 +59,15 @@ data class AnalyzedMove(
     val comment: String? = null
 ) {
     /**
-     * Изменение оценки (может быть отрицательным для улучшений)
+     * Изменение оценки с точки зрения белых
      */
     val evalChange: Int get() = evalAfter - evalBefore
+
+    /**
+     * Изменение оценки с точки зрения игрока, сделавшего ход (> 0 — улучшение, < 0 — потеря)
+     */
+    val playerEvalChange: Int
+        get() = if (color == ChessColor.WHITE) evalAfter - evalBefore else evalBefore - evalAfter
 
     /**
      * Это ход с ошибкой?
@@ -69,7 +75,8 @@ data class AnalyzedMove(
     fun isMistake(): Boolean = quality in listOf(
         MoveQuality.BLUNDER,
         MoveQuality.MISTAKE,
-        MoveQuality.INACCURACY
+        MoveQuality.INACCURACY,
+        MoveQuality.MISSED_WIN
     )
 
     /**
@@ -92,20 +99,22 @@ data class AnalyzedMove(
         quality = quality,
         evaluationBefore = evalBefore,
         evaluationAfter = evalAfter,
-        evaluationChange = evalChange,
+        evaluationChange = playerEvalChange,
         isPlayerMove = true,
         comment = comment
     )
 
     /**
-     * Конвертация в Mistake (для обратной совместимости)
+     * Конвертация в Mistake (для обратной совместимости).
+     * Если лучший ход отсутствует или совпадает с ходом игрока — ошибку не создаём.
      */
-    fun toMistake(themeId: Long = 1, fenBefore: String = ""): Mistake? {
+    fun toMistake(themeId: Long = 10L, fenBefore: String = ""): Mistake? {
         if (!isMistake()) return null
+        val nonBlankBestMove = bestMove?.takeIf { it.isNotBlank() && it != san } ?: return null
 
         val mistakeType = when (quality) {
             MoveQuality.BLUNDER -> MistakeType.BLUNDER
-            MoveQuality.MISTAKE -> MistakeType.MISTAKE
+            MoveQuality.MISTAKE, MoveQuality.MISSED_WIN -> MistakeType.MISTAKE
             MoveQuality.INACCURACY -> MistakeType.INACCURACY
             else -> return null
         }
@@ -115,9 +124,9 @@ data class AnalyzedMove(
             themeId = themeId,
             moveNumber = moveNumber,
             color = color,
-            evaluationLoss = evalLoss,
+            evaluationLoss = evalLoss.coerceAtLeast(0),
             mistakeType = mistakeType,
-            bestMove = bestMove ?: "",
+            bestMove = nonBlankBestMove,
             userMove = san,
             comment = comment,
             fenBefore = fenBefore

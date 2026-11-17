@@ -8,10 +8,10 @@ import com.example.chessmentor.domain.entity.MoveQuality
 @Dao
 interface AnalyzedMoveDao {
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(move: AnalyzedMove): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertAll(moves: List<AnalyzedMove>): List<Long>
 
     @Query("SELECT * FROM analyzed_moves WHERE gameId = :gameId ORDER BY moveIndex ASC")

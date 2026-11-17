@@ -2,6 +2,7 @@
 package com.example.chessmentor.domain.clustering
 
 import com.example.chessmentor.domain.entity.TacticalPattern
+import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Piece
 import com.github.bhlangonijr.chesslib.PieceType
@@ -211,13 +212,7 @@ object ExerciseClusterer {
     }
 
     private fun applyUciMove(board: Board, uci: String) {
-        try {
-            val from = Square.fromValue(uci.substring(0, 2).uppercase())
-            val to = Square.fromValue(uci.substring(2, 4).uppercase())
-            board.doMove(Move(from, to))
-        } catch (e: Exception) {
-            // Игнорируем ошибки применения хода
-        }
+        ChessMoveUtils.applyUciMove(board, uci)
     }
 
     /**

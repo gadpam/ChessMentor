@@ -15,7 +15,7 @@ interface GameDao {
     @Query("SELECT * FROM games WHERE userId = :userId AND analysisStatus = :status")
     suspend fun findByUserIdAndStatus(userId: Long, status: AnalysisStatus): List<Game>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(game: Game): Long
 
     @Update

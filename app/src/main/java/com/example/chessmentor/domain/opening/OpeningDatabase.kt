@@ -11,13 +11,9 @@ object OpeningDatabase {
 
     private const val TAG = "OpeningDB"
 
-    // Кэш для быстрого поиска
+    // Кэш для быстрого поиска (ключ — расстановка фигур, 1-е поле FEN)
     private val fenIndex = mutableMapOf<String, OpeningPosition>()
     private val ecoIndex = mutableMapOf<String, MutableList<OpeningPosition>>()
-
-    init {
-        buildIndexes()
-    }
 
     /**
      * Основная база дебютов
@@ -644,15 +640,16 @@ object OpeningDatabase {
         )
     )
 
+    init {
+        buildIndexes()
+    }
+
     /**
      * Построение индексов для быстрого поиска
      */
     private fun buildIndexes() {
         openings.forEach { opening ->
-            // Индекс по FEN
-            fenIndex[opening.fenPattern] = opening
-
-            // Индекс по ECO
+            fenIndex[extractBoardFen(opening.fenPattern)] = opening
             ecoIndex.getOrPut(opening.eco) { mutableListOf() }.add(opening)
         }
 
@@ -663,27 +660,38 @@ object OpeningDatabase {
      * Найти дебют по позиции FEN
      */
     fun findOpening(fen: String): OpeningMatch {
-        // Убираем счётчики ходов из FEN
-        val fenCore = fen.split(" ").take(4).joinToString(" ")
+        val boardFen = extractBoardFen(fen)
+        if (boardFen.isEmpty()) return OpeningMatch.NotFound
 
-        // 1. Точное совпадение
-        fenIndex[fenCore]?.let {
+        // 1. Точное совпадение расстановки фигур
+        fenIndex[boardFen]?.let {
             return OpeningMatch.Found(it, MatchConfidence.EXACT)
         }
 
-        // 2. Частичное совпадение (первые 45 символов)
-        val shortFen = fenCore.take(45)
-        openings.find { it.fenPattern.take(45) == shortFen }?.let {
-            return OpeningMatch.Found(it, MatchConfidence.HIGH)
+        // 2. Структурное совпадение по 64 клеткам доски
+        val expandedTarget = expandBoardFen(boardFen) ?: return OpeningMatch.NotFound
+        // Стартовую позицию дебютом не считаем
+        if (expandedTarget == START_EXPANDED) return OpeningMatch.NotFound
+
+        var bestOpening: OpeningPosition? = null
+        var bestScore = 0f
+
+        for (opening in openings) {
+            val expandedOpening = expandBoardFen(opening.fenPattern) ?: continue
+            // Пешечная структура дебюта должна совпадать достаточно близко
+            val similarity = boardSimilarity(expandedTarget, expandedOpening)
+            // При равном сходстве предпочитаем более глубокий вариант
+            if (similarity > bestScore ||
+                (similarity == bestScore && bestOpening != null && opening.moveCount > bestOpening.moveCount)
+            ) {
+                bestScore = similarity
+                bestOpening = opening
+            }
         }
 
-        // 3. Поиск по структуре
-        val structuralMatch = openings.find { opening ->
-            isSimilarStructure(fenCore, opening.fenPattern)
-        }
-
-        if (structuralMatch != null) {
-            return OpeningMatch.Found(structuralMatch, MatchConfidence.MEDIUM)
+        if (bestOpening != null && bestScore >= 0.92f) {
+            val confidence = if (bestScore >= 0.96f) MatchConfidence.HIGH else MatchConfidence.MEDIUM
+            return OpeningMatch.Found(bestOpening, confidence)
         }
 
         return OpeningMatch.NotFound
@@ -766,17 +774,53 @@ object OpeningDatabase {
     // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
     // ================================================================
 
+    private const val START_EXPANDED =
+        "rnbqkbnrpppppppp................................PPPPPPPPRNBQKBNR"
+
+    private fun extractBoardFen(fen: String): String =
+        fen.trim().substringBefore(' ')
+
     /**
-     * Проверка структурного сходства позиций
+     * Разворачивает 1-е поле FEN в строку ровно из 64 символов ('.' = пустая клетка).
      */
-    private fun isSimilarStructure(fen1: String, fen2: String): Boolean {
-        val board1 = fen1.split(" ")[0]
-        val board2 = fen2.split(" ")[0]
+    private fun expandBoardFen(fen: String): String? {
+        val boardPart = extractBoardFen(fen)
+        val out = StringBuilder(64)
+        for (ch in boardPart) {
+            when {
+                ch == '/' -> continue
+                ch in '1'..'8' -> repeat(ch - '0') { out.append('.') }
+                else -> out.append(ch)
+            }
+        }
+        return if (out.length == 64) out.toString() else null
+    }
 
-        val matches = board1.zip(board2).count { (a, b) -> a == b }
-        val similarity = matches.toFloat() / board1.length
+    /**
+     * Сходство двух развёрнутых 64-клеточных позиций с проверкой дебютных ходов.
+     */
+    private fun boardSimilarity(target64: String, opening64: String): Float {
+        // Все отличия дебютного шаблона от стартовой позиции должны присутствовать в target64
+        var keySquares = 0
+        var keyMatches = 0
+        var totalMatches = 0
 
-        return similarity >= 0.75f
+        for (i in 0 until 64) {
+            if (target64[i] == opening64[i]) {
+                totalMatches++
+            }
+            if (opening64[i] != START_EXPANDED[i]) {
+                keySquares++
+                if (target64[i] == opening64[i]) {
+                    keyMatches++
+                }
+            }
+        }
+
+        if (keySquares == 0 || keyMatches < keySquares) {
+            return 0f
+        }
+        return totalMatches / 64f
     }
 
     /**

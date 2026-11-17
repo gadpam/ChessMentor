@@ -14,7 +14,7 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE nickname = :nickname")
     suspend fun findByNickname(nickname: String): User?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(user: User): Long
 
     @Update
