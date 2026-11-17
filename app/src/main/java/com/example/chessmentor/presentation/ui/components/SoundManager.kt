@@ -1,94 +1,103 @@
 package com.example.chessmentor.presentation.ui.components
 
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.ToneGenerator
 import android.media.AudioManager
+import android.media.ToneGenerator
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
- * Менеджер звуковых эффектов для шахматной доски
+ * Менеджер звуковых эффектов для шахматной доски и тренировки.
  */
-class SoundManager(private val context: Context) {
+class SoundManager(@Suppress("unused") context: Context) {
 
+    companion object {
+        private const val TAG = "SoundManager"
+    }
+
+    private val lock = Any()
     private var toneGenerator: ToneGenerator? = null
-    private var isEnabled = true
+
+    @Volatile
+    private var isEnabled: Boolean = true
 
     init {
         try {
             toneGenerator = ToneGenerator(
                 AudioManager.STREAM_MUSIC,
-                ToneGenerator.MAX_VOLUME / 2 // 50% громкости
+                ToneGenerator.MAX_VOLUME / 2
             )
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w(TAG, "Unable to initialize ToneGenerator", e)
         }
     }
 
+    fun isSoundEnabled(): Boolean = isEnabled
+
     /**
-     * Включить/выключить звуки
+     * Включить/выключить звуки.
      */
     fun setEnabled(enabled: Boolean) {
         isEnabled = enabled
     }
 
-    /**
-     * Звук обычного хода
-     */
+    private fun startToneSafe(toneType: Int, durationMs: Int) {
+        if (!isEnabled) return
+        synchronized(lock) {
+            try {
+                toneGenerator?.startTone(toneType, durationMs)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to play tone", e)
+            }
+        }
+    }
+
+    /** Звук обычного хода. */
     suspend fun playMove() = withContext(Dispatchers.IO) {
-        if (!isEnabled) return@withContext
-        try {
-            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        startToneSafe(ToneGenerator.TONE_PROP_BEEP, 85)
     }
 
-    /**
-     * Звук взятия фигуры (более громкий)
-     */
+    /** Звук взятия фигуры. */
     suspend fun playCapture() = withContext(Dispatchers.IO) {
-        if (!isEnabled) return@withContext
-        try {
-            toneGenerator?.startTone(ToneGenerator.TONE_PROP_ACK, 150)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        startToneSafe(ToneGenerator.TONE_PROP_ACK, 130)
     }
 
-    /**
-     * Звук шаха (предупреждающий)
-     */
+    /** Звук шаха. */
     suspend fun playCheck() = withContext(Dispatchers.IO) {
-        if (!isEnabled) return@withContext
-        try {
-            toneGenerator?.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 200)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        startToneSafe(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 170)
     }
 
-    /**
-     * Звук мата (победный)
-     */
+    /** Звук мата / успешного решения задачи. */
     suspend fun playCheckmate() = withContext(Dispatchers.IO) {
         if (!isEnabled) return@withContext
-        try {
-            // Двойной звук для мата
-            toneGenerator?.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 150)
-            Thread.sleep(200)
-            toneGenerator?.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 150)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        startToneSafe(ToneGenerator.TONE_PROP_ACK, 110)
+        delay(130)
+        startToneSafe(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 160)
     }
 
-    /**
-     * Освободить ресурсы
-     */
+    /** Звук успешного решения тактической задачи. */
+    suspend fun playSuccess() = withContext(Dispatchers.IO) {
+        if (!isEnabled) return@withContext
+        startToneSafe(ToneGenerator.TONE_PROP_BEEP2, 140)
+    }
+
+    /** Звук ошибки / неверного хода. */
+    suspend fun playError() = withContext(Dispatchers.IO) {
+        startToneSafe(ToneGenerator.TONE_PROP_NACK, 160)
+    }
+
+    /** Освободить ресурсы. */
     fun release() {
-        toneGenerator?.release()
-        toneGenerator = null
+        synchronized(lock) {
+            try {
+                toneGenerator?.release()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to release ToneGenerator", e)
+            } finally {
+                toneGenerator = null
+            }
+        }
     }
 }

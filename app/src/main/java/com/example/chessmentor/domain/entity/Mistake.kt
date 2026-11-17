@@ -47,7 +47,12 @@ data class Mistake(
         val emoji = getEmoji()
         val loss = getEvaluationLossInPawns()
         val colorName = if (color == ChessColor.WHITE) "Белые" else "Чёрные"
-        return "Ход $moveNumber ($colorName). $userMove $emoji (Лучше: $bestMove) -${String.format("%.2f", loss)}"
+        val lossStr = if (evaluationLoss > 50_000) {
+            "Мат"
+        } else {
+            "-${String.format(java.util.Locale.US, "%.2f", loss)}"
+        }
+        return "Ход $moveNumber ($colorName). $userMove $emoji (Лучше: $bestMove) $lossStr"
     }
 
     fun isCritical(): Boolean = mistakeType == MistakeType.BLUNDER

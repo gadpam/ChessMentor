@@ -30,7 +30,7 @@ data class User(
     val isPremium: Boolean = false,
 
     val isSoundEnabled: Boolean = true,
-    val preferredTheme: String = "Classic"
+    val preferredTheme: String = "Классическая"
 ) {
 
     init {

@@ -2,6 +2,7 @@
 package com.example.chessmentor.domain.clustering
 
 import com.example.chessmentor.domain.entity.TacticalPattern
+import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Piece
 import com.github.bhlangonijr.chesslib.PieceType
@@ -101,7 +102,10 @@ object ExerciseClusterer {
             }
 
             TacticalPattern.BACK_RANK_MATE,
-            TacticalPattern.SMOTHERED_MATE -> {
+            TacticalPattern.SMOTHERED_MATE,
+            TacticalPattern.ANASTASIA_MATE,
+            TacticalPattern.ARABIAN_MATE,
+            TacticalPattern.BODEN_MATE -> {
                 features.add("MATE_PATTERN")
             }
 
@@ -157,7 +161,10 @@ object ExerciseClusterer {
             TacticalPattern.DISCOVERED_CHECK -> 15
             TacticalPattern.DOUBLE_CHECK -> 20
             TacticalPattern.BACK_RANK_MATE -> 15
+            TacticalPattern.ARABIAN_MATE -> 15
             TacticalPattern.SMOTHERED_MATE -> 25
+            TacticalPattern.ANASTASIA_MATE -> 25
+            TacticalPattern.BODEN_MATE -> 25
             TacticalPattern.REMOVING_DEFENDER -> 15
             TacticalPattern.DEFLECTION -> 20
             TacticalPattern.DECOY -> 20
@@ -211,13 +218,7 @@ object ExerciseClusterer {
     }
 
     private fun applyUciMove(board: Board, uci: String) {
-        try {
-            val from = Square.fromValue(uci.substring(0, 2).uppercase())
-            val to = Square.fromValue(uci.substring(2, 4).uppercase())
-            board.doMove(Move(from, to))
-        } catch (e: Exception) {
-            // Игнорируем ошибки применения хода
-        }
+        ChessMoveUtils.applyUciMove(board, uci)
     }
 
     /**

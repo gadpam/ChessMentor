@@ -2,23 +2,22 @@
 
 #include "stockfish_bridge.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <utility>
 
+#include "attacks.h"
 #include "engine.h"
 #include "misc.h"
+#include "position.h"
 #include "search.h"
 #include "uci.h"
 
 namespace chessmentor {
 
-namespace {
-
-// Переводит строку "cp 23" / "mate -3" (формат UCIEngine::format_score) в int
-// в кодировке ChessEngine.kt.
-int parseScore(const std::string& text, bool* ok) {
+int StockfishBridge::parseScore(const std::string& text, bool* ok) {
     std::istringstream is(text);
     std::string        kind;
     long               value = 0;
@@ -29,16 +28,22 @@ int parseScore(const std::string& text, bool* ok) {
     }
     *ok = true;
 
-    if (kind == "cp")
-        return static_cast<int>(value);
+    if (kind == "cp") {
+        // Ограничиваем cp ниже порога мата, чтобы обычная оценка не перепуталась с матом.
+        const long maxCp = kMateThreshold - 100;
+        const long clamped = std::clamp(value, -maxCp, maxCp);
+        return static_cast<int>(clamped);
+    }
 
     if (kind == "mate") {
         // mate 0 означает, что сторона, которая ходит, уже в мате.
         if (value == 0)
-            return -StockfishBridge::kMateValue;
+            return -kMateValue;
 
-        const long movesToMate = std::labs(value);
-        const int  magnitude   = StockfishBridge::kMateValue - static_cast<int>(movesToMate * 100);
+        // Ограничиваем множитель, чтобы мат в >100 ходов не упал ниже kMateThreshold.
+        const long maxEncodedMoves = (kMateValue - kMateThreshold) / 100;
+        const long movesToMate     = std::min(std::labs(value), maxEncodedMoves);
+        const int  magnitude       = kMateValue - static_cast<int>(movesToMate * 100);
         return value > 0 ? magnitude : -magnitude;
     }
 
@@ -46,26 +51,38 @@ int parseScore(const std::string& text, bool* ok) {
     return 0;
 }
 
-}  // namespace
+void StockfishBridge::initGlobalTables() {
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, []() {
+        Stockfish::Attacks::init();
+        Stockfish::Position::init();
+    });
+}
 
 StockfishBridge::StockfishBridge() = default;
 
 StockfishBridge::~StockfishBridge() { destroy(); }
 
 bool StockfishBridge::init(const std::string& netPath) {
+    std::lock_guard<std::mutex> lock(opMutex_);
+
     if (engine_ && netPath_ == netPath)
         return true;
 
-    destroy();
+    destroyLocked();
 
     // Проверка файла до передачи в Stockfish: при ошибке загрузки сети движок завершит процесс.
     {
         std::ifstream file(netPath, std::ios::binary | std::ios::ate);
         if (!file)
             return false;
-        if (static_cast<long>(file.tellg()) < kMinNetFileBytes)
+        const auto size = file.tellg();
+        if (size < 0 || static_cast<long>(size) < kMinNetFileBytes)
             return false;
     }
+
+    // Обязательная инициализация таблиц атак и Zobrist-хешей (как в Stockfish main.cpp).
+    initGlobalTables();
 
     engine_ = std::make_unique<Stockfish::Engine>(std::nullopt);
 
@@ -99,13 +116,22 @@ bool StockfishBridge::init(const std::string& netPath) {
     std::istringstream is("name EvalFile value " + netPath);
     engine_->get_options().setoption(is);
 
+    {
+        std::lock_guard<std::mutex> stopLock(stopMutex_);
+        activeEngine_ = engine_.get();
+    }
+
     netPath_ = netPath;
     return true;
 }
 
-bool StockfishBridge::isReady() const { return engine_ != nullptr; }
+bool StockfishBridge::isReady() const {
+    std::lock_guard<std::mutex> lock(opMutex_);
+    return engine_ != nullptr;
+}
 
 void StockfishBridge::setOption(const std::string& name, const std::string& value) {
+    std::lock_guard<std::mutex> lock(opMutex_);
     if (!engine_)
         return;
     engine_->wait_for_search_finished();
@@ -114,10 +140,12 @@ void StockfishBridge::setOption(const std::string& name, const std::string& valu
 }
 
 bool StockfishBridge::search(const std::string& fen, int depth, SearchResult& out) {
+    std::lock_guard<std::mutex> lock(opMutex_);
     if (!engine_)
         return false;
 
     engine_->wait_for_search_finished();
+    stopRequested_.store(false, std::memory_order_release);
     last_ = SearchResult{};
 
     if (engine_->set_position(fen, {}).has_value())
@@ -125,9 +153,15 @@ bool StockfishBridge::search(const std::string& fen, int depth, SearchResult& ou
 
     Stockfish::Search::LimitsType limits;
     limits.startTime = Stockfish::now();
-    limits.depth     = depth;
+    limits.depth     = std::clamp(depth, 1, 64);
 
     engine_->go(limits);
+
+    // Если stop() успели вызвать прямо перед стартом поиска — останавливаем немедленно.
+    if (stopRequested_.load(std::memory_order_acquire)) {
+        engine_->stop();
+    }
+
     engine_->wait_for_search_finished();
 
     out = last_;
@@ -156,20 +190,46 @@ StockfishBridge::AnalysisLine StockfishBridge::bestLine(const std::string& fen, 
     SearchResult result;
     if (!search(fen, depth, result))
         return line;
-    if (result.bestMove.empty() || result.bestMove == "(none)" || !result.hasScore)
+    if (!result.hasScore)
         return line;
 
-    line.ok       = true;
-    line.bestMove = result.bestMove;
-    line.score    = result.score;
-    line.pv       = result.pv.empty() ? result.bestMove : result.pv;
+    // В терминальных позициях (мат/пат) bestMove == "(none)", но оценка валидна.
+    const bool hasLegalMove = !result.bestMove.empty() && result.bestMove != "(none)";
+    line.ok                 = true;
+    line.bestMove           = hasLegalMove ? result.bestMove : std::string{};
+    line.score              = result.score;
+    line.pv                 = hasLegalMove ? (result.pv.empty() ? result.bestMove : result.pv)
+                                           : std::string{};
     return line;
 }
 
+void StockfishBridge::stop() {
+    stopRequested_.store(true, std::memory_order_release);
+    std::lock_guard<std::mutex> stopLock(stopMutex_);
+    if (activeEngine_ != nullptr) {
+        activeEngine_->stop();
+    }
+}
+
 void StockfishBridge::destroy() {
+    // Сначала прерываем активный поиск, чтобы не ждать его завершения до полной глубины.
+    stop();
+    std::lock_guard<std::mutex> lock(opMutex_);
+    destroyLocked();
+}
+
+void StockfishBridge::destroyLocked() {
+    {
+        std::lock_guard<std::mutex> stopLock(stopMutex_);
+        if (activeEngine_ != nullptr) {
+            activeEngine_->stop();
+            activeEngine_ = nullptr;
+        }
+    }
     engine_.reset();  // ~Engine дожидается окончания поиска
     netPath_.clear();
     last_ = SearchResult{};
+    stopRequested_.store(false, std::memory_order_release);
 }
 
 }  // namespace chessmentor

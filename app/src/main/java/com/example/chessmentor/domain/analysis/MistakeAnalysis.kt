@@ -132,7 +132,11 @@ data class BetterMoveInfo(
      */
     fun formattedEval(): String {
         val pawns = evaluationAfter / 100.0
-        return if (pawns >= 0) "+%.1f".format(pawns) else "%.1f".format(pawns)
+        return if (pawns >= 0) {
+            String.format(java.util.Locale.US, "+%.1f", pawns)
+        } else {
+            String.format(java.util.Locale.US, "%.1f", pawns)
+        }
     }
 }
 

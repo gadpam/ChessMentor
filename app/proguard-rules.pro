@@ -1,21 +1,13 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Keep JNI entry points in StockfishEngine
+-keepclasseswithmembernames class com.example.chessmentor.data.engine.StockfishEngine {
+    native <methods>;
+}
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Keep Room entities & enums serialized by name
+-keep class com.example.chessmentor.domain.entity.** { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Keep chesslib reflective / enum lookups safe under R8
+-keep class com.github.bhlangonijr.chesslib.** { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Preserve source file and line numbers in stack traces
+-keepattributes SourceFile,LineNumberTable

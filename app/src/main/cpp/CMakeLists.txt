@@ -59,9 +59,15 @@ target_compile_definitions(stockfish-lib PRIVATE
     IS_64BIT
     USE_POPCNT
     USE_PREFETCH
-    USE_NEON=8
     NNUE_EMBEDDING_OFF
 )
+
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    target_compile_definitions(stockfish-lib PRIVATE USE_NEON=8)
+elseif(ANDROID_ABI STREQUAL "x86_64")
+    target_compile_definitions(stockfish-lib PRIVATE USE_SSE2 USE_SSSE3 USE_SSE41)
+    target_compile_options(stockfish-lib PRIVATE -msse4.1 -mpopcnt)
+endif()
 
 target_compile_options(stockfish-lib PRIVATE
     -O3
@@ -69,6 +75,9 @@ target_compile_options(stockfish-lib PRIVATE
     -Wall
     -Wcast-qual
 )
+
+# Выравнивание сегментов по 16 КБ для совместимости с Android 15+.
+target_link_options(stockfish-lib PRIVATE "-Wl,-z,max-page-size=16384")
 
 find_library(log-lib log)
 target_link_libraries(stockfish-lib ${log-lib})

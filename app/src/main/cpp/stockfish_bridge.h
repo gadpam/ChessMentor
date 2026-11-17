@@ -8,14 +8,16 @@
 //    в переданной позиции (как в UCI). Вызывающая сторона сама переводит их
 //    в белую перспективу, если нужно.
 //  * Мат кодируется так же, как в ChessEngine.kt: MATE_VALUE = 100000,
-//    мат через N ходов = ±(100000 - N * 100).
-//  * Экземпляр не потокобезопасен. Вызовы должны быть сериализованы снаружи
-//    (в Kotlin это делает Mutex в StockfishEngine).
+//    мат через N ходов = ±max(MATE_THRESHOLD, 100000 - N * 100).
+//  * Операции жизненного цикла и поиска защищены внутренним мьютексом,
+//    а stop() потокобезопасен и может вызываться во время активного поиска.
 
 #ifndef CHESSMENTOR_STOCKFISH_BRIDGE_H
 #define CHESSMENTOR_STOCKFISH_BRIDGE_H
 
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 
 namespace Stockfish {
@@ -45,10 +47,14 @@ class StockfishBridge {
     StockfishBridge(const StockfishBridge&)            = delete;
     StockfishBridge& operator=(const StockfishBridge&) = delete;
 
+    // Переводит строку "cp 23" / "mate -3" (формат UCIEngine::format_score) в int.
+    static int parseScore(const std::string& text, bool* ok);
+
+    // Однократная инициализация глобальных таблиц Stockfish (Attacks и Zobrist/cuckoo).
+    static void initGlobalTables();
+
     // Создаёт движок и загружает сеть NNUE из файла netPath.
     // Возвращает false, если файл отсутствует или выглядит битым.
-    // ВАЖНО: если сеть не загрузилась, Stockfish сам вызывает exit() при первом поиске,
-    // поэтому проверка здесь обязательна. Хеш файла проверяется до вызова (см. NnueDownloader.kt).
     bool init(const std::string& netPath);
 
     bool isReady() const;
@@ -65,6 +71,10 @@ class StockfishBridge {
 
     AnalysisLine bestLine(const std::string& fen, int depth);
 
+    // Прерывает текущий поиск (можно вызывать из любого потока без блокировки на search).
+    void stop();
+
+    // Останавливает поиск и безопасно освобождает движок.
     void destroy();
 
    private:
@@ -77,7 +87,12 @@ class StockfishBridge {
 
     // Запускает поиск на заданной глубине и возвращает собранный результат.
     bool search(const std::string& fen, int depth, SearchResult& out);
+    void destroyLocked();
 
+    mutable std::mutex                 opMutex_;
+    mutable std::mutex                 stopMutex_;
+    Stockfish::Engine*                 activeEngine_ = nullptr;
+    std::atomic<bool>                  stopRequested_{false};
     std::unique_ptr<Stockfish::Engine> engine_;
     std::string                        netPath_;
     SearchResult                       last_;

@@ -24,14 +24,15 @@ import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 @Composable
 fun AnalysisProgressDialog(
     progress: AnalyzeGameUseCase.AnalysisProgress?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onCancel: (() -> Unit)? = null
 ) {
     if (progress == null || progress is AnalyzeGameUseCase.AnalysisProgress.Completed) {
         return
     }
 
     Dialog(
-        onDismissRequest = { /* Нельзя закрыть во время анализа */ },
+        onDismissRequest = { /* Нельзя случайно закрыть тапом мимо окна */ },
         properties = DialogProperties(
             dismissOnBackPress = false,
             dismissOnClickOutside = false
@@ -53,6 +54,12 @@ fun AnalysisProgressDialog(
                 when (progress) {
                     is AnalyzeGameUseCase.AnalysisProgress.Starting -> {
                         StartingContent()
+                        if (onCancel != null) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            TextButton(onClick = onCancel) {
+                                Text("Отменить")
+                            }
+                        }
                     }
                     is AnalyzeGameUseCase.AnalysisProgress.InProgress -> {
                         InProgressContent(
@@ -60,6 +67,12 @@ fun AnalysisProgressDialog(
                             total = progress.totalMoves,
                             moveNotation = progress.currentMoveNotation
                         )
+                        if (onCancel != null) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            TextButton(onClick = onCancel) {
+                                Text("Отменить анализ")
+                            }
+                        }
                     }
                     is AnalyzeGameUseCase.AnalysisProgress.Failed -> {
                         FailedContent(
@@ -67,7 +80,7 @@ fun AnalysisProgressDialog(
                             onDismiss = onDismiss
                         )
                     }
-                    else -> { /* Не должно произойти */ }
+                    else -> { /* Completed обрабатывается выше */ }
                 }
             }
         }

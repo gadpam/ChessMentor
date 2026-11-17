@@ -1,19 +1,39 @@
-﻿// domain/repository/ExerciseRepository.kt
+// domain/repository/ExerciseRepository.kt
 package com.example.chessmentor.domain.repository
 
 import com.example.chessmentor.domain.entity.Exercise
 import com.example.chessmentor.domain.entity.ExerciseAttempt
+import com.example.chessmentor.domain.entity.TacticalTheme
 
 interface ExerciseRepository {
 
     // ============================================================
-    // БАЗОВЫЕ МЕТОДЫ
+    // БАЗОВЫЕ МЕТОДЫ (С ИЗОЛЯЦИЕЙ ПО ПОЛЬЗОВАТЕЛЮ)
     // ============================================================
 
     suspend fun findById(id: Long): Exercise?
 
+    suspend fun findByIds(ids: List<Long>): List<Exercise>
+
     suspend fun findSuitableExercise(
         userId: Long,
+        userRating: Int,
+        excludeId: Long = -1
+    ): Exercise?
+
+    suspend fun findFailedUnresolvedExercise(
+        userId: Long,
+        excludeId: Long = -1
+    ): Exercise?
+
+    suspend fun findUserMistakeExercise(
+        userId: Long,
+        excludeId: Long = -1
+    ): Exercise?
+
+    suspend fun findExerciseByTheme(
+        userId: Long,
+        theme: TacticalTheme,
         userRating: Int,
         excludeId: Long = -1
     ): Exercise?
@@ -24,15 +44,30 @@ interface ExerciseRepository {
 
     suspend fun findBySourceGameAndMove(gameId: Long, moveNumber: Int): Exercise?
 
+    /** Только упражнения, созданные из партий данного пользователя. */
     suspend fun findByUserId(userId: Long): List<Exercise>
 
-    suspend fun findAnyExerciseExcept(excludeId: Long): Exercise?
+    /** Все упражнения, доступные пользователю (общие + из его партий). */
+    suspend fun findAccessibleByUserId(userId: Long): List<Exercise>
+
+    /** Любая доступная пользователю задача, кроме [excludeId]. */
+    suspend fun findAnyAccessibleExcept(userId: Long, excludeId: Long = -1): Exercise?
+
+    suspend fun findGlobalByFen(fen: String): Exercise?
+
+    suspend fun findUserExerciseByFen(userId: Long, fen: String): Exercise?
 
     suspend fun findByFen(fen: String): Exercise?
 
-    suspend fun deleteDuplicates()
+    suspend fun deleteDuplicatesForUser(userId: Long)
+
+    suspend fun deleteGlobalDuplicates()
 
     suspend fun countExercises(): Int
+
+    suspend fun countGlobalExercises(): Int
+
+    suspend fun hasUserSolvedExercise(userId: Long, exerciseId: Long): Boolean
 
     suspend fun saveExercise(exercise: Exercise): Exercise
 
@@ -41,22 +76,18 @@ interface ExerciseRepository {
     suspend fun getAttemptsByUserId(userId: Long): List<ExerciseAttempt>
 
     // ============================================================
-    // МЕТОДЫ КЛАСТЕРИЗАЦИИ (НОВЫЕ)
+    // КЛАСТЕРИЗАЦИЯ И ПОВТОРЕНИЕ ОШИБОК
     // ============================================================
 
-    /**
-     * Найти упражнения из того же кластера
-     */
     suspend fun findByCluster(
+        userId: Long,
         clusterId: String,
         excludeId: Long = -1,
         limit: Int = 3
     ): List<Exercise>
 
-    /**
-     * Найти упражнения с тем же тактическим паттерном
-     */
     suspend fun findSimilarByPattern(
+        userId: Long,
         pattern: String,
         excludeId: Long = -1,
         minDifficulty: Int = 0,
@@ -64,9 +95,6 @@ interface ExerciseRepository {
         limit: Int = 3
     ): List<Exercise>
 
-    /**
-     * Найти упражнения для повторения ошибки
-     */
     suspend fun findForMistakeRepetition(
         userId: Long,
         pattern: String,
@@ -75,13 +103,7 @@ interface ExerciseRepository {
         limit: Int = 3
     ): List<Exercise>
 
-    /**
-     * Увеличить счётчик показов
-     */
     suspend fun incrementTimesShown(exerciseId: Long)
 
-    /**
-     * Увеличить счётчик решений
-     */
     suspend fun incrementTimesSolved(exerciseId: Long)
 }

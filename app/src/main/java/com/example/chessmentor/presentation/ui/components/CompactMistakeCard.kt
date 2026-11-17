@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -103,7 +104,7 @@ fun CompactMistakeCard(
                 )
 
                 Icon(
-                    imageVector = Icons.Default.ArrowForward,
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                     contentDescription = null,
                     tint = Color.Gray,
                     modifier = Modifier.size(16.dp)
@@ -161,7 +162,7 @@ private fun formatLoss(mistake: Mistake): String {
     return if (mistake.evaluationLoss > 50000) {
         "Мат!"
     } else {
-        "-${String.format("%.1f", mistake.getEvaluationLossInPawns())}"
+        "-${String.format(java.util.Locale.US, "%.1f", mistake.getEvaluationLossInPawns())}"
     }
 }
 

@@ -11,15 +11,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
-import com.example.chessmentor.presentation.ui.theme.BackgroundDark
-import com.example.chessmentor.presentation.ui.theme.BackgroundLight
-import com.example.chessmentor.presentation.ui.theme.ErrorRed
-import com.example.chessmentor.presentation.ui.theme.PrimaryGreen
-import com.example.chessmentor.presentation.ui.theme.PrimaryGreenDark
-import com.example.chessmentor.presentation.ui.theme.SurfaceDark
-import com.example.chessmentor.presentation.ui.theme.SurfaceLight
-import com.example.chessmentor.presentation.ui.theme.TextPrimaryDark
-import com.example.chessmentor.presentation.ui.theme.TextPrimaryLight
 
 private val DarkColorScheme = darkColorScheme(
     primary = PrimaryGreen,

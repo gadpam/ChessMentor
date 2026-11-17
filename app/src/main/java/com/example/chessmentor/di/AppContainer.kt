@@ -1,4 +1,4 @@
-﻿// di/AppContainer.kt
+// di/AppContainer.kt
 package com.example.chessmentor.di
 
 import android.content.Context
@@ -121,7 +121,8 @@ class AppContainer private constructor(private val context: Context) {
         GetUserStatisticsUseCase(
             userRepository = userRepository,
             gameRepository = gameRepository,
-            mistakeRepository = mistakeRepository
+            mistakeRepository = mistakeRepository,
+            exerciseRepository = exerciseRepository
         )
     }
 

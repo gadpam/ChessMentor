@@ -1,4 +1,4 @@
-﻿package com.example.chessmentor.presentation.viewmodel
+package com.example.chessmentor.presentation.viewmodel
 
 import android.util.Log
 import androidx.compose.runtime.mutableIntStateOf
@@ -10,9 +10,11 @@ import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.KeyMoment
 import com.example.chessmentor.domain.entity.Mistake
-import com.example.chessmentor.domain.entity.MoveQuality // <--- ВАЖНО: Импортируем только этот!
+import com.example.chessmentor.domain.entity.MoveQuality
+import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.example.chessmentor.presentation.ui.components.SoundManager
 import com.github.bhlangonijr.chesslib.Board
+import com.github.bhlangonijr.chesslib.Side
 import com.github.bhlangonijr.chesslib.Square
 import com.github.bhlangonijr.chesslib.move.Move
 import com.github.bhlangonijr.chesslib.move.MoveList
@@ -21,7 +23,9 @@ import java.io.File
 import kotlin.math.abs
 
 class BoardViewModel : ViewModel() {
-    companion object { private const val TAG = "BoardViewModel" }
+    companion object {
+        private const val TAG = "BoardViewModel"
+    }
 
     val board = mutableStateOf(Board())
     val moves = mutableStateListOf<Move>()
@@ -36,73 +40,113 @@ class BoardViewModel : ViewModel() {
 
     private var playerColor: ChessColor = ChessColor.WHITE
     private var currentGame: Game? = null
+    private var startFen: String? = null
+    private var firstMoveIsWhite: Boolean = true
     var soundManager: SoundManager? = null
 
-    private fun totalPlyCount(): Int = maxOf(moves.size, analyzedMoves.size)
+    fun getLoadedGameId(): Long? = currentGame?.id
 
-    fun loadGame(game: Game, gameMistakes: List<Mistake>, gameAnalyzedMoves: List<AnalyzedMove> = emptyList(), gameEvaluations: List<Int> = emptyList()) {
+    fun loadGame(
+        game: Game,
+        gameMistakes: List<Mistake>,
+        gameAnalyzedMoves: List<AnalyzedMove> = emptyList(),
+        gameEvaluations: List<Int> = emptyList(),
+        preserveMoveIndex: Boolean = false
+    ) {
         try {
+            val previousIndex = if (preserveMoveIndex && currentGame?.id == game.id) {
+                currentMoveIndex.intValue
+            } else {
+                -1
+            }
             currentGame = game
             playerColor = game.playerColor
             clearState()
             mistakes.addAll(gameMistakes)
             analyzedMoves.addAll(gameAnalyzedMoves)
-            val movesText = extractMovesText(game.pgnData)
-            val pgnDocument = buildPgnDocument(movesText)
-            val halfMoves = parsePgn(pgnDocument, movesText).ifEmpty {
-                restoreMovesFromAnalyzedMoves(gameAnalyzedMoves)
+
+            val normalized = runCatching { ChessMoveUtils.normalizePgn(game.pgnData) }.getOrNull()
+            startFen = normalized?.startFen
+
+            val initialBoard = createInitialBoard()
+            firstMoveIsWhite = initialBoard.sideToMove == Side.WHITE
+
+            val halfMoves = if (normalized != null) {
+                parsePgn(normalized)
+            } else {
+                emptyList()
             }
-            if (halfMoves.isEmpty()) return
+
+            if (halfMoves.isEmpty()) {
+                board.value = initialBoard
+                loadEvaluations(gameEvaluations, game)
+                return
+            }
+
             loadMoves(halfMoves)
             loadEvaluations(gameEvaluations, game)
-            goToStart()
-        } catch (e: Exception) { e.printStackTrace() }
+            if (previousIndex >= 0) {
+                goToMove(previousIndex)
+            } else {
+                goToStart()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading game into BoardViewModel", e)
+        }
+    }
+
+    private fun createInitialBoard(): Board {
+        val b = Board()
+        startFen?.let { fen ->
+            runCatching { b.loadFromFen(fen) }
+        }
+        return b
     }
 
     private fun clearState() {
-        board.value = Board(); moves.clear(); moveNotations.clear(); evaluations.clear()
-        mistakes.clear(); analyzedMoves.clear(); currentMoveIndex.intValue = -1
-        lastMove.value = null; highlightedSquares.value = emptySet()
+        startFen = null
+        firstMoveIsWhite = true
+        board.value = Board()
+        moves.clear()
+        moveNotations.clear()
+        evaluations.clear()
+        mistakes.clear()
+        analyzedMoves.clear()
+        currentMoveIndex.intValue = -1
+        lastMove.value = null
+        highlightedSquares.value = emptySet()
     }
 
-    private fun extractMovesText(pgn: String): String {
-        val movesOnly = pgn.trim().replace(Regex("""\[[^\]]*\]"""), " ").replace(Regex("""\{[^}]*\}"""), " ")
-            .replace(Regex("""\([^)]*\)"""), " ").replace(Regex("""\$\d+"""), " ")
-            .replace(Regex("""(1-0|0-1|1/2-1/2|\*)\s*$"""), "").replace(Regex("""\s+"""), " ").trim()
-        if (movesOnly.isEmpty()) return ""
-        return movesOnly
-    }
-
-    private fun buildPgnDocument(movesText: String): String {
-        if (movesText.isEmpty()) return ""
-        return "[Event \"Imported\"]\n\n$movesText *"
-    }
-
-    private fun parsePgn(pgnDocument: String, movesText: String): List<Move> {
-        if (movesText.isEmpty()) return emptyList()
+    private fun parsePgn(normalized: ChessMoveUtils.NormalizedPgn): List<Move> {
+        if (normalized.movesText.isEmpty()) return emptyList()
         val temp = File.createTempFile("game_pgn", ".pgn")
         return try {
-            temp.writeText(pgnDocument)
+            temp.writeText(normalized.document)
             val holder = PgnHolder(temp.absolutePath)
             holder.loadPgn()
-            if (holder.games.isEmpty()) {
-                Log.w(TAG, "PGN parsed but contained no games, trying SAN fallback")
-                parseMovesFromSan(movesText)
+            val parsed = holder.games.firstOrNull()?.halfMoves?.toList().orEmpty()
+            if (parsed.isEmpty()) {
+                Log.w(TAG, "PGN parsed but contained no moves, trying SAN fallback")
+                parseMovesFromSan(normalized)
             } else {
-                holder.games[0].halfMoves.toList()
+                parsed
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse PGN for game view, trying SAN fallback", e)
-            parseMovesFromSan(movesText)
+            parseMovesFromSan(normalized)
         } finally {
             temp.delete()
         }
     }
 
-    private fun parseMovesFromSan(movesText: String): List<Move> {
+    private fun parseMovesFromSan(normalized: ChessMoveUtils.NormalizedPgn): List<Move> {
         return try {
-            val moveList = MoveList()
-            moveList.loadFromSan(movesText)
+            val moveList = if (normalized.startFen != null) {
+                MoveList(normalized.startFen)
+            } else {
+                MoveList()
+            }
+            moveList.loadFromSan(normalized.movesText)
             moveList.toList().also {
                 Log.i(TAG, "Parsed ${it.size} moves via SAN fallback")
             }
@@ -112,51 +156,40 @@ class BoardViewModel : ViewModel() {
         }
     }
 
-    private fun loadMoves(m: List<Move>) {
-        moves.addAll(m)
-        var num = 1
-        m.forEachIndexed { i, move ->
-            val san = move.san ?: move.toString()
-            moveNotations.add(if (i % 2 == 0) "`$num. " + san else "`$num... " + san)
-            if (i % 2 == 1) num++
-        }
-    }
+    private fun loadMoves(halfMoves: List<Move>) {
+        moves.addAll(halfMoves)
+        val simBoard = createInitialBoard()
+        var moveNumber = simBoard.moveCounter.coerceAtLeast(1)
 
-    private fun restoreMovesFromAnalyzedMoves(gameAnalyzedMoves: List<AnalyzedMove>): List<Move> {
-        if (gameAnalyzedMoves.isEmpty()) {
-            Log.w(TAG, "No analyzed moves available for fallback reconstruction")
-            return emptyList()
-        }
+        halfMoves.forEach { move ->
+            val isWhite = simBoard.sideToMove == Side.WHITE
+            val fenBefore = simBoard.fen
+            val san = move.san?.takeIf { it.isNotBlank() }
+                ?: ChessMoveUtils.uciToSan(ChessMoveUtils.moveToUci(move), fenBefore)
 
-        return try {
-            val moveList = MoveList()
-            gameAnalyzedMoves
-                .sortedBy { it.moveIndex }
-                .forEach { analyzedMove ->
-                    moveList.addSanMove(analyzedMove.san, true, true)
-                }
+            moveNotations.add(if (isWhite) "$moveNumber. $san" else "$moveNumber... $san")
 
-            moveList.toList().also {
-                Log.i(TAG, "Restored ${it.size} moves from analyzed move SAN data")
+            simBoard.doMove(move)
+            if (!isWhite) {
+                moveNumber++
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to restore moves from analyzed SAN data", e)
-            emptyList()
         }
     }
 
     private fun loadEvaluations(ev: List<Int>, g: Game) {
         evaluations.clear()
-        if (ev.isNotEmpty()) evaluations.addAll(ev)
-        else if (g.hasEvaluations()) evaluations.addAll(g.getEvaluations())
-        else evaluations.add(0)
+        when {
+            ev.isNotEmpty() -> evaluations.addAll(ev)
+            g.hasEvaluations() -> evaluations.addAll(g.getEvaluations())
+            else -> evaluations.add(0)
+        }
     }
 
     private fun rebuildBoardToIndex(targetIndex: Int): Pair<Board, Pair<Square, Square>?> {
-        val rebuiltBoard = Board()
+        val rebuiltBoard = createInitialBoard()
         var rebuiltLastMove: Pair<Square, Square>? = null
 
-        if (targetIndex >= 0) {
+        if (targetIndex >= 0 && moves.isNotEmpty()) {
             for (i in 0..targetIndex.coerceAtMost(moves.lastIndex)) {
                 val move = moves[i]
                 rebuiltBoard.doMove(move)
@@ -167,40 +200,42 @@ class BoardViewModel : ViewModel() {
         return rebuiltBoard to rebuiltLastMove
     }
 
+    /**
+     * FEN позиции ДО указанного полухода (для построения стрелки лучшего хода)
+     */
+    fun getFenBeforeMove(moveIndex: Int): String {
+        if (moveIndex <= 0) return createInitialBoard().fen
+        val (boardBefore, _) = rebuildBoardToIndex(moveIndex - 1)
+        return boardBefore.fen
+    }
+
     fun goToStart() {
-        board.value = Board()
+        board.value = createInitialBoard()
         currentMoveIndex.intValue = -1
         lastMove.value = null
         highlightedSquares.value = emptySet()
     }
 
     fun goToEnd() {
-        val totalMoves = totalPlyCount()
-        if (totalMoves == 0) return
+        if (moves.isEmpty()) return
 
         val targetIndex = moves.lastIndex
         val (rebuiltBoard, rebuiltLastMove) = rebuildBoardToIndex(targetIndex)
         board.value = rebuiltBoard
-        currentMoveIndex.intValue = totalMoves - 1
+        currentMoveIndex.intValue = targetIndex
         lastMove.value = rebuiltLastMove
         updateHighlights()
     }
 
     fun goToNextMove() {
-        val totalMoves = totalPlyCount()
-        if (currentMoveIndex.intValue >= totalMoves - 1) return
+        if (currentMoveIndex.intValue >= moves.lastIndex) return
 
         val nextIndex = currentMoveIndex.intValue + 1
         currentMoveIndex.intValue = nextIndex
 
-        if (nextIndex < moves.size) {
-            val (rebuiltBoard, rebuiltLastMove) = rebuildBoardToIndex(nextIndex)
-            board.value = rebuiltBoard
-            lastMove.value = rebuiltLastMove
-        } else {
-            lastMove.value = null
-        }
-
+        val (rebuiltBoard, rebuiltLastMove) = rebuildBoardToIndex(nextIndex)
+        board.value = rebuiltBoard
+        lastMove.value = rebuiltLastMove
         updateHighlights()
     }
 
@@ -214,11 +249,7 @@ class BoardViewModel : ViewModel() {
             board.value = rebuiltBoard
             lastMove.value = rebuiltLastMove
         } else {
-            board.value = Board()
-            null
-        }
-
-        if (currentMoveIndex.intValue < 0) {
+            board.value = createInitialBoard()
             lastMove.value = null
         }
 
@@ -230,64 +261,88 @@ class BoardViewModel : ViewModel() {
             goToStart()
             return
         }
+        if (moves.isEmpty()) return
 
-        val totalMoves = totalPlyCount()
-        if (totalMoves == 0) return
-
-        val targetIndex = idx.coerceIn(0, totalMoves - 1)
+        val targetIndex = idx.coerceIn(0, moves.lastIndex)
         val (rebuiltBoard, rebuiltLastMove) = rebuildBoardToIndex(targetIndex)
         board.value = rebuiltBoard
         currentMoveIndex.intValue = targetIndex
-
-        lastMove.value = if (targetIndex in moves.indices) {
-            rebuiltLastMove
-        } else {
-            null
-        }
-
+        lastMove.value = rebuiltLastMove
         updateHighlights()
     }
 
     private fun updateHighlights() {
-        val s = mutableSetOf<Square>()
-        // Используем MoveQuality из Domain
-        if (getCurrentAnalyzedMove()?.quality == MoveQuality.MISTAKE ||
-            getCurrentAnalyzedMove()?.quality == MoveQuality.BLUNDER) {
-            lastMove.value?.second?.let { s.add(it) }
+        val squares = mutableSetOf<Square>()
+        val quality = getCurrentAnalyzedMove()?.quality
+        if (quality == MoveQuality.MISTAKE ||
+            quality == MoveQuality.BLUNDER ||
+            quality == MoveQuality.MISSED_WIN
+        ) {
+            lastMove.value?.second?.let { squares.add(it) }
         }
-        highlightedSquares.value = s
+        highlightedSquares.value = squares
     }
 
     fun getCurrentEvaluation(): Int = evaluations.getOrElse(currentMoveIndex.intValue + 1) { 0 }
-    fun getCurrentMoveNotation(): String = moveNotations.getOrElse(currentMoveIndex.intValue) { "Start" }
-    fun getCurrentAnalyzedMove(): AnalyzedMove? = if(currentMoveIndex.intValue < 0) null else analyzedMoves.find { it.moveIndex == currentMoveIndex.intValue }
 
-    // Возвращаем MoveQuality из Domain
+    fun getCurrentMoveNotation(): String =
+        moveNotations.getOrElse(currentMoveIndex.intValue) { "Начало" }
+
+    fun getCurrentAnalyzedMove(): AnalyzedMove? =
+        if (currentMoveIndex.intValue < 0) null
+        else analyzedMoves.find { it.moveIndex == currentMoveIndex.intValue }
+
     fun getCurrentMoveQuality(): MoveQuality? = getCurrentAnalyzedMove()?.quality
 
-    fun getCurrentMistake(): Mistake? = getCurrentAnalyzedMove()?.let { a -> if(a.isMistake()) mistakes.find { it.moveNumber == a.moveNumber && it.color == a.color } else null }
+    fun getCurrentMistake(): Mistake? = getCurrentAnalyzedMove()?.let { analyzed ->
+        if (analyzed.isMistake()) {
+            mistakes.find { it.moveNumber == analyzed.moveNumber && it.color == analyzed.color }
+        } else {
+            null
+        }
+    }
+
     fun hasRealEvaluations(): Boolean = evaluations.size > 1
 
     fun getKeyMoments(): List<KeyMoment> {
-        return analyzedMoves.map { it.toKeyMoment() }.sortedWith(compareBy({
-            // Используем MoveQuality из Domain
-            when (it.quality) {
-                MoveQuality.BLUNDER -> 0
-                MoveQuality.MISTAKE -> 1
-                MoveQuality.INACCURACY -> 2
-                MoveQuality.MISSED_WIN -> 3
-                MoveQuality.BRILLIANT -> 4
-                MoveQuality.GREAT_MOVE -> 5
-                MoveQuality.BEST_MOVE -> 6
-                MoveQuality.EXCELLENT -> 7
-                MoveQuality.GOOD -> 8
-                MoveQuality.BOOK -> 9
-            }
-        }, { -abs(it.evaluationChange) }))
+        return analyzedMoves.map { it.toKeyMoment() }.sortedWith(
+            compareBy(
+                {
+                    when (it.quality) {
+                        MoveQuality.BLUNDER -> 0
+                        MoveQuality.MISSED_WIN -> 1
+                        MoveQuality.MISTAKE -> 2
+                        MoveQuality.INACCURACY -> 3
+                        MoveQuality.BRILLIANT -> 4
+                        MoveQuality.GREAT_MOVE -> 5
+                        MoveQuality.BEST_MOVE -> 6
+                        MoveQuality.EXCELLENT -> 7
+                        MoveQuality.GOOD -> 8
+                        MoveQuality.BOOK -> 9
+                    }
+                },
+                { -abs(it.evaluationChange) }
+            )
+        )
     }
 
-    fun getMoveQualityStats(): Map<MoveQuality, Int> = analyzedMoves.groupBy { it.quality }.mapValues { it.value.size }
+    fun getMoveQualityStats(): Map<MoveQuality, Int> =
+        analyzedMoves.groupBy { it.quality }.mapValues { it.value.size }
+
     fun getPlayerColor(): ChessColor = playerColor
-    fun getTotalMoves(): Int = totalPlyCount()
-    fun isCurrentMovePlayerMove(): Boolean = if (currentMoveIndex.intValue < 0) false else (playerColor == ChessColor.WHITE && currentMoveIndex.intValue % 2 == 0) || (playerColor == ChessColor.BLACK && currentMoveIndex.intValue % 2 != 0)
+
+    fun getTotalMoves(): Int = moves.size
+
+    fun isCurrentMovePlayerMove(): Boolean {
+        val idx = currentMoveIndex.intValue
+        if (idx < 0) return false
+        val isWhiteMove = if (firstMoveIsWhite) idx % 2 == 0 else idx % 2 != 0
+        return (playerColor == ChessColor.WHITE && isWhiteMove) ||
+            (playerColor == ChessColor.BLACK && !isWhiteMove)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        soundManager = null
+    }
 }

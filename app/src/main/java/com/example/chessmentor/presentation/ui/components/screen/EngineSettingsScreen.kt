@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -121,7 +122,7 @@ private fun SettingsHeader(onBack: () -> Unit) {
         ) {
             IconButton(onClick = onBack) {
                 Icon(
-                    imageVector = Icons.Default.ArrowBack,
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Назад",
                     tint = MaterialTheme.colorScheme.onPrimaryContainer
                 )
@@ -137,7 +138,7 @@ private fun SettingsHeader(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
                 Text(
-                    text = "Stockfish 17",
+                    text = "Stockfish 19 (NNUE)",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                 )
@@ -415,7 +416,7 @@ private fun SettingsInfo(settings: EngineSettings) {
             val estimatedTime = settings.estimatedTimePerMove()
 
             Text(text = "• Профиль: ${settings.getProfileName()}")
-            Text(text = "• Время на ход: ~${"%.1f".format(estimatedTime)} сек")
+            Text(text = "• Время на ход: ~${String.format(java.util.Locale.US, "%.1f", estimatedTime)} сек")
 
             Spacer(modifier = Modifier.height(8.dp))
 

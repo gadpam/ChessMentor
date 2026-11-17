@@ -14,18 +14,78 @@ import com.example.chessmentor.domain.entity.TacticalTheme
 class TypeConverters {
 
     // ============================================================
-    // LIST CONVERTERS
+    // LIST CONVERTERS (JSON-массив с обратной совместимостью с CSV)
     // ============================================================
 
     @TypeConverter
     fun fromStringList(value: List<String>?): String? {
-        return value?.joinToString(",")
+        if (value == null) return null
+        if (value.isEmpty()) return "[]"
+        return value.joinToString(separator = ",", prefix = "[", postfix = "]") { item ->
+            buildString(item.length + 2) {
+                append('"')
+                for (ch in item) {
+                    when (ch) {
+                        '\\' -> append("\\\\")
+                        '"' -> append("\\\"")
+                        '\n' -> append("\\n")
+                        '\r' -> append("\\r")
+                        '\t' -> append("\\t")
+                        else -> append(ch)
+                    }
+                }
+                append('"')
+            }
+        }
     }
 
     @TypeConverter
     fun toStringList(value: String?): List<String>? {
-        if (value.isNullOrBlank()) return emptyList()
-        return value.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        if (value == null) return emptyList()
+        val trimmed = value.trim()
+        if (trimmed.isEmpty() || trimmed == "[]") return emptyList()
+
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            return parseJsonStringArray(trimmed)
+        }
+
+        // Обратная совместимость со старыми записями через запятую
+        return trimmed.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
+    private fun parseJsonStringArray(json: String): List<String> {
+        val result = mutableListOf<String>()
+        val current = StringBuilder()
+        var inString = false
+        var escaped = false
+
+        for (i in 1 until json.length - 1) {
+            val ch = json[i]
+            if (escaped) {
+                when (ch) {
+                    'n' -> current.append('\n')
+                    'r' -> current.append('\r')
+                    't' -> current.append('\t')
+                    else -> current.append(ch)
+                }
+                escaped = false
+                continue
+            }
+            if (inString) {
+                when (ch) {
+                    '\\' -> escaped = true
+                    '"' -> {
+                        result.add(current.toString())
+                        current.setLength(0)
+                        inString = false
+                    }
+                    else -> current.append(ch)
+                }
+            } else if (ch == '"') {
+                inString = true
+            }
+        }
+        return result
     }
 
     // ============================================================
@@ -85,11 +145,11 @@ class TypeConverters {
 
     @TypeConverter
     fun toMoveQuality(value: String): MoveQuality {
-        return try { MoveQuality.valueOf(value) } catch (e: Exception) { MoveQuality.BOOK }
+        return try { MoveQuality.valueOf(value) } catch (e: Exception) { MoveQuality.GOOD }
     }
 
     // ============================================================
-    // TACTICAL PATTERN (НОВОЕ)
+    // TACTICAL PATTERN
     // ============================================================
 
     @TypeConverter
@@ -97,7 +157,8 @@ class TypeConverters {
 
     @TypeConverter
     fun toTacticalPattern(value: String?): TacticalPattern? {
-        if (value.isNullOrBlank()) return TacticalPattern.MIXED
+        if (value == null) return null
+        if (value.isBlank()) return TacticalPattern.MIXED
         return try {
             TacticalPattern.valueOf(value)
         } catch (e: Exception) {
@@ -106,7 +167,7 @@ class TypeConverters {
     }
 
     // ============================================================
-    // TACTICAL THEME (НОВОЕ)
+    // TACTICAL THEME
     // ============================================================
 
     @TypeConverter
@@ -114,7 +175,8 @@ class TypeConverters {
 
     @TypeConverter
     fun toTacticalTheme(value: String?): TacticalTheme? {
-        if (value.isNullOrBlank()) return TacticalTheme.TACTIC
+        if (value == null) return null
+        if (value.isBlank()) return TacticalTheme.TACTIC
         return try {
             TacticalTheme.valueOf(value)
         } catch (e: Exception) {
@@ -123,7 +185,7 @@ class TypeConverters {
     }
 
     // ============================================================
-    // EXERCISE SOURCE (НОВОЕ)
+    // EXERCISE SOURCE
     // ============================================================
 
     @TypeConverter
@@ -131,7 +193,8 @@ class TypeConverters {
 
     @TypeConverter
     fun toExerciseSource(value: String?): ExerciseSource? {
-        if (value.isNullOrBlank()) return ExerciseSource.MISTAKE
+        if (value == null) return null
+        if (value.isBlank()) return ExerciseSource.MISTAKE
         return try {
             ExerciseSource.valueOf(value)
         } catch (e: Exception) {

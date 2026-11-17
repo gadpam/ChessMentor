@@ -18,6 +18,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
@@ -29,6 +31,9 @@ import com.example.chessmentor.presentation.viewmodel.BoardViewModel
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Square
+import java.util.Locale
+import kotlin.math.abs
+import kotlinx.coroutines.launch
 
 private const val TAG = "GameViewScreen"
 
@@ -36,7 +41,8 @@ private const val TAG = "GameViewScreen"
 fun GameViewScreen(
     paddingValues: PaddingValues,
     gameViewModel: GameViewModel,
-    user: User?
+    user: User?,
+    boardViewModel: BoardViewModel = viewModel()
 ) {
     val game by gameViewModel.selectedGame
 
@@ -50,6 +56,7 @@ fun GameViewScreen(
             paddingValues = paddingValues,
             game = game!!,
             gameViewModel = gameViewModel,
+            boardViewModel = boardViewModel,
             user = user
         )
     }
@@ -85,44 +92,45 @@ private fun GameViewScreenContent(
     paddingValues: PaddingValues,
     game: Game,
     gameViewModel: GameViewModel,
+    boardViewModel: BoardViewModel,
     user: User?
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val mistakes = gameViewModel.selectedGameMistakes
     val analyzedMoves = gameViewModel.selectedGameAnalyzedMoves
     val gameEvaluations = gameViewModel.selectedGameEvaluations
 
-    val boardViewModel = remember {
-        Log.d(TAG, "Creating new BoardViewModel for game ${game.id}")
-        BoardViewModel().apply {
-            soundManager = SoundManager(context)
+    val soundManager = remember(context) {
+        SoundManager(context.applicationContext)
+    }
+
+    LaunchedEffect(user?.isSoundEnabled) {
+        soundManager.setEnabled(user?.isSoundEnabled ?: true)
+    }
+
+    DisposableEffect(soundManager) {
+        boardViewModel.soundManager = soundManager
+        onDispose {
+            Log.d(TAG, "Releasing SoundManager")
+            if (boardViewModel.soundManager === soundManager) {
+                boardViewModel.soundManager = null
+            }
+            soundManager.release()
         }
     }
 
     val selectedTheme = remember(user?.preferredTheme) {
-        if (user != null) {
-            BoardThemes.getAll().find { it.name == user.preferredTheme } ?: BoardThemes.Classic
-        } else {
-            BoardThemes.Classic
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            Log.d(TAG, "Disposing BoardViewModel")
-        }
+        BoardThemes.getByName(user?.preferredTheme)
     }
 
     LaunchedEffect(game.id, mistakes.size, analyzedMoves.size, gameEvaluations.size) {
-        Log.d(
-            TAG,
-            "Loading game ${game.id} with ${mistakes.size} mistakes, ${analyzedMoves.size} analyzed moves and ${gameEvaluations.size} evaluations"
-        )
         boardViewModel.loadGame(
             game = game,
             gameMistakes = mistakes.toList(),
             gameAnalyzedMoves = analyzedMoves.toList(),
-            gameEvaluations = gameEvaluations.toList()
+            gameEvaluations = gameEvaluations.toList(),
+            preserveMoveIndex = true
         )
     }
 
@@ -134,28 +142,40 @@ private fun GameViewScreenContent(
     val currentEvaluation = boardViewModel.getCurrentEvaluation()
     val currentMistake = boardViewModel.getCurrentMistake()
     val currentAnalyzedMove = boardViewModel.getCurrentAnalyzedMove()
-    val moves = boardViewModel.moves
-    val displayedMoves = remember(moves.size, analyzedMoves.size) {
-        when {
-            moves.isNotEmpty() -> moves.map { it.san ?: it.toString() }
+    val moveNotations = boardViewModel.moveNotations
 
-            analyzedMoves.isNotEmpty() -> analyzedMoves
-                .sortedBy { it.moveIndex }
-                .map { it.san }
-
-            else -> emptyList()
+    // Извлекаем чистый SAN из нотации ("1. e4" -> "e4", "1... e5" -> "e5") для горизонтальной ленты
+    val displayedMoves = remember(moveNotations.size) {
+        moveNotations.map { notation ->
+            notation.substringAfter(' ', notation)
         }
     }
-    val totalMoves = maxOf(displayedMoves.size, boardViewModel.getTotalMoves())
+    val totalMoves = boardViewModel.getTotalMoves()
     val hasRealEvaluations = boardViewModel.hasRealEvaluations()
 
-    // Формируем список стрелок
-    val arrowsList = remember(currentAnalyzedMove) {
-        if (currentAnalyzedMove?.isMistake() == true && currentAnalyzedMove.bestMove != null) {
-            val arrow = parseBestMoveToArrow(currentAnalyzedMove.bestMove)
+    // Стрелка лучшего хода (поддерживает и SAN, и UCI за счёт FEN позиции до хода)
+    val arrowsList = remember(currentMoveIndex, currentAnalyzedMove) {
+        val bestMove = currentAnalyzedMove?.bestMove
+        if (currentAnalyzedMove?.isMistake() == true && !bestMove.isNullOrBlank()) {
+            val fenBefore = boardViewModel.getFenBeforeMove(currentMoveIndex)
+            val arrow = parseMoveToArrow(bestMove, fenBefore)
             if (arrow != null) listOf(arrow) else emptyList()
         } else {
             emptyList()
+        }
+    }
+
+    fun playFeedbackSoundForCurrentPosition() {
+        val currentBoard = boardViewModel.board.value
+        val idx = boardViewModel.currentMoveIndex.intValue
+        val san = displayedMoves.getOrNull(idx).orEmpty()
+        coroutineScope.launch {
+            when {
+                currentBoard.isMated -> soundManager.playCheckmate()
+                currentBoard.isKingAttacked -> soundManager.playCheck()
+                'x' in san -> soundManager.playCapture()
+                idx >= 0 -> soundManager.playMove()
+            }
         }
     }
 
@@ -212,7 +232,10 @@ private fun GameViewScreenContent(
                 moves = displayedMoves,
                 currentMoveIndex = currentMoveIndex,
                 mistakes = mistakes.toList(),
-                onMoveClick = { index -> boardViewModel.goToMove(index) },
+                onMoveClick = { index ->
+                    boardViewModel.goToMove(index)
+                    playFeedbackSoundForCurrentPosition()
+                },
                 modifier = Modifier
                     .padding(vertical = 6.dp)
                     .height(36.dp)
@@ -223,9 +246,18 @@ private fun GameViewScreenContent(
             currentMoveIndex = currentMoveIndex,
             totalMoves = totalMoves,
             onGoToStart = { boardViewModel.goToStart() },
-            onGoToPrevious = { boardViewModel.goToPreviousMove() },
-            onGoToNext = { boardViewModel.goToNextMove() },
-            onGoToEnd = { boardViewModel.goToEnd() }
+            onGoToPrevious = {
+                boardViewModel.goToPreviousMove()
+                playFeedbackSoundForCurrentPosition()
+            },
+            onGoToNext = {
+                boardViewModel.goToNextMove()
+                playFeedbackSoundForCurrentPosition()
+            },
+            onGoToEnd = {
+                boardViewModel.goToEnd()
+                playFeedbackSoundForCurrentPosition()
+            }
         )
     }
 }
@@ -278,8 +310,13 @@ private fun GameBoardWithBadgeAndArrow(
         if (lastMove != null) {
             val quality = currentAnalyzedMove?.quality
             if (quality != null && quality in listOf(
-                    MoveQuality.BRILLIANT, MoveQuality.GREAT_MOVE, MoveQuality.BEST_MOVE,
-                    MoveQuality.BLUNDER, MoveQuality.MISTAKE, MoveQuality.INACCURACY
+                    MoveQuality.BRILLIANT,
+                    MoveQuality.GREAT_MOVE,
+                    MoveQuality.BEST_MOVE,
+                    MoveQuality.BLUNDER,
+                    MoveQuality.MISTAKE,
+                    MoveQuality.INACCURACY,
+                    MoveQuality.MISSED_WIN
                 )
             ) {
                 val badgeOffset = calculateBadgeOffset(lastMove.second, isFlipped, boardSize)
@@ -314,10 +351,15 @@ private fun MoveAnalysisCard(
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
-    Box(modifier = modifier.fillMaxSize().verticalScroll(scrollState)) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+    ) {
         when {
             currentMistake != null -> CompactMistakeCard(mistake = currentMistake)
-            currentAnalyzedMove != null && currentAnalyzedMove.isGoodMove() -> GoodMoveCard(analyzedMove = currentAnalyzedMove)
+            currentAnalyzedMove != null && currentAnalyzedMove.isGoodMove() ->
+                GoodMoveCard(analyzedMove = currentAnalyzedMove)
             else -> CompactPositionCard(evaluation = currentEvaluation, playerColor = playerColor)
         }
     }
@@ -326,29 +368,60 @@ private fun MoveAnalysisCard(
 @Composable
 private fun GoodMoveCard(analyzedMove: AnalyzedMove, modifier: Modifier = Modifier) {
     val quality = analyzedMove.quality
+    val playerDelta = analyzedMove.playerEvalChange
+    val isMateDelta = ChessEngine.isMateScore(playerDelta) || abs(playerDelta) > 50_000
+
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = quality.getColor().copy(alpha = 0.1f))
     ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(text = quality.getEmoji(), style = MaterialTheme.typography.headlineLarge)
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = quality.getDisplayName(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = quality.getColor())
-                Text(text = analyzedMove.san, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    text = quality.getDisplayName(),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = quality.getColor()
+                )
+                Text(
+                    text = analyzedMove.san,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
                 analyzedMove.comment?.let {
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
-            if (analyzedMove.evalChange != 0) {
+            if (playerDelta != 0) {
                 Column(horizontalAlignment = Alignment.End) {
+                    val text = when {
+                        isMateDelta -> if (playerDelta > 0) "+Мат" else "-Мат"
+                        playerDelta > 0 -> String.format(Locale.US, "+%.1f", playerDelta / 100.0)
+                        else -> String.format(Locale.US, "%.1f", playerDelta / 100.0)
+                    }
                     Text(
-                        text = if (analyzedMove.evalChange > 0) "+%.1f".format(analyzedMove.evalChange / 100.0) else "%.1f".format(analyzedMove.evalChange / 100.0),
-                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
-                        color = if (analyzedMove.evalChange > 0) Color(0xFF4CAF50) else Color(0xFFF44336)
+                        text = text,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (playerDelta > 0) Color(0xFF4CAF50) else Color(0xFFF44336)
                     )
-                    Text(text = "пешек", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (!isMateDelta) {
+                        Text(
+                            text = "пешек",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
@@ -366,7 +439,9 @@ private fun NavigationBar(
 ) {
     Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 8.dp) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -376,7 +451,11 @@ private fun NavigationBar(
             IconButton(onClick = onGoToPrevious, enabled = currentMoveIndex > -1) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад")
             }
-            Text("${currentMoveIndex + 1}/$totalMoves", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "${(currentMoveIndex + 1).coerceAtLeast(0)}/$totalMoves",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
             IconButton(onClick = onGoToNext, enabled = currentMoveIndex < totalMoves - 1) {
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, "Вперёд")
             }

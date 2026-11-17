@@ -11,6 +11,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -23,6 +24,7 @@ import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.KeyMoment
 import com.example.chessmentor.domain.entity.MoveQuality
+import com.example.chessmentor.presentation.ui.components.AnalysisProgressDialog
 import com.example.chessmentor.presentation.ui.components.EvaluationGraph
 import com.example.chessmentor.presentation.viewmodel.BoardViewModel
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
@@ -42,19 +44,22 @@ fun SummaryScreen(
 ) {
     val currentMoveIndex by boardViewModel.currentMoveIndex
 
-    // ✅ ОБНОВЛЕНО: Получаем evaluations из правильного источника
-    val evaluations = remember(game.id) {
-        // Приоритет: BoardViewModel (если загружена игра) → GameViewModel → пустой список
+    // Реактивно пересчитываем оценки при завершении загрузки/анализа
+    val evaluations = remember(
+        game.id,
+        boardViewModel.evaluations.size,
+        gameViewModel.selectedGameEvaluations.size,
+        game.evaluationsJson
+    ) {
         when {
-            boardViewModel.evaluations.isNotEmpty() -> boardViewModel.evaluations.toList()
+            boardViewModel.evaluations.size > 1 -> boardViewModel.evaluations.toList()
             gameViewModel.selectedGameEvaluations.isNotEmpty() -> gameViewModel.selectedGameEvaluations.toList()
             game.hasEvaluations() -> game.getEvaluations()
             else -> emptyList()
         }
     }
 
-    // ✅ НОВОЕ: Проверяем наличие реальных данных
-    val hasRealEvaluations = evaluations.isNotEmpty() && game.hasEvaluations()
+    val hasRealEvaluations = evaluations.size > 1 && (game.hasEvaluations() || gameViewModel.hasEvaluations())
 
     LazyColumn(
         modifier = Modifier
@@ -119,15 +124,25 @@ fun SummaryScreen(
             }
         }
 
-        // ✅ НОВОЕ: Информация о данных (для отладки, можно убрать в продакшене)
+        // Предложение запустить или повторить анализ, если данных нет
         item {
-            if (!hasRealEvaluations && game.isAnalyzed()) {
-                ReanalyzeHint(onReanalyze = {
-                    // TODO: Добавить переанализ
-                })
+            if (!hasRealEvaluations && game.id != null) {
+                ReanalyzeHint(
+                    isAnalyzed = game.isAnalyzed(),
+                    onReanalyze = {
+                        gameViewModel.analyzeGameWithProgress(game.id, forceReanalyze = true)
+                    }
+                )
             }
         }
     }
+
+    val analysisProgress by gameViewModel.analysisProgress.collectAsState(initial = null)
+    AnalysisProgressDialog(
+        progress = analysisProgress,
+        onDismiss = { gameViewModel.clearAnalysisProgress() },
+        onCancel = { gameViewModel.cancelAnalysis() }
+    )
 }
 
 /**
@@ -284,7 +299,10 @@ private fun NoEvaluationsPlaceholder() {
  * ✅ НОВОЕ: Подсказка о переанализе
  */
 @Composable
-private fun ReanalyzeHint(onReanalyze: () -> Unit) {
+private fun ReanalyzeHint(
+    isAnalyzed: Boolean,
+    onReanalyze: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -307,20 +325,19 @@ private fun ReanalyzeHint(onReanalyze: () -> Unit) {
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Данные графика отсутствуют",
+                    text = if (isAnalyzed) "Данные графика отсутствуют" else "Партия ещё не проанализирована",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = "Партия была проанализирована в старой версии",
+                    text = if (isAnalyzed) "Обновите анализ движком Stockfish" else "Запустите анализ для поиска ошибок",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
                 )
             }
-            // TODO: Раскомментировать когда будет готов переанализ
-            // TextButton(onClick = onReanalyze) {
-            //     Text("Обновить")
-            // }
+            TextButton(onClick = onReanalyze) {
+                Text(if (isAnalyzed) "Обновить" else "Анализ")
+            }
         }
     }
 }
@@ -397,7 +414,7 @@ private fun GameMetricsCard(game: Game) {
                 // Средняя потеря
                 MetricItem(
                     label = "Ср. потеря",
-                    value = "%.1f".format((game.averageEvaluationLoss ?: 0) / 100.0),
+                    value = String.format(java.util.Locale.US, "%.1f", (game.averageEvaluationLoss ?: 0) / 100.0),
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
@@ -647,6 +664,7 @@ fun KeyMomentsCard(
                     MoveQuality.BRILLIANT,
                     MoveQuality.GREAT_MOVE,
                     MoveQuality.BLUNDER,
+                    MoveQuality.MISSED_WIN,
                     MoveQuality.MISTAKE,
                     MoveQuality.INACCURACY
                 )
@@ -779,10 +797,13 @@ fun KeyMomentRow(
 }
 
 private fun formatEvaluationChange(change: Int): String {
+    if (kotlin.math.abs(change) > 50_000) {
+        return if (change > 0) "+Мат" else "-Мат"
+    }
     val pawns = change / 100.0
     return when {
-        change > 0 -> "+%.1f".format(pawns)
-        change < 0 -> "%.1f".format(pawns)
+        change > 0 -> String.format(java.util.Locale.US, "+%.1f", pawns)
+        change < 0 -> String.format(java.util.Locale.US, "%.1f", pawns)
         else -> "0.0"
     }
 }
