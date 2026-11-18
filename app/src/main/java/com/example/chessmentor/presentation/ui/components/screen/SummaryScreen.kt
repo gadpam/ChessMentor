@@ -1,10 +1,14 @@
 // presentation/ui/screen/SummaryScreen.kt
 package com.example.chessmentor.presentation.ui.components.screen
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -13,15 +17,20 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.domain.analysis.GameMoveClassifier
+import com.example.chessmentor.domain.analysis.GameReviewHelper
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.KeyMoment
@@ -42,8 +51,9 @@ fun SummaryScreen(
     game: Game,
     keyMoments: List<KeyMoment>,
     boardViewModel: BoardViewModel,
-    gameViewModel: GameViewModel,  // ✅ ДОБАВЛЕНО
-    onReviewClick: () -> Unit
+    gameViewModel: GameViewModel,
+    onReviewClick: () -> Unit,
+    onPracticeGameMistakes: ((gameId: Long, focusMoveNumber: Int?) -> Unit)? = null
 ) {
     val currentMoveIndex by boardViewModel.currentMoveIndex
 
@@ -92,19 +102,44 @@ fun SummaryScreen(
         boardViewModel.getDetectedOpeningLabel() ?: cardInfo.openingLabel
     }
 
+    val coachReport = remember(
+        game.id,
+        game.analyzedAt,
+        boardViewModel.analyzedMoves.size,
+        boardViewModel.mistakes.size,
+        phaseAccuracy,
+        cardInfo.outcome
+    ) {
+        if (game.isAnalyzed()) {
+            boardViewModel.getCoachReport(
+                outcome = cardInfo.outcome,
+                phaseAccuracy = phaseAccuracy
+            )
+        } else {
+            null
+        }
+    }
+
+    val trainableCount = remember(
+        game.id,
+        game.analyzedAt,
+        boardViewModel.mistakes.size,
+        boardViewModel.analyzedMoves.size,
+        coachReport
+    ) {
+        coachReport?.trainableMistakesCount ?: boardViewModel.getTrainableMistakesCount()
+    }
+
     // На графике отмечаем только действительно значимые моменты, не загромождая линию рутинными ходами
     val graphMoments = remember(keyMoments) {
-        keyMoments.filter { moment ->
-            when (moment.quality) {
-                MoveQuality.BRILLIANT,
-                MoveQuality.GREAT_MOVE,
-                MoveQuality.BLUNDER,
-                MoveQuality.MISSED_WIN,
-                MoveQuality.MISTAKE -> true
-                MoveQuality.INACCURACY -> moment.isPlayerMove
-                else -> false
-            }
-        }
+        GameReviewHelper.filterKeyMoments(keyMoments, GameReviewHelper.MomentFilter.ALL)
+    }
+
+    val currentMoveLabel = remember(currentMoveIndex, boardViewModel.moveNotations.size) {
+        boardViewModel.getCurrentMoveNotation()
+    }
+    val currentMoveEval = remember(currentMoveIndex, evaluations.size) {
+        evaluations.getOrNull(currentMoveIndex + 1)
     }
 
     LazyColumn(
@@ -123,6 +158,35 @@ fun SummaryScreen(
             )
         }
 
+        // Быстрые действия: интерактивный разбор на доске + мост «Ошибки партии → Тренировка»
+        item {
+            SummaryActionRow(
+                canPracticeMistakes = game.isAnalyzed() && trainableCount > 0 &&
+                    game.id != null && onPracticeGameMistakes != null,
+                trainableCount = trainableCount,
+                onReviewClick = onReviewClick,
+                onPracticeClick = {
+                    val gid = game.id
+                    if (gid != null) {
+                        onPracticeGameMistakes?.invoke(gid, null)
+                    }
+                }
+            )
+        }
+
+        // Тренерский вывод: переломный момент, фазы, цейтнот и упущенные шансы
+        if (coachReport != null) {
+            item {
+                CoachSummaryCard(
+                    report = coachReport,
+                    onJumpToTurningPoint = { moveIndex ->
+                        boardViewModel.goToMove(moveIndex)
+                        onReviewClick()
+                    }
+                )
+            }
+        }
+
         // Основные метрики (точность игрока vs соперника + точность по фазам)
         if (game.isAnalyzed()) {
             item {
@@ -134,48 +198,42 @@ fun SummaryScreen(
             }
         }
 
-        // График оценки со значимыми маркерами
+        // Интерактивный график оценки (тап + скраббинг + мгновенный переход на доску)
         item {
             EvaluationGraphCard(
                 evaluations = evaluations,
                 keyMoments = graphMoments,
                 currentMoveIndex = currentMoveIndex,
+                currentMoveLabel = currentMoveLabel,
+                currentMoveEval = currentMoveEval,
                 playerColor = game.playerColor,
                 hasRealData = hasRealEvaluations,
+                startMoveNumber = boardViewModel.getStartMoveNumber(),
+                firstMoveIsWhite = boardViewModel.isFirstMoveWhite(),
                 onMoveClick = { index ->
                     boardViewModel.goToMove(index)
+                },
+                onOpenReviewAtMove = { index ->
+                    boardViewModel.goToMove(index)
+                    onReviewClick()
                 }
             )
         }
 
-        // Ключевые моменты
+        // Ключевые моменты с фильтрами, полным раскрытием и переходом в тренажёр по любому ходу
         item {
             KeyMomentsCard(
                 keyMoments = keyMoments,
                 onMomentClick = { moment ->
                     boardViewModel.goToMove(moment.moveIndex)
                     onReviewClick()
+                },
+                onPracticeMoment = if (game.id != null && onPracticeGameMistakes != null) { moment ->
+                    onPracticeGameMistakes(game.id, moment.moveNumber)
+                } else {
+                    null
                 }
             )
-        }
-
-        // Кнопка разбора
-        item {
-            Button(
-                onClick = onReviewClick,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Перейти к разбору партии", fontSize = 16.sp)
-            }
         }
 
         // Предложение запустить или повторить анализ, если данных нет
@@ -199,17 +257,142 @@ fun SummaryScreen(
     )
 }
 
+@Composable
+private fun SummaryActionRow(
+    canPracticeMistakes: Boolean,
+    trainableCount: Int,
+    onReviewClick: () -> Unit,
+    onPracticeClick: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Button(
+            onClick = onReviewClick,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Интерактивный разбор на доске", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        }
+
+        if (canPracticeMistakes) {
+            FilledTonalButton(
+                onClick = onPracticeClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FitnessCenter,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Отработать ошибки партии ($trainableCount)",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CoachSummaryCard(
+    report: GameReviewHelper.CoachReport,
+    onJumpToTurningPoint: (Int) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.48f)
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.School,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "Тренерский вывод",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            Text(
+                text = report.headline,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            report.bullets.forEach { bullet ->
+                Text(
+                    text = "• $bullet",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 18.sp
+                )
+            }
+
+            report.turningPoint?.let { tp ->
+                OutlinedButton(
+                    onClick = { onJumpToTurningPoint(tp.moveIndex) },
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "Разобрать переломный ход ${tp.formattedMove}",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 /**
- * ✅ НОВОЕ: Карточка с графиком оценки
+ * Карточка интерактивного графика оценки (клик, скраббинг и переход на доску).
  */
 @Composable
 private fun EvaluationGraphCard(
     evaluations: List<Int>,
     keyMoments: List<KeyMoment>,
     currentMoveIndex: Int,
+    currentMoveLabel: String,
+    currentMoveEval: Int?,
     playerColor: ChessColor,
     hasRealData: Boolean,
-    onMoveClick: (Int) -> Unit
+    startMoveNumber: Int,
+    firstMoveIsWhite: Boolean,
+    onMoveClick: (Int) -> Unit,
+    onOpenReviewAtMove: (Int) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -229,10 +412,35 @@ private fun EvaluationGraphCard(
                     fontWeight = FontWeight.Bold
                 )
 
-                // ✅ НОВОЕ: Индикатор источника данных
-                if (hasRealData) {
+                if (currentMoveIndex >= 0 && currentMoveEval != null) {
                     Surface(
-                        color = Color(0xFF4CAF50).copy(alpha = 0.1f),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.clickable { onOpenReviewAtMove(currentMoveIndex) }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "$currentMoveLabel (${ChessEngine.formatEvaluation(currentMoveEval)})",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = "Открыть ход на доске",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                } else if (hasRealData) {
+                    Surface(
+                        color = Color(0xFF4CAF50).copy(alpha = 0.12f),
                         shape = RoundedCornerShape(4.dp)
                     ) {
                         Text(
@@ -245,7 +453,7 @@ private fun EvaluationGraphCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             if (evaluations.isNotEmpty()) {
                 EvaluationGraph(
@@ -254,19 +462,18 @@ private fun EvaluationGraphCard(
                     currentMoveIndex = currentMoveIndex,
                     playerColor = playerColor,
                     onMoveClick = onMoveClick,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(150.dp),
+                    onOpenReview = onOpenReviewAtMove,
+                    modifier = Modifier.fillMaxWidth(),
+                    chartHeight = 154.dp,
+                    showHeader = false,
                     showMoveNumbers = true,
-                    animateChanges = true
+                    startMoveNumber = startMoveNumber,
+                    firstMoveIsWhite = firstMoveIsWhite
                 )
 
-                // ✅ НОВОЕ: Легенда
                 Spacer(modifier = Modifier.height(8.dp))
                 EvaluationGraphLegend()
-
             } else {
-                // Нет данных
                 NoEvaluationsPlaceholder()
             }
         }
@@ -274,7 +481,7 @@ private fun EvaluationGraphCard(
 }
 
 /**
- * ✅ НОВОЕ: Легенда графика
+ * Легенда графика оценки.
  */
 @Composable
 private fun EvaluationGraphLegend() {
@@ -283,12 +490,12 @@ private fun EvaluationGraphLegend() {
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        LegendItem(color = Color.White, label = "Белые")
-        Spacer(modifier = Modifier.width(16.dp))
-        LegendItem(color = Color.Black, label = "Чёрные")
-        Spacer(modifier = Modifier.width(16.dp))
+        LegendItem(color = Color(0xFFF3F5F8), label = "Белые")
+        Spacer(modifier = Modifier.width(14.dp))
+        LegendItem(color = Color(0xFF232A34), label = "Чёрные")
+        Spacer(modifier = Modifier.width(14.dp))
         Text(
-            text = "• Клик = переход к ходу",
+            text = "• Нажмите или проведите по графику",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -302,6 +509,7 @@ private fun LegendItem(color: Color, label: String) {
             modifier = Modifier
                 .size(12.dp)
                 .background(color, RoundedCornerShape(2.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), RoundedCornerShape(2.dp))
         )
         Spacer(modifier = Modifier.width(4.dp))
         Text(
@@ -837,8 +1045,12 @@ private fun getAccuracyColor(accuracy: Double): Color {
 @Composable
 fun KeyMomentsCard(
     keyMoments: List<KeyMoment>,
-    onMomentClick: (KeyMoment) -> Unit
+    onMomentClick: (KeyMoment) -> Unit,
+    onPracticeMoment: ((KeyMoment) -> Unit)? = null
 ) {
+    var selectedFilter by remember { mutableStateOf(GameReviewHelper.MomentFilter.ALL) }
+    var showAllMoments by remember { mutableStateOf(false) }
+
     // Статистика качества считается строго по ходам игрока
     val playerMoments = keyMoments.filter { it.isPlayerMove }
     val opponentMoments = keyMoments.filter { !it.isPlayerMove }
@@ -952,34 +1164,107 @@ fun KeyMomentsCard(
                 }
             }
 
-            // Список ключевых моментов (ваши критические ходы + грубые зевки соперника)
-            val significantMoments = playerMoments.filter {
-                it.quality in listOf(
-                    MoveQuality.BRILLIANT,
-                    MoveQuality.GREAT_MOVE,
-                    MoveQuality.BLUNDER,
-                    MoveQuality.MISSED_WIN,
-                    MoveQuality.MISTAKE,
-                    MoveQuality.INACCURACY
-                )
+            // Фильтруемый и раскрываемый список ключевых моментов (ваши ошибки, сильные ходы и зевки соперника)
+            val allSignificant = remember(keyMoments) {
+                GameReviewHelper.filterKeyMoments(keyMoments, GameReviewHelper.MomentFilter.ALL)
+            }
+            val playerMistakeList = remember(keyMoments) {
+                GameReviewHelper.filterKeyMoments(keyMoments, GameReviewHelper.MomentFilter.PLAYER_MISTAKES)
+            }
+            val highlightList = remember(keyMoments) {
+                GameReviewHelper.filterKeyMoments(keyMoments, GameReviewHelper.MomentFilter.HIGHLIGHTS)
+            }
+            val oppMistakeList = remember(keyMoments) {
+                GameReviewHelper.filterKeyMoments(keyMoments, GameReviewHelper.MomentFilter.OPPONENT_MISTAKES)
             }
 
-            if (significantMoments.isNotEmpty()) {
+            if (allSignificant.isNotEmpty() || highlightList.isNotEmpty()) {
                 Spacer(Modifier.height(16.dp))
 
                 Text(
-                    text = "Ключевые моменты:",
+                    text = "Ключевые моменты партии:",
                     style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Spacer(Modifier.height(8.dp))
 
-                significantMoments
-                    .take(6)
-                    .forEach { moment ->
-                        KeyMomentRow(moment = moment, onClick = onMomentClick)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val filterEntries = buildList {
+                        add(GameReviewHelper.MomentFilter.ALL to allSignificant.size)
+                        if (playerMistakeList.isNotEmpty()) {
+                            add(GameReviewHelper.MomentFilter.PLAYER_MISTAKES to playerMistakeList.size)
+                        }
+                        if (highlightList.isNotEmpty()) {
+                            add(GameReviewHelper.MomentFilter.HIGHLIGHTS to highlightList.size)
+                        }
+                        if (oppMistakeList.isNotEmpty()) {
+                            add(GameReviewHelper.MomentFilter.OPPONENT_MISTAKES to oppMistakeList.size)
+                        }
                     }
+                    filterEntries.forEach { (filter, count) ->
+                        FilterChip(
+                            selected = selectedFilter == filter,
+                            onClick = {
+                                selectedFilter = filter
+                                showAllMoments = false
+                            },
+                            label = { Text("${filter.label} ($count)", fontSize = 12.sp) }
+                        )
+                    }
+                }
+
+                val filteredMoments = when (selectedFilter) {
+                    GameReviewHelper.MomentFilter.ALL -> allSignificant
+                    GameReviewHelper.MomentFilter.PLAYER_MISTAKES -> playerMistakeList
+                    GameReviewHelper.MomentFilter.HIGHLIGHTS -> highlightList
+                    GameReviewHelper.MomentFilter.OPPONENT_MISTAKES -> oppMistakeList
+                }
+                val visibleMoments = if (showAllMoments) {
+                    filteredMoments
+                } else {
+                    filteredMoments.take(6)
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                visibleMoments.forEach { moment ->
+                    val canTrain = onPracticeMoment != null &&
+                        moment.isPlayerMove &&
+                        moment.quality.isBad() &&
+                        !moment.bestMove.isNullOrBlank() &&
+                        moment.bestMove != moment.san
+                    KeyMomentRow(
+                        moment = moment,
+                        onClick = onMomentClick,
+                        onPracticeClick = if (canTrain) {
+                            { onPracticeMoment?.invoke(moment) }
+                        } else {
+                            null
+                        }
+                    )
+                }
+
+                if (filteredMoments.size > 6) {
+                    TextButton(
+                        onClick = { showAllMoments = !showAllMoments },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (showAllMoments) {
+                                "Свернуть список"
+                            } else {
+                                "Показать все моменты (${filteredMoments.size})"
+                            }
+                        )
+                    }
+                }
             }
         }
     }
@@ -1034,42 +1319,64 @@ private fun getShortName(quality: MoveQuality): String {
 @Composable
 fun KeyMomentRow(
     moment: KeyMoment,
-    onClick: (KeyMoment) -> Unit
+    onClick: (KeyMoment) -> Unit,
+    onPracticeClick: (() -> Unit)? = null
 ) {
+    val accent = moment.quality.getColor()
+    val userDelta = moment.userPerspectiveDelta()
+    val roleLabel = if (moment.isPlayerMove) {
+        moment.quality.getDisplayName()
+    } else {
+        "${moment.quality.getDisplayName()} соперника"
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clickable { onClick(moment) },
-        colors = CardDefaults.cardColors(
-            containerColor = moment.quality.getColor().copy(alpha = 0.1f)
-        ),
-        shape = RoundedCornerShape(8.dp)
+        colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.1f)),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.25f)),
+        shape = RoundedCornerShape(10.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = moment.quality.getEmoji(),
-                fontSize = 24.sp
+                fontSize = 22.sp
             )
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Ход ${moment.moveIndex / 2 + 1} · ${moment.quality.getDisplayName()}",
+                    text = roleLabel,
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    fontWeight = FontWeight.SemiBold,
+                    color = accent
                 )
-                Text(
-                    text = moment.san,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = moment.formattedMove(),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (!moment.bestMove.isNullOrBlank() && moment.quality.isBad() && moment.bestMove != moment.san) {
+                        Text(
+                            text = "→ ${moment.bestMove}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF4CAF50)
+                        )
+                    }
+                }
                 moment.comment?.takeIf { it.isNotBlank() }?.let { comment ->
                     Text(
                         text = comment,
@@ -1081,18 +1388,33 @@ fun KeyMomentRow(
                 }
             }
 
-            Text(
-                text = formatEvaluationChange(moment.evaluationChange),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                color = if (moment.evaluationChange >= 0) Color(0xFF4CAF50) else Color(0xFFF44336)
-            )
+            if (userDelta != 0 && moment.quality != MoveQuality.BOOK) {
+                Text(
+                    text = formatEvaluationChange(userDelta),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (userDelta > 0) Color(0xFF4CAF50) else Color(0xFFE53935)
+                )
+            }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            if (onPracticeClick != null) {
+                Spacer(modifier = Modifier.width(4.dp))
+                IconButton(
+                    onClick = onPracticeClick,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FitnessCenter,
+                        contentDescription = "Отработать ход в тренажёре",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
 
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = "Перейти",
+                contentDescription = "Перейти к ходу на доске",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }

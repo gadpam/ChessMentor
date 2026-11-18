@@ -47,6 +47,7 @@ fun ChessMentorApp(
     val currentUser by gameViewModel.currentUser
     var currentScreen by rememberSaveable { mutableStateOf("home") }
     var pendingTrainingModeKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var trainingReturnScreen by rememberSaveable { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf("") }
 
@@ -66,8 +67,21 @@ fun ChessMentorApp(
 
     val handleNavigateBack: () -> Unit = {
         currentScreen = when (currentScreen) {
-            "game_view" -> "summary"
+            "training" -> {
+                val returnTarget = trainingReturnScreen
+                trainingReturnScreen = null
+                if (returnTarget != null && gameViewModel.selectedGame.value != null) {
+                    returnTarget
+                } else {
+                    "home"
+                }
+            }
+            "game_view" -> {
+                boardViewModel.dismissEngineLine()
+                "summary"
+            }
             "summary" -> {
+                boardViewModel.dismissEngineLine()
                 gameViewModel.closeGameView()
                 "games"
             }
@@ -95,6 +109,10 @@ fun ChessMentorApp(
                 ChessMentorBottomBar(
                     currentScreen = currentScreen,
                     onNavigate = { target ->
+                        if (currentScreen == "game_view") {
+                            boardViewModel.dismissEngineLine()
+                        }
+                        trainingReturnScreen = null
                         currentScreen = target
                         Log.d(TAG, "Navigate to: $target")
                     }
@@ -123,9 +141,33 @@ fun ChessMentorApp(
                 Log.d(TAG, "Screen changed to: $next")
             },
             onOpenTrainingWithMode = { mode ->
+                if (mode !is TrainingMode.FromGame) {
+                    trainingReturnScreen = null
+                }
                 pendingTrainingModeKey = mode.routeKey
                 currentScreen = "training"
                 Log.d(TAG, "Open training with mode: ${mode.routeKey}")
+            },
+            onOpenGameMistakeTraining = { fromScreen, gameId, focusMoveNumber ->
+                boardViewModel.dismissEngineLine()
+                trainingReturnScreen = fromScreen
+                pendingTrainingModeKey = TrainingMode.FromGame(
+                    gameId = gameId,
+                    focusMoveNumber = focusMoveNumber
+                ).routeKey
+                currentScreen = "training"
+                Log.d(TAG, "Open game mistake training: game=$gameId move=$focusMoveNumber from=$fromScreen")
+            },
+            onReturnToGameFromTraining = if (
+                trainingReturnScreen != null && gameViewModel.selectedGame.value != null
+            ) {
+                {
+                    val target = trainingReturnScreen ?: "summary"
+                    trainingReturnScreen = null
+                    currentScreen = target
+                }
+            } else {
+                null
             },
             onTrainingModeConsumed = {
                 pendingTrainingModeKey = null
@@ -134,11 +176,13 @@ fun ChessMentorApp(
                 gameViewModel.updateCurrentUser(updated)
             },
             onLogout = {
+                boardViewModel.dismissEngineLine()
                 gameViewModel.logout()
                 loginPassword = ""
                 regPassword = ""
                 message = ""
                 pendingTrainingModeKey = null
+                trainingReturnScreen = null
                 currentScreen = "home"
             },
             onMessageDismiss = { message = "" },
@@ -323,6 +367,8 @@ private fun NavigationHost(
     loginPassword: String,
     onScreenChange: (String) -> Unit,
     onOpenTrainingWithMode: (TrainingMode) -> Unit,
+    onOpenGameMistakeTraining: (fromScreen: String, gameId: Long, focusMoveNumber: Int?) -> Unit,
+    onReturnToGameFromTraining: (() -> Unit)?,
     onTrainingModeConsumed: () -> Unit,
     onUserUpdated: (User) -> Unit,
     onLogout: () -> Unit,
@@ -389,7 +435,15 @@ private fun NavigationHost(
                     paddingValues = paddingValues,
                     gameViewModel = gameViewModel,
                     user = currentUser,
-                    boardViewModel = boardViewModel
+                    boardViewModel = boardViewModel,
+                    chessEngine = container.chessEngine,
+                    onOpenSummary = {
+                        boardViewModel.dismissEngineLine()
+                        onScreenChange("summary")
+                    },
+                    onPracticeMistake = { gameId, moveNumber ->
+                        onOpenGameMistakeTraining("game_view", gameId, moveNumber)
+                    }
                 )
             } else {
                 LaunchedEffect(Unit) {
@@ -428,6 +482,9 @@ private fun NavigationHost(
                     gameViewModel = gameViewModel,
                     onReviewClick = {
                         onScreenChange("game_view")
+                    },
+                    onPracticeGameMistakes = { gameId, focusMove ->
+                        onOpenGameMistakeTraining("summary", gameId, focusMove)
                     }
                 )
             } else {
@@ -464,6 +521,7 @@ private fun NavigationHost(
                     initialModeKey = pendingTrainingModeKey,
                     onModeConsumed = onTrainingModeConsumed,
                     onNavigateToUpload = { onScreenChange("upload") },
+                    onReturnToGame = onReturnToGameFromTraining,
                     onUserUpdated = onUserUpdated
                 )
             } else {

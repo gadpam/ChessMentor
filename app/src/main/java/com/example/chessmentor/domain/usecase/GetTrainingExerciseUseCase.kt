@@ -88,7 +88,7 @@ class GetTrainingExerciseUseCase(
         val userId = user.id ?: return Result.Error("Некорректный идентификатор пользователя")
 
         // Гарантируем, что встроенный банк тактических задач доступен
-        if (input.mode !is TrainingMode.MyMistakes) {
+        if (input.mode !is TrainingMode.MyMistakes && input.mode !is TrainingMode.FromGame) {
             CuratedExerciseBank.ensureSeeded(exerciseRepository)
         }
 
@@ -139,6 +139,13 @@ class GetTrainingExerciseUseCase(
                 difficultyOffset = 10
             )
             TrainingMode.MyMistakes -> selectUserMistakeExercise(user, userId, input.excludeExerciseId, input.avoidPattern, input.nowMs, snapshot)
+            is TrainingMode.FromGame -> selectGameMistakeExercise(
+                gameId = mode.gameId,
+                focusMoveNumber = mode.focusMoveNumber,
+                excludeId = input.excludeExerciseId,
+                nowMs = input.nowMs,
+                snapshot = snapshot
+            )
             TrainingMode.WeakPatterns -> selectWeakPatternExercise(user, userId, input.excludeExerciseId, input.avoidPattern, input.nowMs, snapshot)
             TrainingMode.Defense -> selectDefenseExercise(user, input.excludeExerciseId, input.avoidPattern, input.nowMs, snapshot)
             is TrainingMode.ByTheme -> selectThemeExercise(user, input.excludeExerciseId, mode.theme, input.avoidPattern, input.nowMs, snapshot)
@@ -537,6 +544,81 @@ class GetTrainingExerciseUseCase(
             filter = multiMoveFilter
         )?.let { (ex, state) ->
             return buildReviewSuccess(ex, state, snapshot)
+        }
+
+        return Result.NoSuitableExercises
+    }
+
+    /**
+     * Прицельная отработка ошибок одной конкретной партии [gameId] (мост «Партия → Тренировка»).
+     * При первичном входе (`excludeId <= 0`) и заданном [focusMoveNumber] первой подаётся задача
+     * именно на выбранный ход, затем — остальные ошибки партии в хронологическом порядке.
+     */
+    private fun selectGameMistakeExercise(
+        gameId: Long,
+        focusMoveNumber: Int?,
+        excludeId: Long,
+        nowMs: Long,
+        snapshot: LearningSnapshot
+    ): Result {
+        if (gameId <= 0L) return Result.NoSuitableExercises
+        val gameFilter: (Exercise) -> Boolean = { ex ->
+            ex.sourceGameId == gameId && ex.createdFrom == com.example.chessmentor.domain.entity.ExerciseSource.MISTAKE
+        }
+        val gamePool = snapshot.accessible.filter(gameFilter)
+        if (gamePool.isEmpty()) return Result.NoSuitableExercises
+
+        // 1. Явно выбранный ход партии (с карточки ошибки на доске или в сводке)
+        if (focusMoveNumber != null && focusMoveNumber > 0 && excludeId <= 0L) {
+            val focused = gamePool.firstOrNull { it.sourceMoveNumber == focusMoveNumber }
+            if (focused != null) {
+                val state = focused.id?.let { snapshot.schedule[it] }
+                return if (state != null) {
+                    buildReviewSuccess(focused, state, snapshot)
+                } else {
+                    buildNewSuccess(focused, snapshot)
+                }
+            }
+        }
+
+        // 2. Ещё не решённые ошибки этой партии (в порядке ходов партии)
+        val unseen = gamePool
+            .filter { ex ->
+                val id = ex.id ?: return@filter false
+                id != excludeId && snapshot.schedule[id] == null
+            }
+            .sortedBy { it.sourceMoveNumber ?: Int.MAX_VALUE }
+            .firstOrNull()
+        if (unseen != null) {
+            return buildNewSuccess(unseen, snapshot)
+        }
+
+        // 3. Подошедшие к интервальному повтору ошибки этой партии
+        SpacedRepetitionScheduler.rankDueExercises(
+            accessibleExercises = snapshot.accessible,
+            schedule = snapshot.schedule,
+            nowMs = nowMs,
+            excludeId = excludeId,
+            filter = gameFilter
+        ).firstOrNull()?.let { (ex, state) ->
+            return buildReviewSuccess(ex, state, snapshot)
+        }
+
+        // 4. Внеочередное закрепление наименее усвоенной ошибки этой партии (кроме только что показанной)
+        val nonExcluded = gamePool.filter { it.id != null && it.id != excludeId }
+        if (nonExcluded.isNotEmpty()) {
+            val candidate = nonExcluded.minWithOrNull(
+                compareBy<Exercise> { ex -> snapshot.schedule[ex.id]?.box ?: 0 }
+                    .thenBy { ex -> snapshot.schedule[ex.id]?.lastAttemptAt ?: 0L }
+            )
+            if (candidate != null) {
+                val state = candidate.id?.let { snapshot.schedule[it] }
+                return if (state != null) {
+                    buildReviewSuccess(candidate, state, snapshot)
+                } else {
+                    buildNewSuccess(candidate, snapshot)
+                }
+            }
         }
 
         return Result.NoSuitableExercises

@@ -118,6 +118,7 @@ fun TrainingScreen(
     initialModeKey: String? = null,
     onModeConsumed: () -> Unit = {},
     onNavigateToUpload: () -> Unit = {},
+    onReturnToGame: (() -> Unit)? = null,
     onUserUpdated: (User) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -242,6 +243,7 @@ fun TrainingScreen(
                     selectedMode = uiState.mode,
                     dueReviewCount = uiState.dueReviewCount,
                     enabled = !uiState.isLoading && !uiState.isAnimatingIntro && !uiState.isAnimatingPunishment,
+                    onReturnToGame = onReturnToGame,
                     onSelectMode = { mode ->
                         selectedSquare = null
                         pendingPromotion = null
@@ -352,6 +354,8 @@ fun TrainingScreen(
                         .padding(24.dp),
                     message = uiState.feedbackMessage ?: "Нет доступных задач в выбранном режиме.",
                     showUploadButton = uiState.hasNoUserMistakes,
+                    showReturnToGameButton = uiState.mode is TrainingMode.FromGame && onReturnToGame != null,
+                    onReturnToGame = { onReturnToGame?.invoke() },
                     onNavigateToUpload = onNavigateToUpload,
                     onSwitchToAllMode = { viewModel.selectMode(TrainingMode.All) }
                 )
@@ -481,6 +485,7 @@ private fun ModeSelectorRow(
     selectedMode: TrainingMode,
     dueReviewCount: Int,
     enabled: Boolean,
+    onReturnToGame: (() -> Unit)? = null,
     onSelectMode: (TrainingMode) -> Unit
 ) {
     var themeMenuExpanded by remember { mutableStateOf(false) }
@@ -491,6 +496,24 @@ private fun ModeSelectorRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (selectedMode is TrainingMode.FromGame) {
+            if (onReturnToGame != null) {
+                item {
+                    AssistChip(
+                        onClick = onReturnToGame,
+                        label = { Text("← К партии") }
+                    )
+                }
+            }
+            item {
+                FilterChip(
+                    selected = true,
+                    onClick = { onSelectMode(selectedMode.copy(focusMoveNumber = null)) },
+                    enabled = enabled,
+                    label = { Text("🎯 ${selectedMode.displayName}") }
+                )
+            }
+        }
         item {
             FilterChip(
                 selected = selectedMode is TrainingMode.SmartSession,
@@ -899,6 +922,8 @@ private fun EmptyTrainingState(
     modifier: Modifier,
     message: String,
     showUploadButton: Boolean,
+    showReturnToGameButton: Boolean = false,
+    onReturnToGame: () -> Unit = {},
     onNavigateToUpload: () -> Unit,
     onSwitchToAllMode: () -> Unit
 ) {
@@ -908,7 +933,7 @@ private fun EmptyTrainingState(
         verticalArrangement = Arrangement.Center
     ) {
         Icon(
-            imageVector = Icons.Default.Info,
+            imageVector = if (showReturnToGameButton) Icons.Default.CheckCircle else Icons.Default.Info,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(48.dp)
@@ -921,6 +946,15 @@ private fun EmptyTrainingState(
             color = MaterialTheme.colorScheme.onSurface
         )
         Spacer(modifier = Modifier.height(20.dp))
+        if (showReturnToGameButton) {
+            Button(
+                onClick = onReturnToGame,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("← Вернуться к разбору партии")
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
         if (showUploadButton) {
             Button(
                 onClick = onNavigateToUpload,

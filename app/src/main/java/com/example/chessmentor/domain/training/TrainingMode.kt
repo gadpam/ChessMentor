@@ -36,6 +36,16 @@ sealed class TrainingMode {
     /** Тренировка по выбранной тактической теме. */
     data class ByTheme(val theme: TacticalTheme) : TrainingMode()
 
+    /**
+     * Прицельная отработка ошибок конкретной проанализированной партии
+     * (мост «Разбор партии → Тренировка»). Если задан [focusMoveNumber], первой
+     * открывается задача именно на этот ход, а далее — остальные ошибки той же партии.
+     */
+    data class FromGame(
+        val gameId: Long,
+        val focusMoveNumber: Int? = null
+    ) : TrainingMode()
+
     val displayName: String
         get() = when (this) {
             All -> "Все задачи"
@@ -47,6 +57,11 @@ sealed class TrainingMode {
             Defense -> "Защита"
             Daily -> "Задача дня"
             is ByTheme -> TrainingLabels.themeDisplayName(theme)
+            is FromGame -> if (focusMoveNumber != null) {
+                "Из партии (ход $focusMoveNumber)"
+            } else {
+                "Ошибки партии"
+            }
         }
 
     val routeKey: String
@@ -60,9 +75,16 @@ sealed class TrainingMode {
             Defense -> "defense"
             Daily -> "daily"
             is ByTheme -> "theme_${theme.name}"
+            is FromGame -> if (focusMoveNumber != null && focusMoveNumber > 0) {
+                "game_${gameId}_move_${focusMoveNumber}"
+            } else {
+                "game_${gameId}"
+            }
         }
 
     companion object {
+        private val FROM_GAME_REGEX = Regex("""^game_(\d+)(?:_move_(\d+))?$""")
+
         fun fromRouteKey(key: String?): TrainingMode {
             if (key.isNullOrBlank()) return All
             return when (key) {
@@ -75,12 +97,26 @@ sealed class TrainingMode {
                 "defense" -> Defense
                 "daily" -> Daily
                 else -> {
-                    if (key.startsWith("theme_")) {
-                        val themeName = key.removePrefix("theme_")
-                        val theme = TacticalTheme.entries.firstOrNull { it.name == themeName }
-                        if (theme != null && theme != TacticalTheme.UNKNOWN) ByTheme(theme) else All
-                    } else {
-                        All
+                    when {
+                        key.startsWith("theme_") -> {
+                            val themeName = key.removePrefix("theme_")
+                            val theme = TacticalTheme.entries.firstOrNull { it.name == themeName }
+                            if (theme != null && theme != TacticalTheme.UNKNOWN) ByTheme(theme) else All
+                        }
+                        key.startsWith("game_") -> {
+                            val m = FROM_GAME_REGEX.matchEntire(key)
+                            val gameId = m?.groupValues?.get(1)?.toLongOrNull()
+                            val moveNo = m?.groupValues?.getOrNull(2)
+                                ?.takeIf { it.isNotEmpty() }
+                                ?.toIntOrNull()
+                                ?.takeIf { it > 0 }
+                            if (gameId != null && gameId > 0L) {
+                                FromGame(gameId = gameId, focusMoveNumber = moveNo)
+                            } else {
+                                All
+                            }
+                        }
+                        else -> All
                     }
                 }
             }

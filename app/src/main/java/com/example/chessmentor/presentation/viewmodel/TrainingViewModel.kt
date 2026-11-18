@@ -230,7 +230,8 @@ class TrainingViewModel(
         val isNewUser = currentUser?.id != user.id
         currentUser = user
 
-        val modeChangedByNavigation = initialMode != null && initialMode != _uiState.value.mode
+        val modeChangedByNavigation = initialMode != null &&
+            (initialMode != _uiState.value.mode || initialMode is TrainingMode.FromGame)
 
         if (isNewUser) {
             interleavedQueue.clear()
@@ -287,7 +288,11 @@ class TrainingViewModel(
             restartSmartSession()
             return
         }
-        if (_uiState.value.mode == mode && currentExercise != null && !_uiState.value.isLoading) {
+        if (_uiState.value.mode == mode &&
+            mode !is TrainingMode.FromGame &&
+            currentExercise != null &&
+            !_uiState.value.isLoading
+        ) {
             return
         }
 
@@ -320,7 +325,18 @@ class TrainingViewModel(
         )
 
         currentJob = viewModelScope.launch {
-            if (mode is TrainingMode.MyMistakes) {
+            if (mode is TrainingMode.FromGame) {
+                runCatching {
+                    container.generateExercisesFromMistakesUseCase.executeForGame(
+                        userId = userId,
+                        gameId = mode.gameId,
+                        focusMoveNumber = mode.focusMoveNumber
+                    )
+                }.onFailure { e ->
+                    if (e is CancellationException) throw e
+                    Log.e(TAG, "Failed generating exercises for game ${mode.gameId}", e)
+                }
+            } else if (mode is TrainingMode.MyMistakes) {
                 // Если пользователь открыл «Мои ошибки», дожидаемся первичной генерации при пустом списке
                 val existing = runCatching { container.exerciseRepository.findByUserId(userId) }
                     .getOrDefault(emptyList())
@@ -380,21 +396,35 @@ class TrainingViewModel(
                     )
                 }
 
-                val existingUserExercises = container.exerciseRepository.findByUserId(userId)
-                if (existingUserExercises.isEmpty()) {
-                    if (mode is TrainingMode.MyMistakes || mode is TrainingMode.All) {
-                        runCatching {
-                            container.generateExercisesFromMistakesUseCase.execute(
-                                GenerateExercisesFromMistakesUseCase.Input(userId, maxExercises = 12)
-                            )
-                        }.onFailure { e ->
-                            if (e is CancellationException) throw e
-                            Log.e(TAG, "Error generating initial exercises", e)
-                        }
+                if (mode is TrainingMode.FromGame) {
+                    runCatching {
+                        container.generateExercisesFromMistakesUseCase.executeForGame(
+                            userId = userId,
+                            gameId = mode.gameId,
+                            focusMoveNumber = mode.focusMoveNumber
+                        )
+                    }.onFailure { e ->
+                        if (e is CancellationException) throw e
+                        Log.e(TAG, "Error generating exercises for game ${mode.gameId}", e)
                     }
                     scheduleBackgroundGeneration(userId)
                 } else {
-                    scheduleBackgroundGeneration(userId)
+                    val existingUserExercises = container.exerciseRepository.findByUserId(userId)
+                    if (existingUserExercises.isEmpty()) {
+                        if (mode is TrainingMode.MyMistakes || mode is TrainingMode.All) {
+                            runCatching {
+                                container.generateExercisesFromMistakesUseCase.execute(
+                                    GenerateExercisesFromMistakesUseCase.Input(userId, maxExercises = 12)
+                                )
+                            }.onFailure { e ->
+                                if (e is CancellationException) throw e
+                                Log.e(TAG, "Error generating initial exercises", e)
+                            }
+                        }
+                        scheduleBackgroundGeneration(userId)
+                    } else {
+                        scheduleBackgroundGeneration(userId)
+                    }
                 }
 
                 loadNextExerciseInternal(userId, excludeId = -1L, mode = mode)
@@ -763,10 +793,15 @@ class TrainingViewModel(
                 is GetTrainingExerciseUseCase.Result.NoSuitableExercises -> {
                     currentExercise = null
                     val isMistakesMode = mode is TrainingMode.MyMistakes
-                    val emptyMessage = if (isMistakesMode) {
-                        "У вас пока нет задач из собственных партий. Загрузите PGN и запустите анализ — или выберите общий режим!"
-                    } else {
-                        "В выбранной теме пока нет задач. Попробуйте другую тему или общий режим."
+                    val emptyMessage = when {
+                        mode is TrainingMode.FromGame && excludeId > 0L ->
+                            "Отлично! Все ключевые ошибки этой партии отработаны. Можно вернуться к разбору партии или продолжить тренировку в общем режиме."
+                        mode is TrainingMode.FromGame ->
+                            "В этой партии не найдено подходящих тактических ошибок для тренажёра. Вернитесь к разбору партии или выберите общий режим!"
+                        isMistakesMode ->
+                            "У вас пока нет задач из собственных партий. Загрузите PGN и запустите анализ — или выберите общий режим!"
+                        else ->
+                            "В выбранной теме пока нет задач. Попробуйте другую тему или общий режим."
                     }
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,

@@ -834,6 +834,22 @@ object PgnParser {
 
     fun extractMetadata(pgn: String): PgnMetadata = extractMetadataAndMovetext(pgn).first
 
+    /**
+     * Быстро извлекает оставшееся время на часах `{[%clk H:MM:SS]}` в секундах
+     * для каждого полухода главной линии (ключ — 0-based `moveIndex`).
+     * Возвращает пустую карту, если в PGN нет комментариев часов.
+     */
+    fun extractClocksByPly(pgn: String): Map<Int, Int> {
+        if (pgn.isBlank() || !pgn.contains("%clk", ignoreCase = true)) return emptyMap()
+        val cleaned = pgn
+            .removePrefix("\uFEFF")
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .trim()
+        val (_, movetext) = extractMetadataAndMovetext(cleaned)
+        return extractMainlineTokensAndClocks(movetext).clocksSecondsByPly
+    }
+
     private fun extractMetadataAndMovetext(cleanedPgn: String): Pair<PgnMetadata, String> {
         val tags = LinkedHashMap<String, String>()
         val movetext = StringBuilder()

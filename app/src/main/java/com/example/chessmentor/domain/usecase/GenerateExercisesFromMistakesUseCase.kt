@@ -179,6 +179,127 @@ class GenerateExercisesFromMistakesUseCase(
     }
 
     /**
+     * Прицельная генерация тренировочных задач только для одной выбранной партии [gameId]
+     * (используется мостом «Разбор партии → Тренировка»).
+     *
+     * Проверяет принадлежность партии пользователю [userId]. Если передан [focusMoveNumber],
+     * эта конкретная ошибка обрабатывается первой и допускается даже при пограничной потере оценки,
+     * чтобы переход с карточки ошибки в тренажёр срабатывал надёжно.
+     */
+    suspend fun executeForGame(
+        userId: Long,
+        gameId: Long,
+        focusMoveNumber: Int? = null,
+        maxExercises: Int = 12
+    ): Result = withContext(Dispatchers.IO) {
+        if (userId <= 0L || gameId <= 0L || maxExercises <= 0) {
+            return@withContext Result.Success(0, emptyList())
+        }
+
+        try {
+            val game = gameRepository.findById(gameId)
+                ?: return@withContext Result.Error("Партия не найдена")
+            if (game.userId != userId) {
+                return@withContext Result.Error("Нет доступа к выбранной партии")
+            }
+
+            val allMistakes = mistakeRepository.findByGameIds(listOf(gameId))
+                .filter {
+                    it.color == game.playerColor &&
+                        !it.fenBefore.isNullOrBlank() &&
+                        it.bestMove.isNotBlank() &&
+                        it.bestMove != it.userMove
+                }
+                .sortedWith(
+                    compareByDescending<Mistake> { focusMoveNumber != null && it.moveNumber == focusMoveNumber }
+                        .thenByDescending { it.getSeverity() }
+                        .thenByDescending { it.evaluationLoss }
+                )
+
+            if (allMistakes.isEmpty()) {
+                return@withContext Result.Success(0, emptyList())
+            }
+
+            val gameContext = loadGameMoveContext(game, gameId)
+            val engineReady = runCatching { chessEngine.init() }.getOrDefault(false)
+            val created = mutableListOf<Exercise>()
+
+            suspend fun tryCreateFromMistake(mistake: Mistake, relaxFilter: Boolean): Exercise? {
+                val fen = mistake.fenBefore?.trim().orEmpty()
+                if (fen.isEmpty()) return null
+
+                // Если задача по этому ходу уже создана — повторно не генерируем
+                if (exerciseRepository.findBySourceGameAndMove(gameId, mistake.moveNumber) != null) {
+                    return null
+                }
+                val existingByFen = exerciseRepository.findUserExerciseByFen(userId, fen)
+                if (existingByFen != null && !relaxFilter) {
+                    return null
+                }
+
+                val analyzedMove = gameContext.byMoveAndColor[mistake.moveNumber to mistake.color]
+                val rawKind = PuzzleQualityEvaluator.classifyMistake(mistake, analyzedMove)
+                val effectiveKind = when {
+                    rawKind != PuzzleKind.REJECTED -> rawKind
+                    relaxFilter -> {
+                        val playerEvalBefore = analyzedMove?.let {
+                            if (it.color == ChessColor.WHITE) it.evalBefore else -it.evalBefore
+                        } ?: 0
+                        if (playerEvalBefore <= 40 && mistake.evaluationLoss >= 120) {
+                            PuzzleKind.DEFENSIVE_RESOURCE
+                        } else {
+                            PuzzleKind.WINNING_TACTIC
+                        }
+                    }
+                    else -> return null
+                }
+
+                val prevMoveUci = analyzedMove?.let { gameContext.prevMoveUciByIndex[it.moveIndex] }
+                val preFen = analyzedMove?.let { gameContext.preFenByIndex[it.moveIndex] }
+                val exercise = buildExerciseFromMistake(
+                    mistake = mistake,
+                    fen = fen,
+                    preFen = preFen,
+                    prevMoveUci = prevMoveUci,
+                    puzzleKind = effectiveKind,
+                    engineReady = engineReady,
+                    relaxAmbiguityCheck = relaxFilter
+                ) ?: return null
+                return exerciseRepository.saveExercise(exercise)
+            }
+
+            // 1. Строгий проход (с явным приоритетом и мягким допуском для выбранного хода focusMoveNumber)
+            for (mistake in allMistakes) {
+                coroutineContext.ensureActive()
+                if (created.size >= maxExercises) break
+                val isExplicitFocus = focusMoveNumber != null && mistake.moveNumber == focusMoveNumber
+                val saved = tryCreateFromMistake(mistake, relaxFilter = isExplicitFocus)
+                if (saved != null) created.add(saved)
+            }
+
+            // 2. Если в партии пока нет ни одной задачи, но есть ощутимые ошибки (>= 90 сП),
+            // создаём прицельные упражнения по самым крупным ошибкам этой партии.
+            val existingForGame = exerciseRepository.findByUserId(userId)
+                .any { it.sourceGameId == gameId }
+            if (!existingForGame && created.isEmpty()) {
+                for (mistake in allMistakes.filter { it.evaluationLoss >= 90 }) {
+                    coroutineContext.ensureActive()
+                    if (created.size >= maxExercises.coerceAtMost(5)) break
+                    val saved = tryCreateFromMistake(mistake, relaxFilter = true)
+                    if (saved != null) created.add(saved)
+                }
+            }
+
+            Result.Success(created.size, created)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to generate exercises for game $gameId", e)
+            Result.Error("Ошибка генерации упражнений партии: ${e.message}")
+        }
+    }
+
+    /**
      * Загружает проанализированные ходы партии и за один проход вычисляет
      * предшествующий ход соперника (в UCI) для каждого полухода.
      */
@@ -231,7 +352,8 @@ class GenerateExercisesFromMistakesUseCase(
         preFen: String?,
         prevMoveUci: String?,
         puzzleKind: PuzzleKind,
-        engineReady: Boolean
+        engineReady: Boolean,
+        relaxAmbiguityCheck: Boolean = false
     ): Exercise? {
         val board = try {
             Board().apply { loadFromFen(fen) }
@@ -245,7 +367,14 @@ class GenerateExercisesFromMistakesUseCase(
             return null
         }
 
-        val solutionMoves = resolveSolutionMoves(board, fen, mistake.bestMove, puzzleKind, engineReady)
+        val solutionMoves = resolveSolutionMoves(
+            board = board,
+            fen = fen,
+            fallbackBestMove = mistake.bestMove,
+            puzzleKind = puzzleKind,
+            engineReady = engineReady,
+            relaxAmbiguityCheck = relaxAmbiguityCheck
+        )
         if (solutionMoves.isEmpty()) return null
 
         val firstMoveUci = solutionMoves.first()
@@ -315,7 +444,8 @@ class GenerateExercisesFromMistakesUseCase(
         fen: String,
         fallbackBestMove: String,
         puzzleKind: PuzzleKind,
-        engineReady: Boolean
+        engineReady: Boolean,
+        relaxAmbiguityCheck: Boolean = false
     ): List<String> {
         if (engineReady) {
             try {
@@ -323,18 +453,20 @@ class GenerateExercisesFromMistakesUseCase(
                 if (line != null && line.principalVariation.isNotEmpty()) {
                     val validated = validateUciSequence(board, line.principalVariation.take(MAX_SOLUTION_PLIES))
                     if (validated.isNotEmpty()) {
-                        // Фильтр тактической чёткости: отбрасываем «угадайки», где 2+ других хода не хуже лучшего
-                        val isSharp = PuzzleQualityEvaluator.hasClearTacticalSolution(
-                            board = board,
-                            bestMoveUci = validated.first(),
-                            bestScoreSideToMove = line.score,
-                            puzzleKind = puzzleKind,
-                            engine = chessEngine,
-                            checkDepth = CLARITY_CHECK_DEPTH
-                        )
-                        if (!isSharp) {
-                            Log.d(TAG, "Skipping ambiguous position (multiple equal moves): $fen")
-                            return emptyList()
+                        if (!relaxAmbiguityCheck) {
+                            // Фильтр тактической чёткости: отбрасываем «угадайки», где 2+ других хода не хуже лучшего
+                            val isSharp = PuzzleQualityEvaluator.hasClearTacticalSolution(
+                                board = board,
+                                bestMoveUci = validated.first(),
+                                bestScoreSideToMove = line.score,
+                                puzzleKind = puzzleKind,
+                                engine = chessEngine,
+                                checkDepth = CLARITY_CHECK_DEPTH
+                            )
+                            if (!isSharp) {
+                                Log.d(TAG, "Skipping ambiguous position (multiple equal moves): $fen")
+                                return emptyList()
+                            }
                         }
 
                         // Обрезаем PV в точке успокоения позиции (после завершения разменов/шахов)

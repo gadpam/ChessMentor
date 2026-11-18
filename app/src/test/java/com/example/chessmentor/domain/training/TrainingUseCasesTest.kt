@@ -618,9 +618,10 @@ class TrainingUseCasesTest {
 
     @Test
     fun smartSessionAndCognitiveModes_serveDistinctTargetedExercises() = runBlocking {
-        val userRepo = FakeUserRepository()
-        val mistakeRepo = FakeMistakeRepository()
-        val exerciseRepo = FakeExerciseRepository()
+        val userRepo = FakeUserRepo()
+        val gameRepo = FakeGameRepo()
+        val mistakeRepo = FakeMistakeRepo(gameRepo)
+        val exerciseRepo = FakeExerciseRepo(gameRepo)
         val player = userRepo.save(
             User(nickname = "Coach", email = "coach@example.com", passwordHash = "h", rating = 1650)
         )
@@ -680,5 +681,123 @@ class TrainingUseCasesTest {
             GetTrainingExerciseUseCase.Input(userId = player.id!!, mode = TrainingMode.DeepCalculation)
         ) as GetTrainingExerciseUseCase.Result.Success
         assertTrue(calcRes.exercise.solutionMoves.size >= 5)
+    }
+
+    @Test
+    fun fromGameBridge_generatesForSingleGameServesFocusedMoveFirstAndIsolatesUsers() = runBlocking {
+        val userRepo = FakeUserRepo()
+        val gameRepo = FakeGameRepo()
+        val mistakeRepo = FakeMistakeRepo(gameRepo)
+        val analyzedRepo = FakeAnalyzedMoveRepo()
+        val exerciseRepo = FakeExerciseRepo(gameRepo)
+
+        val alice = userRepo.save(
+            User(nickname = "Alice", email = "a@ex.com", passwordHash = "h", rating = 1500)
+        )
+        val bob = userRepo.save(
+            User(nickname = "Bob", email = "b@ex.com", passwordHash = "h", rating = 1500)
+        )
+
+        val game1 = gameRepo.save(
+            Game(
+                userId = alice.id!!,
+                pgnData = "1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. d3 *",
+                playerColor = ChessColor.WHITE,
+                playedAt = 1_000L,
+                analysisStatus = AnalysisStatus.COMPLETED
+            )
+        )
+        val game2 = gameRepo.save(
+            Game(
+                userId = alice.id!!,
+                pgnData = "1. d4 d5 *",
+                playerColor = ChessColor.WHITE,
+                playedAt = 2_000L,
+                analysisStatus = AnalysisStatus.COMPLETED
+            )
+        )
+
+        val fenMove4 = "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4"
+        val fenMove9 = "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 9"
+        val fenOtherGame = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
+
+        mistakeRepo.save(
+            Mistake(
+                gameId = game1.id!!, themeId = 1L, moveNumber = 4, color = ChessColor.WHITE,
+                evaluationLoss = 600, mistakeType = MistakeType.BLUNDER,
+                bestMove = "Qxf7#", userMove = "d3", fenBefore = fenMove4
+            )
+        )
+        mistakeRepo.save(
+            Mistake(
+                gameId = game1.id!!, themeId = 1L, moveNumber = 9, color = ChessColor.WHITE,
+                evaluationLoss = 550, mistakeType = MistakeType.BLUNDER,
+                bestMove = "Rd8#", userMove = "h3", fenBefore = fenMove9
+            )
+        )
+        mistakeRepo.save(
+            Mistake(
+                gameId = game2.id!!, themeId = 1L, moveNumber = 3, color = ChessColor.WHITE,
+                evaluationLoss = 280, mistakeType = MistakeType.MISTAKE,
+                bestMove = "Bb5", userMove = "a3", fenBefore = fenOtherGame
+            )
+        )
+
+        val generator = GenerateExercisesFromMistakesUseCase(
+            mistakeRepository = mistakeRepo,
+            analyzedMoveRepository = analyzedRepo,
+            exerciseRepository = exerciseRepo,
+            gameRepository = gameRepo,
+            chessEngine = StubEngine()
+        )
+
+        // Чужой пользователь не может сгенерировать задачи по чужой партии
+        val forbidden = generator.executeForGame(userId = bob.id!!, gameId = game1.id!!)
+        assertTrue(forbidden is GenerateExercisesFromMistakesUseCase.Result.Error)
+
+        // Прицельная генерация создаёт задачи ТОЛЬКО для game1 (не трогая game2)
+        val genRes = generator.executeForGame(
+            userId = alice.id!!,
+            gameId = game1.id!!,
+            focusMoveNumber = 9
+        )
+        assertTrue(genRes is GenerateExercisesFromMistakesUseCase.Result.Success)
+        val created = (genRes as GenerateExercisesFromMistakesUseCase.Result.Success).exercises
+        assertEquals(2, created.size)
+        assertTrue(created.all { it.sourceGameId == game1.id })
+
+        val selector = GetTrainingExerciseUseCase(userRepo, mistakeRepo, exerciseRepo)
+
+        // 1. При переходе с карточки 9-го хода первой выдаётся именно задача на 9-й ход
+        val first = selector.execute(
+            GetTrainingExerciseUseCase.Input(
+                userId = alice.id!!,
+                mode = TrainingMode.FromGame(gameId = game1.id!!, focusMoveNumber = 9)
+            )
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertEquals(game1.id, first.exercise.sourceGameId)
+        assertEquals(9, first.exercise.sourceMoveNumber)
+        assertEquals("d1d8", first.exercise.solutionMoves.first())
+
+        // 2. Следующей выдаётся оставшаяся ошибка той же партии (ход 4), без примеси game2 и общего банка
+        val second = selector.execute(
+            GetTrainingExerciseUseCase.Input(
+                userId = alice.id!!,
+                excludeExerciseId = first.exercise.id!!,
+                mode = TrainingMode.FromGame(gameId = game1.id!!, focusMoveNumber = 9)
+            )
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertEquals(game1.id, second.exercise.sourceGameId)
+        assertEquals(4, second.exercise.sourceMoveNumber)
+        assertEquals("h5f7", second.exercise.solutionMoves.first())
+
+        // 3. Для Боба режим FromGame по партии Алисы строго пуст
+        val bobAttempt = selector.execute(
+            GetTrainingExerciseUseCase.Input(
+                userId = bob.id!!,
+                mode = TrainingMode.FromGame(gameId = game1.id!!)
+            )
+        )
+        assertTrue(bobAttempt is GetTrainingExerciseUseCase.Result.NoSuitableExercises)
     }
 }

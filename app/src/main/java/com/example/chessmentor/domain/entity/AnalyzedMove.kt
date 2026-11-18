@@ -103,7 +103,11 @@ data class AnalyzedMove(
         evaluationAfter = evalAfter,
         evaluationChange = playerEvalChange,
         isPlayerMove = color == playerColor,
-        comment = comment
+        comment = comment,
+        moveNumber = moveNumber,
+        color = color,
+        bestMove = bestMove,
+        evalLoss = evalLoss
     )
 
     /**

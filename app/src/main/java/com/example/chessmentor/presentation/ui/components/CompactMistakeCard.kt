@@ -1,6 +1,7 @@
 // presentation/ui/components/CompactMistakeCard.kt
 package com.example.chessmentor.presentation.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -9,39 +10,65 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.chessmentor.data.engine.ChessEngine
+import com.example.chessmentor.domain.analysis.GameReviewHelper
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Mistake
-import com.example.chessmentor.domain.entity.MistakeType
+import com.example.chessmentor.domain.entity.MoveQuality
+import com.example.chessmentor.domain.util.ChessMoveUtils
+import java.util.Locale
+import kotlin.math.abs
 
 /**
- * Компактная карточка ошибки (уменьшенная версия)
+ * Интерактивная карточка ошибки игрока на экране разбора партии:
+ * - читабельна и в светлой, и в тёмной теме;
+ * - автоматически переводит UCI в SAN по [fenBefore];
+ * - показывает полное тренерское пояснение и пометку о цейтноте;
+ * - даёт быстрые действия: «Исправить» (на доске), «Линия» (Stockfish) и «В тренировку».
  */
 @Composable
 fun CompactMistakeCard(
     mistake: Mistake,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    moveQuality: MoveQuality? = null,
+    fenBefore: String? = mistake.fenBefore,
+    clockSeconds: Int? = null,
+    onRetryMove: (() -> Unit)? = null,
+    onShowEngineLine: (() -> Unit)? = null,
+    onPracticeInTrainer: (() -> Unit)? = null
 ) {
-    val backgroundColor = when (mistake.mistakeType) {
-        MistakeType.BLUNDER -> Color(0xFFFFEBEE)
-        MistakeType.MISTAKE -> Color(0xFFFFF3E0)
-        MistakeType.INACCURACY -> Color(0xFFFFFDE7)
+    val accentColor = moveQuality?.getColor() ?: mistake.mistakeType.getColor()
+    val title = moveQuality?.getDisplayName() ?: mistake.mistakeType.getDisplayName()
+
+    val effectiveFen = fenBefore ?: mistake.fenBefore
+    val playedSan = remember(mistake.userMove, effectiveFen) {
+        toDisplaySan(mistake.userMove, effectiveFen)
     }
-    val accentColor = mistake.mistakeType.getColor()
+    val bestSan = remember(mistake.bestMove, effectiveFen) {
+        toDisplaySan(mistake.bestMove, effectiveFen)
+    }
+    val inTimeTrouble = GameReviewHelper.isTimeTrouble(clockSeconds)
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = backgroundColor),
-        shape = RoundedCornerShape(8.dp),
-        modifier = modifier
+        colors = CardDefaults.cardColors(containerColor = accentColor.copy(alpha = 0.11f)),
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.35f)),
+        shape = RoundedCornerShape(10.dp),
+        modifier = modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            // Заголовок: тип ошибки + потеря
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            // Заголовок: качество + номер хода + цейтнот + потеря
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -49,7 +76,8 @@ fun CompactMistakeCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
                     Icon(
                         imageVector = mistake.mistakeType.getIcon(),
@@ -58,137 +86,200 @@ fun CompactMistakeCard(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = mistake.mistakeType.getDisplayName(),
+                        text = title,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = accentColor,
-                        fontSize = 13.sp
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "• Ход ${mistake.moveNumber}",
+                        text = "· Ход ${mistake.moveNumber}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.Gray,
-                        fontSize = 11.sp
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (inTimeTrouble && clockSeconds != null) {
+                        Text(
+                            text = "· 🕒 ${GameReviewHelper.formatClock(clockSeconds)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFFE53935)
+                        )
+                    }
                 }
 
-                // Потеря оценки
                 Text(
                     text = formatLoss(mistake),
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
-                    color = accentColor,
-                    fontSize = 12.sp
+                    color = accentColor
                 )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Ходы: сыграно vs лучше (более компактно)
+            // Сравнение: сыграно → лучше
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        Color.White.copy(alpha = 0.6f),
-                        RoundedCornerShape(6.dp)
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                        RoundedCornerShape(8.dp)
                     )
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Сыгранный ход
-                CompactMoveColumn(
+                CompactMovePair(
                     label = "Сыграно",
-                    move = mistake.userMove,
-                    color = Color(0xFFD32F2F)
+                    move = playedSan,
+                    color = Color(0xFFE53935)
                 )
-
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                     contentDescription = null,
-                    tint = Color.Gray,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp)
                 )
-
-                // Лучший ход
-                CompactMoveColumn(
+                CompactMovePair(
                     label = "Лучше",
-                    move = mistake.bestMove,
-                    color = Color(0xFF2E7D32)
+                    move = bestSan,
+                    color = Color(0xFF4CAF50)
                 )
             }
 
-            // Комментарий (если есть, показываем компактно)
-            if (!mistake.comment.isNullOrBlank() && mistake.comment.length < 60) {
-                Spacer(modifier = Modifier.height(4.dp))
+            // Полное тренерское пояснение
+            val explanation = mistake.comment?.trim()?.takeIf { it.isNotEmpty() }
+            if (explanation != null) {
                 Text(
-                    text = mistake.comment,
+                    text = explanation,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.DarkGray,
-                    fontSize = 10.sp,
-                    lineHeight = 12.sp,
-                    maxLines = 2
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
+                    lineHeight = 16.sp
                 )
+            }
+
+            // Быстрые интерактивные действия
+            if (onRetryMove != null || onShowEngineLine != null || onPracticeInTrainer != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (onRetryMove != null) {
+                        FilledTonalButton(
+                            onClick = onRetryMove,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Replay,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Исправить", fontSize = 11.sp)
+                        }
+                    }
+                    if (onShowEngineLine != null) {
+                        OutlinedButton(
+                            onClick = onShowEngineLine,
+                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Psychology,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Линия", fontSize = 11.sp)
+                        }
+                    }
+                    if (onPracticeInTrainer != null) {
+                        OutlinedButton(
+                            onClick = onPracticeInTrainer,
+                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FitnessCenter,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("В тренажёр", fontSize = 11.sp)
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun CompactMoveColumn(
+private fun CompactMovePair(
     label: String,
     move: String,
     color: Color
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
-            text = label,
-            fontSize = 9.sp,
-            color = Color.Gray
+            text = "$label:",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
             text = move,
-            fontSize = 15.sp,
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             color = color
         )
     }
 }
 
+private fun toDisplaySan(move: String, fenBefore: String?): String {
+    val trimmed = move.trim()
+    if (trimmed.isEmpty()) return "—"
+    if (!fenBefore.isNullOrBlank() && ChessMoveUtils.isUciMove(trimmed)) {
+        return ChessMoveUtils.uciToSan(trimmed, fenBefore)
+    }
+    return trimmed
+}
+
 private fun formatLoss(mistake: Mistake): String {
-    return if (mistake.evaluationLoss > 50000) {
-        "Мат!"
+    return if (ChessEngine.isMateScore(mistake.evaluationLoss) || abs(mistake.evaluationLoss) > 50_000) {
+        "-Мат"
     } else {
-        "-${String.format(java.util.Locale.US, "%.1f", mistake.getEvaluationLossInPawns())}"
+        String.format(Locale.US, "-%.1f", mistake.getEvaluationLossInPawns())
     }
 }
 
 /**
- * Компактная карточка позиции (когда нет ошибки)
+ * Компактная карточка текущей позиции (стартовая позиция или ход без аннотации анализа).
  */
 @Composable
 fun CompactPositionCard(
     evaluation: Int,
     playerColor: ChessColor,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    openingLabel: String? = null,
+    subtitle: String? = null,
+    onAnalyzePosition: (() -> Unit)? = null
 ) {
     val playerEval = if (playerColor == ChessColor.WHITE) evaluation else -evaluation
     val (icon, text, color) = getPositionInfo(playerEval)
 
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = color.copy(alpha = 0.1f)
-        ),
-        shape = RoundedCornerShape(8.dp),
-        modifier = modifier
+        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.1f)),
+        shape = RoundedCornerShape(10.dp),
+        modifier = modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(10.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -196,21 +287,57 @@ fun CompactPositionCard(
                 imageVector = icon,
                 contentDescription = null,
                 tint = color,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(22.dp)
             )
-            Text(
-                text = text,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = color,
-                fontSize = 13.sp
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = color
+                )
+                val infoLine = openingLabel?.let { "📖 $it" } ?: subtitle
+                if (!infoLine.isNullOrBlank()) {
+                    Text(
+                        text = infoLine,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (onAnalyzePosition != null) {
+                OutlinedButton(
+                    onClick = onAnalyzePosition,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    modifier = Modifier.height(30.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Psychology,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Stockfish", fontSize = 11.sp)
+                }
+            }
         }
     }
 }
 
 private fun getPositionInfo(playerEval: Int): Triple<ImageVector, String, Color> {
     return when {
+        ChessEngine.isMateScore(playerEval) && playerEval > 0 -> Triple(
+            Icons.Default.EmojiEvents,
+            "Форсированный мат в вашу пользу",
+            Color(0xFF2E7D32)
+        )
+        ChessEngine.isMateScore(playerEval) && playerEval < 0 -> Triple(
+            Icons.Default.Warning,
+            "Угроза форсированного мата",
+            Color(0xFFC62828)
+        )
         playerEval > 300 -> Triple(
             Icons.Default.CheckCircle,
             "Выигранная позиция",
@@ -218,13 +345,13 @@ private fun getPositionInfo(playerEval: Int): Triple<ImageVector, String, Color>
         )
         playerEval > 100 -> Triple(
             Icons.Default.TrendingUp,
-            "Хорошая позиция",
+            "Устойчивый перевес",
             Color(0xFF4CAF50)
         )
-        playerEval > 30 -> Triple(
+        playerEval > 35 -> Triple(
             Icons.Default.Add,
             "Небольшое преимущество",
-            Color(0xFF8BC34A)
+            Color(0xFF66BB6A)
         )
         playerEval < -300 -> Triple(
             Icons.Default.Warning,
@@ -233,18 +360,18 @@ private fun getPositionInfo(playerEval: Int): Triple<ImageVector, String, Color>
         )
         playerEval < -100 -> Triple(
             Icons.Default.TrendingDown,
-            "Соперник лучше",
+            "Перевес у соперника",
             Color(0xFFE53935)
         )
-        playerEval < -30 -> Triple(
+        playerEval < -35 -> Triple(
             Icons.Default.Remove,
             "Небольшой перевес у соперника",
             Color(0xFFFF9800)
         )
         else -> Triple(
             Icons.Default.Balance,
-            "Равная позиция",
-            Color(0xFF757575)
+            "Примерное равенство",
+            Color(0xFF78909C)
         )
     }
 }
