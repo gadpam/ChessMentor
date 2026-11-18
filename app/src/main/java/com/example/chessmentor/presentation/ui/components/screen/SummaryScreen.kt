@@ -26,6 +26,7 @@ import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.KeyMoment
 import com.example.chessmentor.domain.entity.MoveQuality
+import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.presentation.ui.components.AnalysisProgressDialog
 import com.example.chessmentor.presentation.ui.components.EvaluationGraph
 import com.example.chessmentor.presentation.viewmodel.BoardViewModel
@@ -83,8 +84,12 @@ fun SummaryScreen(
         boardViewModel.getPhaseAccuracy(game.playerColor)
     }
 
-    val openingLabel = remember(game.id, boardViewModel.moveNotations.size) {
-        boardViewModel.getDetectedOpeningLabel()
+    val cardInfo = remember(game.id, game.pgnData, game.playerColor, game.timeControl) {
+        PgnParser.extractGameCardInfo(game)
+    }
+
+    val openingLabel = remember(game.id, boardViewModel.moveNotations.size, cardInfo.openingLabel) {
+        boardViewModel.getDetectedOpeningLabel() ?: cardInfo.openingLabel
     }
 
     // На графике отмечаем только действительно значимые моменты, не загромождая линию рутинными ходами
@@ -109,9 +114,13 @@ fun SummaryScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Заголовок + распознанный дебют
+        // Заголовок + метаданные PGN + распознанный дебют
         item {
-            SummaryHeader(game = game, openingLabel = openingLabel)
+            SummaryHeader(
+                game = game,
+                cardInfo = cardInfo,
+                openingLabel = openingLabel
+            )
         }
 
         // Основные метрики (точность игрока vs соперника + точность по фазам)
@@ -392,6 +401,7 @@ private fun ReanalyzeHint(
 @Composable
 private fun SummaryHeader(
     game: Game,
+    cardInfo: PgnParser.GameCardInfo,
     openingLabel: String? = null
 ) {
     Card(
@@ -405,21 +415,41 @@ private fun SummaryHeader(
                 .fillMaxWidth()
                 .padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(
-                    text = "📊 Сводка анализа",
+                    text = cardInfo.title,
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
+
+                // Результат, контроль времени, число ходов, дата, платформа
+                val metaLine = buildList {
+                    if (cardInfo.outcome != PgnParser.PlayerOutcome.UNKNOWN) {
+                        val term = cardInfo.terminationRu?.let { " ($it)" }.orEmpty()
+                        add("${cardInfo.outcome.displayName} ${cardInfo.result.displaySymbol()}$term")
+                    }
+                    add(cardInfo.timeControlLabel)
+                    if (cardInfo.fullMoveCount > 0) add("${cardInfo.fullMoveCount} х.")
+                    if (cardInfo.dateLabel.isNotBlank()) add(cardInfo.dateLabel)
+                    if (cardInfo.platform != PgnParser.GamePlatform.OTHER) {
+                        add(cardInfo.platform.displayName)
+                    }
+                }.joinToString(" · ")
+
                 Text(
-                    text = "Партия #${game.id ?: "?"} · Вы играете ${if (game.playerColor == ChessColor.WHITE) "белыми" else "чёрными"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+                    text = metaLine,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                 )
+
                 if (!openingLabel.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "📖 $openingLabel",
                         style = MaterialTheme.typography.labelLarge,
@@ -429,13 +459,21 @@ private fun SummaryHeader(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+
+                if (cardInfo.playerTimeTroubleMoves > 0) {
+                    Text(
+                        text = "🕒 Ходов в цейтноте (<20 с): ${cardInfo.playerTimeTroubleMoves}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(12.dp))
 
             Box(
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(30.dp)
                     .background(
                         color = if (game.playerColor == ChessColor.WHITE) Color.White else Color.Black,
                         shape = RoundedCornerShape(6.dp)

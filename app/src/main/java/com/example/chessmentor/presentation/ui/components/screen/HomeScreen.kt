@@ -26,6 +26,7 @@ import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.presentation.ui.components.BoardThemes
@@ -43,6 +44,7 @@ fun HomeScreen(
     onNavigateToTraining: () -> Unit,
     onNavigateToDailyPuzzle: () -> Unit = onNavigateToTraining,
     onNavigateToSmartSession: () -> Unit = onNavigateToTraining,
+    onOpenGame: (Game) -> Unit = {},
     message: String,
     isLoading: Boolean,
     onMessageDismiss: () -> Unit,
@@ -92,6 +94,7 @@ fun HomeScreen(
             onLogout = onLogout,
             onNavigateToDailyPuzzle = onNavigateToDailyPuzzle,
             onNavigateToSmartSession = onNavigateToSmartSession,
+            onOpenGame = onOpenGame,
             onNavigateToSettings = onNavigateToSettings
         )
     }
@@ -496,6 +499,7 @@ fun DashboardContent(
     onLogout: () -> Unit,
     onNavigateToDailyPuzzle: () -> Unit,
     onNavigateToSmartSession: () -> Unit = onNavigateToDailyPuzzle,
+    onOpenGame: (Game) -> Unit = {},
     onNavigateToSettings: () -> Unit
 ) {
     val epochDay = remember { CuratedExerciseBank.currentEpochDay() }
@@ -557,8 +561,14 @@ fun DashboardContent(
                 EmptyGamesCard()
             }
         } else {
-            items(recentGames) { game ->
-                MiniGameCard(game)
+            items(
+                items = recentGames,
+                key = { g -> g.id ?: g.hashCode() }
+            ) { game ->
+                MiniGameCard(
+                    game = game,
+                    onClick = { onOpenGame(game) }
+                )
             }
         }
 
@@ -790,41 +800,83 @@ private fun EmptyGamesCard() {
 }
 
 @Composable
-fun MiniGameCard(game: Game) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+fun MiniGameCard(
+    game: Game,
+    onClick: () -> Unit = {}
+) {
+    val info = remember(game.id, game.pgnData, game.playerColor, game.timeControl) {
+        PgnParser.extractGameCardInfo(game)
+    }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
                 Box(
                     modifier = Modifier
-                        .size(12.dp)
+                        .size(14.dp)
                         .background(
-                            if (game.playerColor == ChessColor.WHITE) Color.White else Color.Black
+                            color = if (game.playerColor == ChessColor.WHITE) Color.White else Color.Black,
+                            shape = RoundedCornerShape(3.dp)
                         )
-                        .border(1.dp, Color.Gray)
+                        .border(1.dp, Color.Gray, RoundedCornerShape(3.dp))
                 )
                 Spacer(Modifier.width(12.dp))
-                Column {
-                    Text("Партия #${game.id}", fontWeight = FontWeight.Bold)
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        game.timeControl ?: "Без контроля",
+                        text = info.title,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val metaLine = buildList {
+                        if (info.outcome != PgnParser.PlayerOutcome.UNKNOWN) {
+                            add(info.outcome.displayName)
+                        }
+                        add(info.timeControlLabel)
+                        info.eco?.let { add(it) }
+                        if (info.dateLabel.isNotBlank()) add(info.dateLabel)
+                    }.joinToString(" · ")
+                    Text(
+                        text = metaLine,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.Gray
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
+            Spacer(Modifier.width(8.dp))
+
             if (game.isAnalyzed()) {
+                val acc = game.accuracy ?: 0.0
                 Text(
-                    "${game.accuracy?.toInt() ?: 0}%",
+                    text = String.format(java.util.Locale.US, "%.0f%%", acc),
                     fontWeight = FontWeight.Bold,
-                    color = if ((game.accuracy ?: 0.0) > 80) Color(0xFF4CAF50) else Color(0xFFFFA726)
+                    color = when {
+                        acc >= 80.0 -> Color(0xFF4CAF50)
+                        acc >= 65.0 -> Color(0xFFFFA726)
+                        else -> Color(0xFFE53935)
+                    }
                 )
             } else {
-                Text("В очереди", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Text(
+                    text = "В очереди",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

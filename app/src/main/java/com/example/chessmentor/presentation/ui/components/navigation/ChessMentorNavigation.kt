@@ -346,6 +346,10 @@ private fun NavigationHost(
             onNavigateToTraining = { onScreenChange("training") },
             onNavigateToDailyPuzzle = { onOpenTrainingWithMode(TrainingMode.Daily) },
             onNavigateToSmartSession = { onOpenTrainingWithMode(TrainingMode.SmartSession) },
+            onOpenGame = { game ->
+                gameViewModel.selectGame(game)
+                onScreenChange("summary")
+            },
             message = message,
             isLoading = isLoading,
             onMessageDismiss = onMessageDismiss,
@@ -373,7 +377,9 @@ private fun NavigationHost(
             onGameClick = { game ->
                 gameViewModel.selectGame(game)
                 onScreenChange("summary")
-            }
+            },
+            onNavigateToUpload = { onScreenChange("upload") },
+            onAnalysisComplete = { onScreenChange("summary") }
         )
 
         "game_view" -> {
@@ -438,7 +444,12 @@ private fun NavigationHost(
             engineSettingsRepository = container.engineSettingsRepository,
             onGameUploaded = { },
             onAnalysisComplete = { onScreenChange("summary") },
-            onOpenEngineSettings = { onScreenChange("engine_settings") }
+            onOpenEngineSettings = { onScreenChange("engine_settings") },
+            onNavigateToLibrary = { onScreenChange("games") },
+            onOpenExistingGame = { existing ->
+                gameViewModel.selectGame(existing)
+                onScreenChange("summary")
+            }
         )
 
         "training" -> {

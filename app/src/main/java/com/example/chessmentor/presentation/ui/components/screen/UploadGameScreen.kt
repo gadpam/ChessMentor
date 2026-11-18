@@ -1,10 +1,18 @@
 // presentation/ui/screen/UploadGameScreen.kt
 package com.example.chessmentor.presentation.ui.components.screen
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -12,34 +20,80 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.EngineSettings
+import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.repository.EngineSettingsRepository
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.presentation.ui.components.AnalysisProgressDialog
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
+import com.example.chessmentor.presentation.viewmodel.PgnImportPreview
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+private const val MAX_INLINE_TEXTFIELD_CHARS = 24_000
 
 @Composable
 fun UploadGameScreen(
     paddingValues: PaddingValues,
     gameViewModel: GameViewModel,
-    engineSettingsRepository: EngineSettingsRepository,  // ✅ НОВОЕ
+    engineSettingsRepository: EngineSettingsRepository,
     onGameUploaded: () -> Unit,
     onAnalysisComplete: () -> Unit,
-    onOpenEngineSettings: () -> Unit  // ✅ НОВОЕ
+    onOpenEngineSettings: () -> Unit,
+    onNavigateToLibrary: () -> Unit = {},
+    onOpenExistingGame: (Game) -> Unit = {}
 ) {
     val pgnInput by gameViewModel.pgnInput
     val selectedColor by gameViewModel.selectedColor
     val timeControl by gameViewModel.timeControl
+    val usernameHint by gameViewModel.chessUsernameHint
+    val colorAutoDetected by gameViewModel.colorAutoDetected
+    val importPreview by gameViewModel.importPreview
     val message by gameViewModel.message
     val isLoading by gameViewModel.isLoading
+
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
 
     val analysisProgress by gameViewModel.analysisProgress.collectAsState(initial = null)
     val currentOnAnalysisComplete by rememberUpdatedState(onAnalysisComplete)
     val currentOnGameUploaded by rememberUpdatedState(onGameUploaded)
+    val currentOnNavigateToLibrary by rememberUpdatedState(onNavigateToLibrary)
+
+    // Системный выбор файла .pgn / .txt без лишних разрешений хранилища (SAF)
+    val pgnFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                readPgnFileFromUri(context, uri)
+            }
+            result.fold(
+                onSuccess = { (fileName, content) ->
+                    gameViewModel.clearMessage()
+                    gameViewModel.onPgnInputChanged(
+                        newPgn = content,
+                        sourceFileName = fileName,
+                        forceAutoApply = true
+                    )
+                },
+                onFailure = { err ->
+                    gameViewModel.message.value = "❌ ${err.message ?: "Не удалось прочитать файл"}"
+                }
+            )
+        }
+    }
 
     // Автоматический переход к сводке после успешного завершения анализа
     LaunchedEffect(analysisProgress) {
@@ -53,7 +107,6 @@ fun UploadGameScreen(
         }
     }
 
-    // Получаем актуальные настройки движка для отображения
     val engineSettings = remember { engineSettingsRepository.getSettings() }
 
     LazyColumn(
@@ -61,14 +114,12 @@ fun UploadGameScreen(
             .fillMaxSize()
             .padding(paddingValues)
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Заголовок
         item {
             UploadHeader()
         }
 
-        // ✅ НОВОЕ: Карточка настроек движка
         item {
             EngineSettingsCard(
                 settings = engineSettings,
@@ -76,7 +127,6 @@ fun UploadGameScreen(
             )
         }
 
-        // Сообщение
         if (message.isNotEmpty()) {
             item {
                 UploadMessage(
@@ -87,36 +137,427 @@ fun UploadGameScreen(
             }
         }
 
-        // Форма
+        // Живой предпросмотр распознанной партии или мульти-PGN пакета
+        val preview = importPreview
+        if (preview != null) {
+            item {
+                PgnLivePreviewCard(
+                    preview = preview,
+                    selectedColor = selectedColor,
+                    colorAutoDetected = colorAutoDetected,
+                    onOpenExistingGame = onOpenExistingGame
+                )
+            }
+        }
+
         item {
             UploadForm(
                 pgnInput = pgnInput,
+                preview = preview,
                 selectedColor = selectedColor,
+                colorAutoDetected = colorAutoDetected,
                 timeControl = timeControl,
+                usernameHint = usernameHint,
                 isLoading = isLoading,
-                onPgnChange = { gameViewModel.pgnInput.value = it },
-                onColorChange = { gameViewModel.selectedColor.value = it },
+                onPasteFromClipboard = {
+                    val clipText = clipboardManager.getText()?.text?.trim().orEmpty()
+                    if (clipText.isEmpty()) {
+                        gameViewModel.message.value = "❌ Буфер обмена пуст — скопируйте PGN из Lichess или Chess.com"
+                    } else {
+                        gameViewModel.clearMessage()
+                        gameViewModel.onPgnInputChanged(
+                            newPgn = clipText,
+                            sourceFileName = null,
+                            forceAutoApply = true
+                        )
+                    }
+                },
+                onPickFile = {
+                    pgnFileLauncher.launch(
+                        arrayOf(
+                            "application/x-chess-pgn",
+                            "application/vnd.chess-pgn",
+                            "text/plain",
+                            "application/octet-stream",
+                            "*/*"
+                        )
+                    )
+                },
+                onClear = {
+                    gameViewModel.clearMessage()
+                    gameViewModel.clearImportForm()
+                },
+                onPgnChange = { gameViewModel.onPgnInputChanged(it) },
+                onColorChange = { gameViewModel.selectPlayerColorManually(it) },
                 onTimeControlChange = { gameViewModel.timeControl.value = it },
-                onUpload = {
-                    gameViewModel.uploadAndAnalyzeGame()
+                onUsernameHintChange = { gameViewModel.onChessUsernameHintChanged(it) },
+                onUploadAndAnalyze = { allowDuplicate ->
+                    gameViewModel.uploadAndAnalyzeGame(allowDuplicate = allowDuplicate)
+                },
+                onSaveToLibrary = { allowDuplicate ->
+                    gameViewModel.saveGameWithoutAnalysis(
+                        allowDuplicate = allowDuplicate,
+                        onSavedToLibrary = { currentOnNavigateToLibrary() }
+                    )
+                },
+                onImportBatch = { analyzeNewest ->
+                    gameViewModel.importBatchGames(
+                        analyzeNewest = analyzeNewest,
+                        onImportedToLibrary = { currentOnNavigateToLibrary() }
+                    )
                 }
             )
         }
     }
 
-    // Диалог прогресса анализа
     AnalysisProgressDialog(
         progress = analysisProgress,
-        onDismiss = {
-            gameViewModel.clearAnalysisProgress()
-        },
-        onCancel = {
-            gameViewModel.cancelAnalysis()
-        }
+        onDismiss = { gameViewModel.clearAnalysisProgress() },
+        onCancel = { gameViewModel.cancelAnalysis() }
     )
 }
 
-// ✅ НОВОЕ: Карточка с настройками движка
+private fun readPgnFileFromUri(context: Context, uri: Uri): Result<Pair<String, String>> {
+    return runCatching {
+        val resolver = context.contentResolver
+        var fileName = "games.pgn"
+        var fileSize = -1L
+
+        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (nameIdx >= 0 && !cursor.isNull(nameIdx)) {
+                        fileName = cursor.getString(nameIdx)
+                    }
+                    if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) {
+                        fileSize = cursor.getLong(sizeIdx)
+                    }
+                }
+            }
+
+        val maxBytes = PgnParser.MAX_ARCHIVE_CHARS.toLong()
+        if (fileSize > maxBytes) {
+            throw IllegalArgumentException("Файл слишком большой (максимум 1.5 МБ)")
+        }
+
+        val stream = resolver.openInputStream(uri)
+            ?: throw IllegalArgumentException("Не удалось открыть выбранный файл")
+
+        val bytes = stream.use { input ->
+            val buffer = ByteArray(16_384)
+            val out = java.io.ByteArrayOutputStream()
+            var total = 0
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+                total += read
+                if (total > PgnParser.MAX_ARCHIVE_CHARS) {
+                    throw IllegalArgumentException("Файл слишком большой (максимум 1.5 МБ)")
+                }
+                out.write(buffer, 0, read)
+            }
+            out.toByteArray()
+        }
+
+        val text = bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF").trim()
+        if (text.isEmpty()) {
+            throw IllegalArgumentException("Выбранный файл пуст")
+        }
+        // Защита от случайного выбора бинарного файла (картинки, PDF, архива)
+        if (text.take(512).any { it == '\u0000' }) {
+            throw IllegalArgumentException("Это не текстовый файл PGN — выберите файл с расширением .pgn")
+        }
+
+        fileName to text
+    }
+}
+
+@Composable
+private fun PgnLivePreviewCard(
+    preview: PgnImportPreview,
+    selectedColor: ChessColor,
+    colorAutoDetected: Boolean,
+    onOpenExistingGame: (Game) -> Unit
+) {
+    // 1. Ошибка разбора одиночного PGN
+    if (!preview.isBatch && preview.singleError != null) {
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.75f)
+            ),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Error,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Проверьте запись PGN",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Text(
+                        text = preview.singleError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    // 2. Пакет из нескольких партий (мульти-PGN)
+    if (preview.isBatch) {
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
+            ),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.LibraryAdd,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Пакет PGN: найдено партий — ${preview.totalGames}",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        preview.sourceFileName?.let { name ->
+                            Text(
+                                text = "Файл: $name",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f)
+                            )
+                        }
+                    }
+                }
+
+                val metaSummary = buildList {
+                    add("новых к импорту: ${preview.validGamesCount}")
+                    if (preview.batchDuplicatesCount > 0) {
+                        add("уже в библиотеке: ${preview.batchDuplicatesCount}")
+                    }
+                    if (preview.validGamesCount > 0) {
+                        add("цвет определён по нику: ${preview.batchAutoColorCount}/${preview.validGamesCount}")
+                    }
+                    if (preview.truncatedCount > 0) {
+                        add("будут загружены первые ${PgnParser.MAX_BATCH_GAMES}")
+                    }
+                }.joinToString(" · ")
+
+                Text(
+                    text = metaSummary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+
+                if (preview.batchSampleLines.isNotEmpty()) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    preview.batchSampleLines.forEach { line ->
+                        Text(
+                            text = "• $line",
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    // 3. Одиночная корректно распознанная партия
+    val parsed = preview.singleParsed ?: return
+    val meta = parsed.metadata
+    val outcome = meta.result.forPlayer(selectedColor)
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = Color(0xFF4CAF50),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = buildString {
+                            append("Партия распознана")
+                            if (meta.platform != PgnParser.GamePlatform.OTHER) {
+                                append(" · ${meta.platform.displayName}")
+                            }
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                if (meta.result != PgnParser.PgnResult.ONGOING) {
+                    val outcomeColor = when (outcome) {
+                        PgnParser.PlayerOutcome.WIN -> Color(0xFF2E7D32)
+                        PgnParser.PlayerOutcome.LOSS -> Color(0xFFC62828)
+                        PgnParser.PlayerOutcome.DRAW -> Color(0xFFEF6C00)
+                        PgnParser.PlayerOutcome.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                    Surface(
+                        color = outcomeColor.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "${meta.result.displaySymbol()} · ${outcome.displayName}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = outcomeColor,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+
+            // Игроки и рейтинги
+            if (meta.whiteName != null || meta.blackName != null) {
+                val wText = formatSidePreview(meta.whiteTitle, meta.whiteName ?: "Белые", meta.whiteElo)
+                val bText = formatSidePreview(meta.blackTitle, meta.blackName ?: "Чёрные", meta.blackElo)
+                Text(
+                    text = "⚪ $wText  —  ⚫ $bText",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Дебют
+            parsed.openingLabel?.let { opening ->
+                Text(
+                    text = "📖 $opening",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Ходы, контроль, дата, часы, причина окончания
+            val details = buildList {
+                add("${parsed.fullMoveCount} х.")
+                meta.timeControl?.fullLabel?.let { add("⏱ $it") }
+                meta.dateLabel?.let { add(it) }
+                if (parsed.clocks.hasData) {
+                    val trouble = parsed.clocks.timeTroubleMovesFor(selectedColor)
+                    if (trouble > 0) add("🕒 часы (цейтнот: $trouble х.)") else add("🕒 с часами")
+                }
+                meta.terminationRu?.let { add(it) }
+            }.joinToString(" · ")
+
+            Text(
+                text = details,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (colorAutoDetected) {
+                Text(
+                    text = "✓ Ваш цвет (${selectedColor.getDisplayName().lowercase()}) определён автоматически по нику",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            // Предупреждение о дубликате с быстрым переходом к уже сохранённой партии
+            preview.duplicateExistingGame?.let { existing ->
+                Spacer(modifier = Modifier.height(2.dp))
+                Surface(
+                    color = Color(0xFFFFA000).copy(alpha = 0.16f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = Color(0xFFEF6C00),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Эта партия уже в библиотеке",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        TextButton(
+                            onClick = { onOpenExistingGame(existing) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("Открыть", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatSidePreview(title: String?, name: String, elo: Int?): String {
+    val prefix = if (!title.isNullOrBlank()) "$title " else ""
+    val suffix = if (elo != null) " ($elo)" else ""
+    return "$prefix$name$suffix"
+}
+
 @Composable
 private fun EngineSettingsCard(
     settings: EngineSettings,
@@ -131,14 +572,14 @@ private fun EngineSettingsCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = Icons.Default.Settings,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(22.dp)
             )
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -156,7 +597,6 @@ private fun EngineSettingsCard(
                 )
             }
 
-            // Индикатор профиля
             Surface(
                 color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f),
                 shape = MaterialTheme.shapes.small
@@ -170,7 +610,7 @@ private fun EngineSettingsCard(
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
 
             Icon(
                 imageVector = Icons.Default.ChevronRight,
@@ -189,7 +629,9 @@ private fun UploadHeader() {
         )
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -201,14 +643,14 @@ private fun UploadHeader() {
             Spacer(modifier = Modifier.width(12.dp))
             Column {
                 Text(
-                    text = "Загрузить партию",
+                    text = "Импорт партий",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Вставьте PGN для анализа",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "Буфер обмена, файл .pgn или пакет из Lichess / Chess.com",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                 )
             }
         }
@@ -222,7 +664,10 @@ private fun UploadMessage(
     onDismiss: () -> Unit
 ) {
     val isError = message.startsWith("❌") || message.startsWith("Ошибка")
-    val cleanMessage = message.replace("✅ ", "").replace("❌ ", "")
+    val cleanMessage = message
+        .removePrefix("✅ ")
+        .removePrefix("❌ ")
+        .removePrefix("ℹ️ ")
 
     Card(
         colors = CardDefaults.cardColors(
@@ -233,7 +678,7 @@ private fun UploadMessage(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -250,6 +695,7 @@ private fun UploadMessage(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = cleanMessage,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = if (isError) MaterialTheme.colorScheme.onErrorContainer
                     else MaterialTheme.colorScheme.onTertiaryContainer
                 )
@@ -266,200 +712,366 @@ private fun UploadMessage(
 @Composable
 private fun UploadForm(
     pgnInput: String,
+    preview: PgnImportPreview?,
     selectedColor: ChessColor,
+    colorAutoDetected: Boolean,
     timeControl: String,
+    usernameHint: String,
     isLoading: Boolean,
+    onPasteFromClipboard: () -> Unit,
+    onPickFile: () -> Unit,
+    onClear: () -> Unit,
     onPgnChange: (String) -> Unit,
     onColorChange: (ChessColor) -> Unit,
     onTimeControlChange: (String) -> Unit,
-    onUpload: () -> Unit
+    onUsernameHintChange: (String) -> Unit,
+    onUploadAndAnalyze: (allowDuplicate: Boolean) -> Unit,
+    onSaveToLibrary: (allowDuplicate: Boolean) -> Unit,
+    onImportBatch: (analyzeNewest: Boolean) -> Unit
 ) {
+    val isBatch = preview?.isBatch == true
+    val hasSingleError = preview != null && !preview.isBatch && preview.singleError != null
+    val hasDuplicate = preview?.duplicateExistingGame != null
+    val isHugeFileLoaded = pgnInput.length > MAX_INLINE_TEXTFIELD_CHARS
+
+    val whitePlayerName = preview?.singleParsed?.metadata?.whiteName
+    val blackPlayerName = preview?.singleParsed?.metadata?.blackName
+
     Card {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // PGN поле
-            OutlinedTextField(
-                value = pgnInput,
-                onValueChange = onPgnChange,
-                label = { Text("PGN партии") },
-                placeholder = { Text("1. e4 e5 2. Nf3 Nc6 ...") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
-                maxLines = 10,
-                enabled = !isLoading,
-                leadingIcon = {
-                    Icon(Icons.Default.Description, contentDescription = null)
+            // Панель быстрых действий: Вставить из буфера / Файл .pgn / Очистить
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilledTonalButton(
+                    onClick = onPasteFromClipboard,
+                    enabled = !isLoading,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentPaste,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Вставить", maxLines = 1)
                 }
-            )
 
-            // Выбор цвета
+                FilledTonalButton(
+                    onClick = onPickFile,
+                    enabled = !isLoading,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FolderOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Файл .pgn", maxLines = 1)
+                }
+
+                if (pgnInput.isNotEmpty()) {
+                    OutlinedIconButton(
+                        onClick = onClear,
+                        enabled = !isLoading
+                    ) {
+                        Icon(Icons.Default.Clear, contentDescription = "Очистить")
+                    }
+                }
+            }
+
+            // Поле ввода PGN (или компактная плашка для крупного .pgn-архива, чтобы не тормозить UI)
+            if (isHugeFileLoaded) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Description,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = preview?.sourceFileName ?: "Загружен крупный PGN-архив",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "Объём: ${pgnInput.length / 1024} КБ · готов к пакетному импорту",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            } else {
+                OutlinedTextField(
+                    value = pgnInput,
+                    onValueChange = onPgnChange,
+                    label = { Text("Текст PGN (одна или несколько партий)") },
+                    placeholder = { Text("[White \"...\"] [Black \"...\"]\n1. e4 e5 2. Nf3 Nc6 ...") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(175.dp),
+                    maxLines = 9,
+                    enabled = !isLoading
+                )
+            }
+
+            // Поле ника на Lichess / Chess.com — показываем при пакетном импорте или если в PGN есть имена игроков,
+            // но цвет не совпал с текущим ником
+            val showUsernameField = isBatch || (
+                preview?.singleParsed != null &&
+                    (whitePlayerName != null || blackPlayerName != null) &&
+                    !colorAutoDetected
+                )
+            if (showUsernameField) {
+                OutlinedTextField(
+                    value = usernameHint,
+                    onValueChange = onUsernameHintChange,
+                    label = { Text("Ваш ник на Lichess / Chess.com (для автоцвета)") },
+                    placeholder = { Text("Например: DrNykterstein") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isLoading,
+                    leadingIcon = {
+                        Icon(Icons.Default.Person, contentDescription = null)
+                    }
+                )
+            }
+
+            // Выбор цвета (с подстановкой реальных имён белых и чёрных из PGN)
             Column {
                 Text(
-                    text = "Ваш цвет:",
+                    text = if (isBatch) "Цвет по умолчанию (если ник не найден в партии):" else "Ваш цвет:",
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // БЕЛЫЕ
-                    FilterChip(
+                    ColorChoiceChip(
+                        label = if (!isBatch && !whitePlayerName.isNullOrBlank()) {
+                            "Белые · $whitePlayerName"
+                        } else {
+                            "Белые"
+                        },
+                        pieceColor = Color.White,
                         selected = selectedColor == ChessColor.WHITE,
+                        enabled = !isLoading,
                         onClick = { onColorChange(ChessColor.WHITE) },
-                        label = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text("Белые")
-                                if (selectedColor == ChessColor.WHITE) {
-                                    Icon(
-                                        Icons.Default.Check,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-                        },
-                        leadingIcon = {
-                            Box(
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .border(1.dp, Color.Gray, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .border(
-                                            width = 8.dp,
-                                            color = Color.White,
-                                            shape = CircleShape
-                                        )
-                                )
-                            }
-                        },
-                        enabled = !isLoading
+                        modifier = Modifier.weight(1f)
                     )
-
-                    // ЧЁРНЫЕ
-                    FilterChip(
+                    ColorChoiceChip(
+                        label = if (!isBatch && !blackPlayerName.isNullOrBlank()) {
+                            "Чёрные · $blackPlayerName"
+                        } else {
+                            "Чёрные"
+                        },
+                        pieceColor = Color.Black,
                         selected = selectedColor == ChessColor.BLACK,
+                        enabled = !isLoading,
                         onClick = { onColorChange(ChessColor.BLACK) },
-                        label = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text("Чёрные")
-                                if (selectedColor == ChessColor.BLACK) {
-                                    Icon(
-                                        Icons.Default.Check,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-                        },
-                        leadingIcon = {
-                            Box(
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .border(1.dp, Color.Gray, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .border(
-                                            width = 8.dp,
-                                            color = Color.Black,
-                                            shape = CircleShape
-                                        )
-                                )
-                            }
-                        },
-                        enabled = !isLoading
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
 
-            // Контроль времени
-            OutlinedTextField(
-                value = timeControl,
-                onValueChange = onTimeControlChange,
-                label = { Text("Контроль времени (опционально)") },
-                placeholder = { Text("5+3, 10+0, 15+10") },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isLoading,
-                leadingIcon = {
-                    Icon(Icons.Default.Timer, contentDescription = null)
-                }
-            )
+            // Контроль времени (для одиночной партии заполняется автоматически из [TimeControl])
+            if (!isBatch) {
+                OutlinedTextField(
+                    value = timeControl,
+                    onValueChange = onTimeControlChange,
+                    label = { Text("Контроль времени (авто из PGN или вручную)") },
+                    placeholder = { Text("3+2, 5+3, 10+0, 15+10") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isLoading,
+                    leadingIcon = {
+                        Icon(Icons.Default.Timer, contentDescription = null)
+                    }
+                )
+            }
 
-            // Кнопка загрузки
-            Button(
-                onClick = onUpload,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
-                enabled = !isLoading && pgnInput.isNotBlank()
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Загружаем...")
-                } else {
-                    Icon(Icons.Default.Analytics, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Загрузить и анализировать")
+            // Кнопки действия: одиночный режим vs пакетный мульти-PGN
+            if (isBatch) {
+                val importableCount = preview?.validGamesCount ?: 0
+                Button(
+                    onClick = { onImportBatch(false) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    enabled = !isLoading && importableCount > 0
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Импортируем...")
+                    } else {
+                        Icon(Icons.Default.LibraryAdd, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (importableCount > 0) {
+                                "Импортировать в библиотеку ($importableCount)"
+                            } else {
+                                "Новых партий нет"
+                            }
+                        )
+                    }
+                }
+
+                if (importableCount > 0) {
+                    OutlinedButton(
+                        onClick = { onImportBatch(true) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp),
+                        enabled = !isLoading
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Analytics,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Импортировать все и разобрать последнюю")
+                    }
+                }
+            } else {
+                Button(
+                    onClick = { onUploadAndAnalyze(hasDuplicate) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    enabled = !isLoading && pgnInput.isNotBlank() && !hasSingleError
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Загружаем...")
+                    } else {
+                        Icon(Icons.Default.Analytics, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            if (hasDuplicate) "Загрузить копию и анализировать"
+                            else "Загрузить и анализировать"
+                        )
+                    }
+                }
+
+                if (pgnInput.isNotBlank() && !hasSingleError && !hasDuplicate) {
+                    OutlinedButton(
+                        onClick = { onSaveToLibrary(false) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        enabled = !isLoading
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.BookmarkAdd,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Сохранить в библиотеку без анализа")
+                    }
                 }
             }
 
             HorizontalDivider()
 
-            // Подсказка
             Row(
                 verticalAlignment = Alignment.Top,
-                modifier = Modifier.padding(top = 8.dp)
+                modifier = Modifier.padding(top = 2.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Lightbulb,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier
-                        .size(20.dp)
+                        .size(18.dp)
                         .padding(top = 2.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text(
-                        text = "Совет:",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                    Text(
-                        text = "Вы можете скопировать PGN из Chess.com или Lichess",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Пример: 1. e4 e5 2. Nf3 Nc6 3. Bb5 a6",
-                        fontSize = 12.sp,
-                        color = Color.Gray
-                    )
-                }
+                Text(
+                    text = "Поддерживаются одиночные PGN и скачанные .pgn-архивы Lichess / Chess.com " +
+                        "(до ${PgnParser.MAX_BATCH_GAMES} партий за раз) с рейтингами, дебютом, результатом и часами.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
+}
+
+@Composable
+private fun ColorChoiceChip(
+    label: String,
+    pieceColor: Color,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
+        label = {
+            Text(
+                text = label,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        leadingIcon = {
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .background(pieceColor, CircleShape)
+                    .border(1.dp, Color.Gray, CircleShape)
+            )
+        },
+        trailingIcon = if (selected) {
+            {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        } else {
+            null
+        }
+    )
 }
