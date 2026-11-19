@@ -1,111 +1,111 @@
-﻿<resources>
-    <!-- ==================== РќРђР—Р’РђРќРР• РџР РР›РћР–Р•РќРРЇ ==================== -->
+<resources>
+    <!-- ==================== НАЗВАНИЕ ПРИЛОЖЕНИЯ ==================== -->
     <string name="app_name">ChessMentor</string>
 
-    <!-- ==================== РќРђР’РР“РђР¦РРЇ (Bottom Nav) ==================== -->
-    <string name="nav_home">Р“Р»Р°РІРЅР°СЏ</string>
-    <string name="nav_games">РџР°СЂС‚РёРё</string>
-    <string name="nav_training">РўСЂРµРЅРёСЂРѕРІРєР°</string>
-    <string name="nav_stats">РЎС‚Р°С‚РёСЃС‚РёРєР°</string>
-    <string name="nav_settings">РќР°СЃС‚СЂРѕР№РєРё</string>
+    <!-- ==================== НАВИГАЦИЯ (Bottom Nav) ==================== -->
+    <string name="nav_home">Главная</string>
+    <string name="nav_games">Партии</string>
+    <string name="nav_training">Тренировка</string>
+    <string name="nav_stats">Статистика</string>
+    <string name="nav_settings">Настройки</string>
 
-    <!-- ==================== Р­РљР РђРќ Р’РҐРћР”Рђ ==================== -->
-    <string name="login_title">Р’С…РѕРґ РІ ChessMentor</string>
+    <!-- ==================== ЭКРАН ВХОДА ==================== -->
+    <string name="login_title">Вход в ChessMentor</string>
     <string name="login_email_hint">Email</string>
-    <string name="login_password_hint">РџР°СЂРѕР»СЊ</string>
-    <string name="login_button">Р’РѕР№С‚Рё</string>
-    <string name="login_register_prompt">РќРµС‚ Р°РєРєР°СѓРЅС‚Р°? <annotation name="link">Р—Р°СЂРµРіРёСЃС‚СЂРёСЂСѓР№С‚РµСЃСЊ</annotation></string>
-    <string name="login_loading">Р’С…РѕРґ...</string>
+    <string name="login_password_hint">Пароль</string>
+    <string name="login_button">Войти</string>
+    <string name="login_register_prompt">Нет аккаунта? <annotation name="link">Зарегистрируйтесь</annotation></string>
+    <string name="login_loading">Вход...</string>
 
-    <!-- ==================== Р­РљР РђРќ Р Р•Р“РРЎРўР РђР¦РР ==================== -->
-    <string name="register_title">Р РµРіРёСЃС‚СЂР°С†РёСЏ</string>
-    <string name="register_nickname_hint">РќРёРєРЅРµР№Рј</string>
+    <!-- ==================== ЭКРАН РЕГИСТРАЦИИ ==================== -->
+    <string name="register_title">Регистрация</string>
+    <string name="register_nickname_hint">Никнейм</string>
     <string name="register_email_hint">Email</string>
-    <string name="register_password_hint">РџР°СЂРѕР»СЊ</string>
-    <string name="register_button">Р—Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°С‚СЊСЃСЏ</string>
-    <string name="register_login_prompt">РЈР¶Рµ РµСЃС‚СЊ Р°РєРєР°СѓРЅС‚? <annotation name="link">Р’РѕР№РґРёС‚Рµ</annotation></string>
-    <string name="register_loading">Р РµРіРёСЃС‚СЂР°С†РёСЏ...</string>
+    <string name="register_password_hint">Пароль</string>
+    <string name="register_button">Зарегистрироваться</string>
+    <string name="register_login_prompt">Уже есть аккаунт? <annotation name="link">Войдите</annotation></string>
+    <string name="register_loading">Регистрация...</string>
 
-    <!-- ==================== Р­РљР РђРќ Р“Р›РђР’РќРђРЇ (HOME) ==================== -->
-    <string name="home_welcome">Р”РѕР±СЂРѕ РїРѕР¶Р°Р»РѕРІР°С‚СЊ, %s!</string>
-    <string name="home_rating">Р’Р°С€ СЂРµР№С‚РёРЅРі: %d</string>
-    <string name="home_upload_game">Р—Р°РіСЂСѓР·РёС‚СЊ РїР°СЂС‚РёСЋ</string>
-    <string name="home_start_training">РќР°С‡Р°С‚СЊ С‚СЂРµРЅРёСЂРѕРІРєСѓ</string>
-    <string name="home_view_stats">РњРѕСЏ СЃС‚Р°С‚РёСЃС‚РёРєР°</string>
-    <string name="home_recent_mistakes">РџРѕСЃР»РµРґРЅРёРµ РѕС€РёР±РєРё</string>
-    <string name="home_no_mistakes">РЈ РІР°СЃ РїРѕРєР° РЅРµС‚ РѕС€РёР±РѕРє. Р—Р°РіСЂСѓР·РёС‚Рµ РїР°СЂС‚РёСЋ РґР»СЏ Р°РЅР°Р»РёР·Р°!</string>
+    <!-- ==================== ЭКРАН ГЛАВНАЯ (HOME) ==================== -->
+    <string name="home_welcome">Добро пожаловать, %s!</string>
+    <string name="home_rating">Ваш рейтинг: %d</string>
+    <string name="home_upload_game">Загрузить партию</string>
+    <string name="home_start_training">Начать тренировку</string>
+    <string name="home_view_stats">Моя статистика</string>
+    <string name="home_recent_mistakes">Последние ошибки</string>
+    <string name="home_no_mistakes">У вас пока нет ошибок. Загрузите партию для анализа!</string>
 
-    <!-- ==================== Р­РљР РђРќ РЎРџРРЎРљРђ РџРђР РўРР™ (GAMES) ==================== -->
-    <string name="games_title">РњРѕРё РїР°СЂС‚РёРё</string>
-    <string name="games_loading">Р—Р°РіСЂСѓР·РєР° РїР°СЂС‚РёР№...</string>
-    <string name="games_no_games">РЈ РІР°СЃ РµС‰Рµ РЅРµС‚ СЃРѕС…СЂР°РЅРµРЅРЅС‹С… РїР°СЂС‚РёР№.</string>
-    <string name="game_card_analyzing">РђРЅР°Р»РёР·РёСЂСѓРµС‚СЃСЏ...</string>
-    <string name="game_card_accuracy">РўРѕС‡РЅРѕСЃС‚СЊ: %.1f%%</string>
-    <string name="game_card_mistakes">РћС€РёР±РєРё: %d</string>
-    <string name="game_menu_delete">РЈРґР°Р»РёС‚СЊ</string>
-    <string name="game_delete_confirm">Р’С‹ СѓРІРµСЂРµРЅС‹, С‡С‚Рѕ С…РѕС‚РёС‚Рµ СѓРґР°Р»РёС‚СЊ СЌС‚Сѓ РїР°СЂС‚РёСЋ? Р­С‚Рѕ РґРµР№СЃС‚РІРёРµ РЅРµРѕР±СЂР°С‚РёРјРѕ.</string>
-    <string name="game_delete_yes">РЈРґР°Р»РёС‚СЊ</string>
-    <string name="game_delete_cancel">РћС‚РјРµРЅР°</string>
+    <!-- ==================== ЭКРАН СПИСКА ПАРТИЙ (GAMES) ==================== -->
+    <string name="games_title">Мои партии</string>
+    <string name="games_loading">Загрузка партий...</string>
+    <string name="games_no_games">У вас еще нет сохраненных партий.</string>
+    <string name="game_card_analyzing">Анализируется...</string>
+    <string name="game_card_accuracy">Точность: %.1f%%</string>
+    <string name="game_card_mistakes">Ошибки: %d</string>
+    <string name="game_menu_delete">Удалить</string>
+    <string name="game_delete_confirm">Вы уверены, что хотите удалить эту партию? Это действие необратимо.</string>
+    <string name="game_delete_yes">Удалить</string>
+    <string name="game_delete_cancel">Отмена</string>
 
-    <!-- ==================== Р­РљР РђРќ РўР Р•РќРР РћР’РљР (TRAINING) ==================== -->
-    <string name="training_title">РўСЂРµРЅРёСЂРѕРІРєР° С‚Р°РєС‚РёРєРё</string>
-    <string name="training_loading">Р—Р°РіСЂСѓР·РєР° СѓРїСЂР°Р¶РЅРµРЅРёСЏ...</string>
-    <string name="training_prompt">РќР°Р№РґРёС‚Рµ Р»СѓС‡С€РёР№ С…РѕРґ</string>
-    <string name="training_position">РџРѕР·РёС†РёСЏ:</string>
-    <string name="training_solution">Р РµС€РµРЅРёРµ:</string>
-    <string name="training_correct">Р’РµСЂРЅРѕ!</string>
-    <string name="training_incorrect">РќРµРІРµСЂРЅРѕ. РџРѕРїСЂРѕР±СѓР№С‚Рµ РµС‰Рµ СЂР°Р·.</string>
-    <string name="training_next_exercise">РЎР»РµРґСѓСЋС‰РµРµ СѓРїСЂР°Р¶РЅРµРЅРёРµ</string>
-    <string name="training_no_exercises">РџРѕРєР° РЅРµС‚ РґРѕСЃС‚СѓРїРЅС‹С… СѓРїСЂР°Р¶РЅРµРЅРёР№. РџСЂРѕР°РЅР°Р»РёР·РёСЂСѓР№С‚Рµ Р±РѕР»СЊС€Рµ РїР°СЂС‚РёР№!</string>
+    <!-- ==================== ЭКРАН ТРЕНИРОВКИ (TRAINING) ==================== -->
+    <string name="training_title">Тренировка тактики</string>
+    <string name="training_loading">Загрузка упражнения...</string>
+    <string name="training_prompt">Найдите лучший ход</string>
+    <string name="training_position">Позиция:</string>
+    <string name="training_solution">Решение:</string>
+    <string name="training_correct">Верно!</string>
+    <string name="training_incorrect">Неверно. Попробуйте еще раз.</string>
+    <string name="training_next_exercise">Следующее упражнение</string>
+    <string name="training_no_exercises">Пока нет доступных упражнений. Проанализируйте больше партий!</string>
 
-    <!-- ==================== Р­РљР РђРќ РЎРўРђРўРРЎРўРРљР (STATS) ==================== -->
-    <string name="stats_title">РЎС‚Р°С‚РёСЃС‚РёРєР°</string>
-    <string name="stats_loading">Р—Р°РіСЂСѓР·РєР° СЃС‚Р°С‚РёСЃС‚РёРєРё...</string>
-    <string name="stats_nickname">РРіСЂРѕРє: %s</string>
-    <string name="stats_rating" formatted="false">Р РµР№С‚РёРЅРі: %d (%s)</string>
-    <string name="stats_games_total">Р’СЃРµРіРѕ РїР°СЂС‚РёР№: %d</string>
-    <string name="stats_games_analyzed">РџСЂРѕР°РЅР°Р»РёР·РёСЂРѕРІР°РЅРѕ: %d</string>
-    <string name="stats_accuracy">РЎСЂРµРґРЅСЏСЏ С‚РѕС‡РЅРѕСЃС‚СЊ: %.1f%%</string>
-    <string name="stats_mistakes_total">Р’СЃРµРіРѕ РѕС€РёР±РѕРє: %d</string>
-    <string name="stats_mistakes_blunders">Р“СЂСѓР±С‹Рµ РѕС€РёР±РєРё: %d</string>
-    <string name="stats_mistakes_mistakes">РћС€РёР±РєРё: %d</string>
-    <string name="stats_mistakes_inaccuracies">РќРµС‚РѕС‡РЅРѕСЃС‚Рё: %d</string>
-    <string name="stats_avg_loss">РЎСЂРµРґРЅСЏСЏ РїРѕС‚РµСЂСЏ: %.1f РїРµС€РєРё</string>
-    <string name="stats_problem_themes">РџСЂРѕР±Р»РµРјРЅС‹Рµ С‚РµРјС‹</string>
+    <!-- ==================== ЭКРАН СТАТИСТИКИ (STATS) ==================== -->
+    <string name="stats_title">Статистика</string>
+    <string name="stats_loading">Загрузка статистики...</string>
+    <string name="stats_nickname">Игрок: %s</string>
+    <string name="stats_rating" formatted="false">Рейтинг: %d (%s)</string>
+    <string name="stats_games_total">Всего партий: %d</string>
+    <string name="stats_games_analyzed">Проанализировано: %d</string>
+    <string name="stats_accuracy">Средняя точность: %.1f%%</string>
+    <string name="stats_mistakes_total">Всего ошибок: %d</string>
+    <string name="stats_mistakes_blunders">Грубые ошибки: %d</string>
+    <string name="stats_mistakes_mistakes">Ошибки: %d</string>
+    <string name="stats_mistakes_inaccuracies">Неточности: %d</string>
+    <string name="stats_avg_loss">Средняя потеря: %.1f пешки</string>
+    <string name="stats_problem_themes">Проблемные темы</string>
     <string name="stats_theme_item" formatted="false">%s (%.1f%%)</string>
-    <string name="stats_progress">РџСЂРѕРіСЂРµСЃСЃ</string>
-    <string name="stats_rating_change">РР·РјРµРЅРµРЅРёРµ СЂРµР№С‚РёРЅРіР°: %+d</string>
-    <string name="stats_accuracy_trend">РўСЂРµРЅРґ С‚РѕС‡РЅРѕСЃС‚Рё: %s</string>
-    <string name="stats_trend_improving">РЈР»СѓС‡С€Р°РµС‚СЃСЏ</string>
-    <string name="stats_trend_stable">РЎС‚Р°Р±РёР»СЊРЅРѕ</string>
-    <string name="stats_trend_declining">РЈС…СѓРґС€Р°РµС‚СЃСЏ</string>
-    <string name="stats_recommendations">Р РµРєРѕРјРµРЅРґР°С†РёРё</string>
+    <string name="stats_progress">Прогресс</string>
+    <string name="stats_rating_change">Изменение рейтинга: %+d</string>
+    <string name="stats_accuracy_trend">Тренд точности: %s</string>
+    <string name="stats_trend_improving">Улучшается</string>
+    <string name="stats_trend_stable">Стабильно</string>
+    <string name="stats_trend_declining">Ухудшается</string>
+    <string name="stats_recommendations">Рекомендации</string>
 
-    <!-- ==================== Р­РљР РђРќ РќРђРЎРўР РћР•Рљ (SETTINGS) ==================== -->
-    <string name="settings_title">РќР°СЃС‚СЂРѕР№РєРё</string>
-    <string name="settings_appearance">Р’РЅРµС€РЅРёР№ РІРёРґ</string>
-    <string name="settings_theme">РўРµРјР° РїСЂРёР»РѕР¶РµРЅРёСЏ</string>
-    <string name="settings_theme_light">РЎРІРµС‚Р»Р°СЏ</string>
-    <string name="settings_theme_dark">РўРµРјРЅР°СЏ</string>
-    <string name="settings_theme_system">РљР°Рє РІ СЃРёСЃС‚РµРјРµ</string>
-    <string name="settings_account">РђРєРєР°СѓРЅС‚</string>
-    <string name="settings_logout">Р’С‹Р№С‚Рё</string>
-    <string name="settings_logout_confirm">Р’С‹ СѓРІРµСЂРµРЅС‹, С‡С‚Рѕ С…РѕС‚РёС‚Рµ РІС‹Р№С‚Рё РёР· Р°РєРєР°СѓРЅС‚Р°?</string>
-    <string name="settings_logout_yes">Р’С‹Р№С‚Рё</string>
-    <string name="settings_logout_cancel">РћС‚РјРµРЅР°</string>
-    <string name="settings_about">Рћ РїСЂРёР»РѕР¶РµРЅРёРё</string>
-    <string name="settings_version">Р’РµСЂСЃРёСЏ %s</string>
+    <!-- ==================== ЭКРАН НАСТРОЕК (SETTINGS) ==================== -->
+    <string name="settings_title">Настройки</string>
+    <string name="settings_appearance">Внешний вид</string>
+    <string name="settings_theme">Тема приложения</string>
+    <string name="settings_theme_light">Светлая</string>
+    <string name="settings_theme_dark">Темная</string>
+    <string name="settings_theme_system">Как в системе</string>
+    <string name="settings_account">Аккаунт</string>
+    <string name="settings_logout">Выйти</string>
+    <string name="settings_logout_confirm">Вы уверены, что хотите выйти из аккаунта?</string>
+    <string name="settings_logout_yes">Выйти</string>
+    <string name="settings_logout_cancel">Отмена</string>
+    <string name="settings_about">О приложении</string>
+    <string name="settings_version">Версия %s</string>
 
-    <!-- ==================== РћР‘Р©РР• РЎРўР РћРљР ==================== -->
-    <string name="common_loading">Р—Р°РіСЂСѓР·РєР°...</string>
-    <string name="common_error">РћС€РёР±РєР°</string>
-    <string name="common_retry">РџРѕРІС‚РѕСЂРёС‚СЊ</string>
+    <!-- ==================== ОБЩИЕ СТРОКИ ==================== -->
+    <string name="common_loading">Загрузка...</string>
+    <string name="common_error">Ошибка</string>
+    <string name="common_retry">Повторить</string>
     <string name="common_ok">OK</string>
-    <string name="common_cancel">РћС‚РјРµРЅР°</string>
-    <string name="common_yes">Р”Р°</string>
-    <string name="common_no">РќРµС‚</string>
-    <string name="common_back">РќР°Р·Р°Рґ</string>
-    <string name="common_save">РЎРѕС…СЂР°РЅРёС‚СЊ</string>
-    <string name="common_delete">РЈРґР°Р»РёС‚СЊ</string>
-    <string name="common_close">Р—Р°РєСЂС‹С‚СЊ</string>
+    <string name="common_cancel">Отмена</string>
+    <string name="common_yes">Да</string>
+    <string name="common_no">Нет</string>
+    <string name="common_back">Назад</string>
+    <string name="common_save">Сохранить</string>
+    <string name="common_delete">Удалить</string>
+    <string name="common_close">Закрыть</string>
 </resources>

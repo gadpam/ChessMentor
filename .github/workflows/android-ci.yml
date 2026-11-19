@@ -89,6 +89,10 @@ jobs:
           expected = ["analyzed_moves", "exercise_attempts", "exercises", "games", "mistakes", "users"]
           assert tables == expected, f"Unexpected Room tables: {tables}"
           print(f"::notice title=RoomSchema::Verified v{db['version']} ({len(tables)} tables, identityHash={db['identityHash']})")
+          import base64, gzip
+          b64 = base64.b64encode(gzip.compress(open(sys.argv[1], "rb").read(), 9)).decode()
+          for i in range(0, len(b64), 3000):
+              print(f"::notice title=RoomSchemaChunk{i//3000}::{b64[i:i+3000]}")
           PY
 
       - name: Run Android Lint
