@@ -38,9 +38,30 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
+    }
+
+    sourceSets {
+        // Делает экспортированные JSON-схемы Room доступными для инструментальных тестов миграций
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = true
+        htmlReport = true
+        xmlReport = true
+        disable += setOf(
+            "GradleDependency",
+            "AndroidGradlePluginVersion",
+            "OldTargetApi"
+        )
     }
 
     compileOptions {
@@ -66,6 +87,11 @@ android {
             pickFirsts.add("**/*.so")
         }
     }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.incremental", "true")
 }
 
 dependencies {

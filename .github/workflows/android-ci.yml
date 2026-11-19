@@ -1,0 +1,148 @@
+name: Android CI
+
+on:
+  push:
+    branches:
+      - master
+      - "arena/**"
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: "17"
+  NDK_VERSION: "26.1.10909125"
+  CMAKE_VERSION: "3.22.1"
+
+jobs:
+  test-and-lint:
+    name: Unit Tests, Room Schema & Android Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Ensure gradlew is executable
+        run: chmod +x ./gradlew
+
+      - name: Run JVM unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace --no-daemon
+
+      - name: Verify exported Room v5 schema
+        run: |
+          SCHEMA_FILE="app/schemas/com.example.chessmentor.data.local.AppDatabase/5.json"
+          test -f "$SCHEMA_FILE" || (echo "Missing Room schema: $SCHEMA_FILE" && exit 1)
+          python3 - "$SCHEMA_FILE" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          db = data["database"]
+          assert db["version"] == 5, f"Expected Room version 5, got {db['version']}"
+          tables = sorted(e["tableName"] for e in db["entities"])
+          expected = ["analyzed_moves", "exercise_attempts", "exercises", "games", "mistakes", "users"]
+          assert tables == expected, f"Unexpected Room tables: {tables}"
+          print(f"Verified Room schema v{db['version']} ({len(tables)} tables, hash={db['identityHash']})")
+          PY
+
+      - name: Run Android Lint
+        run: ./gradlew lintDebug --stacktrace --no-daemon
+
+      - name: Upload test, lint & Room schema artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-lint-and-room-schema
+          retention-days: 14
+          if-no-files-found: ignore
+          path: |
+            app/build/reports/tests/testDebugUnitTest/**
+            app/build/test-results/testDebugUnitTest/*.xml
+            app/build/reports/lint-results-debug.*
+            app/schemas/**
+
+  build-apks:
+    name: Build Debug & R8 Release APKs (Stockfish NDK)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Ensure Android SDK, NDK & CMake components
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;${NDK_VERSION}" \
+            "cmake;${CMAKE_VERSION}"
+
+      - name: Cache Stockfish CMake/NDK build outputs
+        uses: actions/cache@v4
+        with:
+          path: app/.cxx
+          key: ndk-${{ runner.os }}-${{ env.NDK_VERSION }}-${{ env.CMAKE_VERSION }}-${{ hashFiles('app/src/main/cpp/**', 'app/build.gradle.kts') }}
+          restore-keys: |
+            ndk-${{ runner.os }}-${{ env.NDK_VERSION }}-${{ env.CMAKE_VERSION }}-
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Ensure gradlew is executable
+        run: chmod +x ./gradlew
+
+      - name: Assemble Debug & R8-minified Release APKs
+        run: ./gradlew assembleDebug assembleRelease --stacktrace --no-daemon
+
+      - name: Verify 16 KB ELF page alignment on libstockfish-lib.so (Android 15+)
+        run: |
+          READELF="${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          SO_FILES=$(find app/build/intermediates/merged_native_libs -name "libstockfish-lib.so")
+          test -n "$SO_FILES" || (echo "No libstockfish-lib.so found!" && exit 1)
+          for so in $SO_FILES; do
+            echo "Checking ELF LOAD alignment: $so"
+            python3 - "$READELF" "$so" <<'PY'
+          import re, subprocess, sys
+          out = subprocess.check_output([sys.argv[1], "-l", sys.argv[2]], text=True)
+          aligns = [int(m.group(1), 16) for m in re.finditer(r"^\s*LOAD\b.*?(0x[0-9a-fA-F]+)\s*$", out, re.M)]
+          assert aligns, f"No LOAD segments in {sys.argv[2]}"
+          bad = [hex(a) for a in aligns if a < 0x4000]
+          assert not bad, f"{sys.argv[2]} has LOAD alignment < 16KB: {bad}"
+          print(f"  OK: LOAD alignments = {[hex(a) for a in aligns]}")
+          PY
+          done
+
+      - name: Upload Debug APK, Release APK & R8 mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: chessmentor-apks
+          retention-days: 14
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/mapping/release/mapping.txt

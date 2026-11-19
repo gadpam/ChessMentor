@@ -23,9 +23,11 @@ import com.example.chessmentor.domain.repository.SessionRepository
 import com.example.chessmentor.domain.repository.UserRepository
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.domain.usecase.ChangePasswordUseCase
+import com.example.chessmentor.domain.usecase.ExportUserBackupUseCase
 import com.example.chessmentor.domain.usecase.GenerateExercisesFromMistakesUseCase
 import com.example.chessmentor.domain.usecase.GetTrainingExerciseUseCase
 import com.example.chessmentor.domain.usecase.GetUserStatisticsUseCase
+import com.example.chessmentor.domain.usecase.ImportUserBackupUseCase
 import com.example.chessmentor.domain.usecase.LoginUserUseCase
 import com.example.chessmentor.domain.usecase.RegisterUserUseCase
 import com.example.chessmentor.domain.usecase.UploadGameUseCase
@@ -163,6 +165,30 @@ class AppContainer private constructor(private val context: Context) {
             mistakeRepository = mistakeRepository,
             exerciseRepository = exerciseRepository,
             analyzedMoveRepository = analyzedMoveRepository
+        )
+    }
+
+    val exportUserBackupUseCase by lazy {
+        ExportUserBackupUseCase(
+            userRepository = userRepository,
+            gameRepository = gameRepository,
+            mistakeRepository = mistakeRepository,
+            analyzedMoveRepository = analyzedMoveRepository,
+            exerciseRepository = exerciseRepository,
+            sessionRepository = sessionRepository,
+            engineSettingsRepository = engineSettingsRepository
+        )
+    }
+
+    val importUserBackupUseCase by lazy {
+        ImportUserBackupUseCase(
+            userRepository = userRepository,
+            gameRepository = gameRepository,
+            mistakeRepository = mistakeRepository,
+            analyzedMoveRepository = analyzedMoveRepository,
+            exerciseRepository = exerciseRepository,
+            sessionRepository = sessionRepository,
+            engineSettingsRepository = engineSettingsRepository
         )
     }
 
