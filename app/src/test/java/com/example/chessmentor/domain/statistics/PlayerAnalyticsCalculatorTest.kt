@@ -312,7 +312,7 @@ class PlayerAnalyticsCalculatorTest {
             id = 100L,
             fenPosition = "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3",
             solutionMoves = listOf("g8f6"),
-            tacticalPattern = TacticalPattern.KNIGHT_FORK,
+            tacticalPattern = TacticalPattern.FORK_KNIGHT,
             patternClusterId = "FORK_KNIGHT_MEDIUM",
             difficultyRating = 50,
             theme = TacticalTheme.FORK

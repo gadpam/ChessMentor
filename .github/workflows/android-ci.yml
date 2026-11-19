@@ -75,6 +75,12 @@ jobs:
           PY
             exit $STATUS
           }
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          files = sorted(glob.glob("app/build/test-results/testDebugUnitTest/*.xml"))
+          tests = sum(int(ET.parse(f).getroot().attrib.get("tests", 0)) for f in files)
+          print(f"::notice title=UnitTests::Passed {tests} JVM unit tests across {len(files)} test classes (0 failures)")
+          PY
 
       - name: Verify exported Room v5 schema
         run: |

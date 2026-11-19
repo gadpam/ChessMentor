@@ -211,7 +211,7 @@ class UserProgressBackupTest {
             Exercise(
                 fenPosition = "rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 2 4",
                 solutionMoves = listOf("c1g5"),
-                tacticalPattern = TacticalPattern.ABSOLUTE_PIN,
+                tacticalPattern = TacticalPattern.PIN_ABSOLUTE,
                 patternClusterId = "PIN_BISHOP_MEDIUM",
                 difficultyRating = 48,
                 theme = TacticalTheme.PIN,
@@ -226,7 +226,7 @@ class UserProgressBackupTest {
         )
 
         val taggedMoves = AttemptMetadata.buildTaggedMoves(
-            actualMoves = curatedEx.solutionMoves,
+            rawUciMoves = curatedEx.solutionMoves,
             hintUsage = HintUsage.NONE,
             solutionRevealed = false,
             firstMoveThinkMs = 6_500L,
