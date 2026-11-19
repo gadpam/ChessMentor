@@ -287,7 +287,7 @@ class GetUserStatisticsUseCase(
         val missingIds = allAttempts.map { it.exerciseId }.distinct().filter { it !in exercisesById }
         if (missingIds.isNotEmpty()) {
             exerciseRepository.findByIds(missingIds).forEach { ex ->
-                ex.id?.let { exercisesById[it] = it }
+                ex.id?.let { id -> exercisesById[id] = ex }
             }
         }
 
