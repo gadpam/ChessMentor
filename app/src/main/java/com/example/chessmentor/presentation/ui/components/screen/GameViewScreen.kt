@@ -340,8 +340,10 @@ private fun GameViewScreenContent(
     // Данные игроков и часов сверху и снизу доски (с учётом переворота)
     val topColor = if (isFlipped) ChessColor.WHITE else ChessColor.BLACK
     val bottomColor = topColor.opposite()
-    val topLabel = if (topColor == ChessColor.WHITE) cardInfo.whiteDisplay else cardInfo.blackDisplay
-    val bottomLabel = if (bottomColor == ChessColor.WHITE) cardInfo.whiteDisplay else cardInfo.blackDisplay
+    val topLabel = (if (topColor == ChessColor.WHITE) cardInfo.whiteDisplay else cardInfo.blackDisplay)
+        ?: if (topColor == ChessColor.WHITE) "Белые" else "Чёрные"
+    val bottomLabel = (if (bottomColor == ChessColor.WHITE) cardInfo.whiteDisplay else cardInfo.blackDisplay)
+        ?: if (bottomColor == ChessColor.WHITE) "Белые" else "Чёрные"
     val topClock = boardViewModel.getClockForSide(topColor)
     val bottomClock = boardViewModel.getClockForSide(bottomColor)
     val matDiffWhite = remember(board.fen) { GameReviewHelper.materialDiffWhitePawns(board.fen) }

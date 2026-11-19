@@ -406,7 +406,7 @@ object UserProgressBackupCodec {
             val solution = ex.arrOrEmpty("solutionMoves")
                 .mapNotNull { (it as? Value.Str)?.value?.trim()?.takeIf(String::isNotEmpty) }
             if (solution.isEmpty()) return@mapNotNull null
-            val pattern = enumOrDefault(ex.stringOrNull("tacticalPattern"), TacticalPattern.TACTICAL_COMBINATION)
+            val pattern = enumOrDefault(ex.stringOrNull("tacticalPattern"), TacticalPattern.MIXED)
             val gameIdx = ex.intOrNull("sourceGameIndex")?.takeIf { it in games.indices }
 
             PersonalExerciseEntry(

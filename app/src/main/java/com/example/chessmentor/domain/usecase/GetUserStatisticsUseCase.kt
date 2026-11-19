@@ -282,6 +282,7 @@ class GetUserStatisticsUseCase(
         // Подтягиваем упражнения по всем попыткам для точного расписания SM-2 и истории рейтинга
         val exercisesById: MutableMap<Long, Exercise> = accessibleExercises
             .mapNotNull { ex -> ex.id?.let { it to ex } }
+            .toMap()
             .toMutableMap()
         val missingIds = allAttempts.map { it.exerciseId }.distinct().filter { it !in exercisesById }
         if (missingIds.isNotEmpty()) {
@@ -355,7 +356,7 @@ class GetUserStatisticsUseCase(
             it.quality == AttemptQuality.FAILED || it.quality == AttemptQuality.RETRY_SOLVE
         }
         val impulsiveCount = scopedAttempts.count { attempt ->
-            !attempt.solved && AttemptMetadata.isImpulsive(attempt.movesMade)
+            !attempt.solved && AttemptMetadata.isImpulsive(attempt)
         }
         val impulsiveRate = if (errorSittings > 0) {
             ((impulsiveCount.coerceAtMost(errorSittings) * 100.0) / errorSittings)
