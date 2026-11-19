@@ -6,11 +6,19 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
-import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import com.example.chessmentor.data.local.dao.*
-import com.example.chessmentor.domain.entity.*
 import com.example.chessmentor.data.local.TypeConverters as MyConverters
+import com.example.chessmentor.data.local.dao.AnalyzedMoveDao
+import com.example.chessmentor.data.local.dao.ExerciseDao
+import com.example.chessmentor.data.local.dao.GameDao
+import com.example.chessmentor.data.local.dao.MistakeDao
+import com.example.chessmentor.data.local.dao.UserDao
+import com.example.chessmentor.domain.entity.AnalyzedMove
+import com.example.chessmentor.domain.entity.Exercise
+import com.example.chessmentor.domain.entity.ExerciseAttempt
+import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.domain.entity.Mistake
+import com.example.chessmentor.domain.entity.User
 
 @Database(
     entities = [
@@ -21,7 +29,7 @@ import com.example.chessmentor.data.local.TypeConverters as MyConverters
         ExerciseAttempt::class,
         AnalyzedMove::class
     ],
-    version = 5, // ✅ Версия 5
+    version = DatabaseMigrations.CURRENT_VERSION,
     exportSchema = false
 )
 @TypeConverters(MyConverters::class)
@@ -40,85 +48,55 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
-        // ==================== МИГРАЦИИ ====================
-
-        private val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("""
-                    CREATE TABLE IF NOT EXISTS analyzed_moves (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        gameId INTEGER NOT NULL,
-                        moveIndex INTEGER NOT NULL,
-                        moveNumber INTEGER NOT NULL,
-                        color TEXT NOT NULL,
-                        quality TEXT NOT NULL,
-                        san TEXT NOT NULL,
-                        bestMove TEXT,
-                        evalBefore INTEGER NOT NULL,
-                        evalAfter INTEGER NOT NULL,
-                        evalLoss INTEGER NOT NULL,
-                        comment TEXT,
-                        FOREIGN KEY (gameId) REFERENCES games(id) ON DELETE CASCADE
-                    )
-                """.trimIndent())
-                database.execSQL("CREATE INDEX IF NOT EXISTS index_analyzed_moves_gameId ON analyzed_moves(gameId)")
-            }
-        }
-
-        private val MIGRATION_3_4 = object : Migration(3, 4) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE games ADD COLUMN evaluationsJson TEXT DEFAULT NULL")
-            }
-        }
-
         /**
-         * Получить экземпляр базы данных (Singleton)
+         * Получить экземпляр базы данных (Singleton).
+         *
+         * При обновлении схемы применяются только явные недеструктивные миграции
+         * ([DatabaseMigrations.ALL_MIGRATIONS]) в режиме журналирования WAL;
+         * деструктивный откат разрешён исключительно при понижении версии APK (downgrade),
+         * чтобы обновление приложения никогда не уничтожало партии и прогресс пользователя.
          */
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                Log.d(TAG, "Creating new database instance")
-
-                val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    DATABASE_NAME
-                )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
-                    // ✅ Разрешаем деструктивную миграцию, если автоматическая не сработает
-                    .fallbackToDestructiveMigration()
-                    .addCallback(DatabaseCallback())
-                    .build()
-
-                INSTANCE = instance
-                Log.d(TAG, "Database instance created successfully")
-                instance
+                INSTANCE ?: buildDatabase(context.applicationContext).also { INSTANCE = it }
             }
         }
 
-        /**
-         * Очистить instance (для тестирования)
-         */
+        private fun buildDatabase(appContext: Context): AppDatabase {
+            Log.d(TAG, "Creating database instance (target version ${DatabaseMigrations.CURRENT_VERSION})")
+            return Room.databaseBuilder(
+                appContext,
+                AppDatabase::class.java,
+                DATABASE_NAME
+            )
+                .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
+                .addMigrations(*DatabaseMigrations.ALL_MIGRATIONS)
+                .fallbackToDestructiveMigrationOnDowngrade()
+                .addCallback(DatabaseCallback())
+                .build()
+        }
+
+        /** Очистить singleton-ссылку (для тестирования). */
         fun clearInstance() {
             INSTANCE = null
         }
 
-        /**
-         * Callback для событий базы данных
-         */
         private class DatabaseCallback : RoomDatabase.Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
-                Log.d(TAG, "Database created for the first time, version: ${db.version}")
+                Log.i(TAG, "Database created, schema version: ${db.version}")
             }
 
             override fun onOpen(db: SupportSQLiteDatabase) {
                 super.onOpen(db)
-                Log.d(TAG, "Database opened, version: ${db.version}")
+                // Гарантируем каскадное удаление зависимых строк при каждом открытии соединения
+                db.execSQL("PRAGMA foreign_keys = ON")
+                Log.d(TAG, "Database opened, schema version: ${db.version}")
             }
 
             override fun onDestructiveMigration(db: SupportSQLiteDatabase) {
                 super.onDestructiveMigration(db)
-                Log.w(TAG, "⚠️ Destructive migration performed! All data was lost.")
+                Log.w(TAG, "Destructive downgrade migration performed to schema version ${db.version}")
             }
         }
     }

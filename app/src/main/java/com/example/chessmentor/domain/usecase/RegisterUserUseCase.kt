@@ -30,7 +30,7 @@ class RegisterUserUseCase(
 
     suspend fun execute(input: Input): Result {
         val nickname = input.nickname.trim()
-        val email = input.email.trim()
+        val email = input.email.trim().lowercase(java.util.Locale.ROOT)
 
         if (nickname.length < 3) {
             return Result.Error("Никнейм должен быть не менее 3 символов")

@@ -9,6 +9,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -34,14 +36,17 @@ class MainActivity : ComponentActivity() {
 
         Log.i("CPU_ARCH", "ABI: ${Build.SUPPORTED_ABIS.joinToString()}")
 
-        // Прогреваем движок в фоне только при первом запуске Activity (init() идемпотентен)
+        // Восстанавливаем сохранённую сессию и проверяем целостность БД при холодном старте
+        gameViewModel.restoreSessionIfNeeded()
+
+        // Прогреваем Stockfish и проверяем/скачиваем NNUE в фоне (статус транслируется в UI)
         if (savedInstanceState == null) {
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
                     val initialized = container.chessEngine.init()
                     Log.i("MainActivity", "Chess engine initialized: $initialized")
                 } catch (e: CancellationException) {
-                    throw e
+                    Log.i("MainActivity", "Chess engine startup init cancelled")
                 } catch (e: Exception) {
                     Log.e("MainActivity", "Failed to init engine", e)
                 }
@@ -49,7 +54,8 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            ChessMentorTheme {
+            val themeMode by container.sessionRepository.themeMode.collectAsState()
+            ChessMentorTheme(themeMode = themeMode) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background

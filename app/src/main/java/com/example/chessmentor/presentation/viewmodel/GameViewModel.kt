@@ -12,14 +12,38 @@ import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.pgn.PgnParser
+import com.example.chessmentor.domain.session.SessionState
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.domain.usecase.UploadGameUseCase
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/**
+ * Живой предпросмотр вставленного PGN или выбранного `.pgn`-файла.
+ */
+data class PgnImportPreview(
+    val totalGames: Int,
+    val validGamesCount: Int,
+    val singleParsed: PgnParser.ParsedPgnGame? = null,
+    val singleError: String? = null,
+    val duplicateExistingGame: Game? = null,
+    val autoDetectedColor: ChessColor? = null,
+    val batchSampleLines: List<String> = emptyList(),
+    val batchAutoColorCount: Int = 0,
+    val batchDuplicatesCount: Int = 0,
+    val truncatedCount: Int = 0,
+    val sourceFileName: String? = null
+) {
+    val isBatch: Boolean get() = totalGames > 1
+}
 
 /**
  * ViewModel для управления партиями и текущей пользовательской сессией
@@ -34,7 +58,13 @@ class GameViewModel(
 
     // ==================== СОСТОЯНИЯ ====================
 
+    var sessionState = mutableStateOf<SessionState>(SessionState.Restoring)
+        private set
+
     var currentUser = mutableStateOf<User?>(null)
+
+    var lastLoginEmail = mutableStateOf(container.sessionRepository.getLastLoginEmail())
+        private set
 
     val userGames = mutableStateListOf<Game>()
 
@@ -53,6 +83,9 @@ class GameViewModel(
     var pgnInput = mutableStateOf("")
     var selectedColor = mutableStateOf(ChessColor.WHITE)
     var timeControl = mutableStateOf("")
+    var chessUsernameHint = mutableStateOf("")
+    var colorAutoDetected = mutableStateOf(false)
+    var importPreview = mutableStateOf<PgnImportPreview?>(null)
 
     var message = mutableStateOf("")
     var isLoading = mutableStateOf(false)
@@ -62,16 +95,84 @@ class GameViewModel(
         _analysisProgress.asStateFlow()
 
     private var analysisJob: Job? = null
+    private var activeAnalysisGameId: Long? = null
+    private var previewJob: Job? = null
+    private var lastSourceFileName: String? = null
+    private var sessionRestoreStarted = false
 
     // ==================== ПУБЛИЧНЫЕ МЕТОДЫ ====================
 
     /**
-     * Установить текущего пользователя и загрузить его данные
+     * Восстанавливает сохранённую пользовательскую сессию при холодном перезапуске приложения
+     * и запускает разовую проверку согласованности БД (сброс прерванных `IN_PROGRESS` партий
+     * и очистка осиротевших персональных задач).
      */
-    fun setUser(user: User) {
+    fun restoreSessionIfNeeded() {
+        if (sessionRestoreStarted) return
+        sessionRestoreStarted = true
+
+        // Если пользователь уже успел войти вручную, просто отмечаем сессию активной
+        currentUser.value?.let { existing ->
+            sessionState.value = SessionState.Authenticated(existing)
+            return
+        }
+
+        val savedUserId = container.sessionRepository.getActiveUserId()
+        lastLoginEmail.value = container.sessionRepository.getLastLoginEmail()
+
+        if (savedUserId == null) {
+            sessionState.value = SessionState.Unauthenticated
+            viewModelScope.launch {
+                container.databaseMaintenance.runStartupChecksOnce()
+            }
+            return
+        }
+
+        sessionState.value = SessionState.Restoring
+        viewModelScope.launch {
+            try {
+                // Сначала восстанавливаем согласованность статусов партий, затем читаем профиль
+                container.databaseMaintenance.runStartupChecksOnce()
+                val restoredUser = withContext(Dispatchers.IO) {
+                    container.userRepository.findById(savedUserId)
+                }
+                if (restoredUser != null) {
+                    setUser(restoredUser, persistSession = true)
+                    Log.i(TAG, "Restored active session for user id=${restoredUser.id}")
+                } else {
+                    Log.w(TAG, "Saved session user id=$savedUserId not found in DB, clearing")
+                    container.sessionRepository.clearActiveSession()
+                    sessionState.value = SessionState.Unauthenticated
+                }
+            } catch (e: CancellationException) {
+                sessionRestoreStarted = false
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to restore session", e)
+                sessionState.value = SessionState.Unauthenticated
+            }
+        }
+    }
+
+    /**
+     * Установить текущего пользователя, сохранить сессию и загрузить его данные.
+     */
+    fun setUser(user: User, persistSession: Boolean = true) {
         val previousId = currentUser.value?.id
         currentUser.value = user
-        if (previousId != user.id || userGames.isEmpty()) {
+        sessionState.value = SessionState.Authenticated(user)
+        lastLoginEmail.value = user.email
+
+        val uid = user.id
+        if (persistSession && uid != null) {
+            container.sessionRepository.saveActiveSession(uid, user.email)
+        }
+
+        if (previousId != uid || chessUsernameHint.value.isBlank()) {
+            val savedHint = uid?.let { container.sessionRepository.getChessUsernameHint(it) }
+            chessUsernameHint.value = savedHint ?: user.nickname
+        }
+        if (previousId != uid || userGames.isEmpty()) {
             loadUserData()
         }
     }
@@ -80,23 +181,211 @@ class GameViewModel(
      * Обновить данные текущего пользователя (после сохранения настроек или изменения рейтинга)
      */
     fun updateCurrentUser(user: User) {
+        val oldNick = currentUser.value?.nickname
         currentUser.value = user
+        sessionState.value = SessionState.Authenticated(user)
+        lastLoginEmail.value = user.email
+        user.id?.let { uid ->
+            container.sessionRepository.saveActiveSession(uid, user.email)
+            if (chessUsernameHint.value.isBlank() || chessUsernameHint.value == oldNick) {
+                chessUsernameHint.value = user.nickname
+                container.sessionRepository.saveChessUsernameHint(uid, user.nickname)
+            }
+        }
     }
 
     /**
-     * Выход из аккаунта с очисткой сессии
+     * Выход из аккаунта с полной очисткой активной сессии в памяти и `SharedPreferences`.
      */
     fun logout() {
         cancelAnalysis()
+        previewJob?.cancel()
+        container.sessionRepository.clearActiveSession()
+        lastLoginEmail.value = container.sessionRepository.getLastLoginEmail()
         currentUser.value = null
+        sessionState.value = SessionState.Unauthenticated
         userGames.clear()
         _userMistakes.clear()
         _mistakesByGameId.value = emptyMap()
         closeGameView()
-        pgnInput.value = ""
-        timeControl.value = ""
+        clearImportForm()
+        chessUsernameHint.value = ""
         message.value = ""
         isLoading.value = false
+    }
+
+    fun clearImportForm() {
+        previewJob?.cancel()
+        pgnInput.value = ""
+        timeControl.value = ""
+        colorAutoDetected.value = false
+        importPreview.value = null
+        lastSourceFileName = null
+    }
+
+    fun selectPlayerColorManually(color: ChessColor) {
+        selectedColor.value = color
+        colorAutoDetected.value = false
+    }
+
+    fun onChessUsernameHintChanged(hint: String) {
+        chessUsernameHint.value = hint
+        currentUser.value?.id?.let { uid ->
+            container.sessionRepository.saveChessUsernameHint(uid, hint)
+        }
+        if (pgnInput.value.isNotBlank()) {
+            schedulePgnPreview(pgnInput.value, lastSourceFileName, autoApplyFields = true)
+        }
+    }
+
+    /**
+     * Обновляет введённый PGN и асинхронно запускает предпросмотр, валидацию,
+     * автоопределение цвета и проверку на дубликат.
+     */
+    fun onPgnInputChanged(
+        newPgn: String,
+        sourceFileName: String? = null,
+        forceAutoApply: Boolean = false
+    ) {
+        val wasBlank = pgnInput.value.isBlank()
+        pgnInput.value = newPgn
+        if (sourceFileName != null || newPgn.isBlank()) {
+            lastSourceFileName = sourceFileName
+        }
+        if (newPgn.isBlank()) {
+            previewJob?.cancel()
+            importPreview.value = null
+            colorAutoDetected.value = false
+            return
+        }
+        val shouldAutoApply = forceAutoApply || wasBlank || sourceFileName != null
+        schedulePgnPreview(newPgn, lastSourceFileName, autoApplyFields = shouldAutoApply)
+    }
+
+    private fun schedulePgnPreview(
+        rawPgn: String,
+        sourceFileName: String?,
+        autoApplyFields: Boolean
+    ) {
+        previewJob?.cancel()
+        val userSnapshot = currentUser.value
+        val hintSnapshot = chessUsernameHint.value
+        val existingSnapshot = userGames.toList()
+
+        previewJob = viewModelScope.launch {
+            if (!autoApplyFields) {
+                delay(180L)
+            }
+            val preview = withContext(Dispatchers.Default) {
+                buildPreviewInternal(rawPgn, userSnapshot, hintSnapshot, existingSnapshot, sourceFileName)
+            }
+            importPreview.value = preview
+
+            if (autoApplyFields && preview != null && !preview.isBatch) {
+                preview.autoDetectedColor?.let { detected ->
+                    selectedColor.value = detected
+                    colorAutoDetected.value = true
+                }
+                val parsedTc = preview.singleParsed?.metadata?.timeControl?.fullLabel
+                if (!parsedTc.isNullOrBlank()) {
+                    timeControl.value = parsedTc
+                }
+            }
+        }
+    }
+
+    private fun buildPreviewInternal(
+        rawPgn: String,
+        user: User?,
+        usernameHint: String,
+        existingGames: List<Game>,
+        sourceFileName: String?
+    ): PgnImportPreview? {
+        val trimmed = rawPgn.trim()
+        if (trimmed.isEmpty()) return null
+
+        val blocks = PgnParser.splitGames(trimmed)
+        if (blocks.isEmpty()) return null
+
+        val candidateNames = buildList {
+            usernameHint.trim().takeIf { it.isNotEmpty() }?.let(::add)
+            user?.nickname?.trim()?.takeIf { it.isNotEmpty() }?.let(::add)
+            user?.email?.substringBefore('@')?.trim()?.takeIf { it.length >= 3 }?.let(::add)
+        }
+
+        val existingByFingerprint = HashMap<String, Game>()
+        for (g in existingGames) {
+            PgnParser.computeFingerprintForStoredPgn(g.pgnData)?.let { fp ->
+                existingByFingerprint.putIfAbsent(fp, g)
+            }
+        }
+
+        if (blocks.size == 1) {
+            return when (val res = PgnParser.parseAndValidate(blocks[0])) {
+                is PgnParser.ParseResult.Success -> {
+                    val parsed = res.game
+                    val autoColor = PgnParser.detectPlayerColor(parsed.metadata, candidateNames)
+                    val dup = existingByFingerprint[parsed.fingerprint]
+                    PgnImportPreview(
+                        totalGames = 1,
+                        validGamesCount = 1,
+                        singleParsed = parsed,
+                        autoDetectedColor = autoColor,
+                        duplicateExistingGame = dup,
+                        sourceFileName = sourceFileName
+                    )
+                }
+                is PgnParser.ParseResult.Failure -> {
+                    PgnImportPreview(
+                        totalGames = 1,
+                        validGamesCount = 0,
+                        singleError = res.errorMessage,
+                        sourceFileName = sourceFileName
+                    )
+                }
+            }
+        }
+
+        // Мульти-PGN архив
+        val truncated = (blocks.size - UploadGameUseCase.MAX_BATCH_GAMES).coerceAtLeast(0)
+        val limited = blocks.take(UploadGameUseCase.MAX_BATCH_GAMES)
+        val seenFp = HashSet(existingByFingerprint.keys)
+        var validCount = 0
+        var dupCount = 0
+        var autoColorCount = 0
+        val samples = mutableListOf<String>()
+
+        for (block in limited) {
+            val res = PgnParser.parseAndValidate(block)
+            if (res is PgnParser.ParseResult.Success) {
+                val g = res.game
+                if (!seenFp.add(g.fingerprint)) {
+                    dupCount++
+                    continue
+                }
+                validCount++
+                if (PgnParser.detectPlayerColor(g.metadata, candidateNames) != null) {
+                    autoColorCount++
+                }
+                if (samples.size < 4) {
+                    val w = g.metadata.whiteName ?: "Белые"
+                    val b = g.metadata.blackName ?: "Чёрные"
+                    val resSym = g.metadata.result.displaySymbol()
+                    val ecoPart = g.effectiveEco?.let { " · $it" }.orEmpty()
+                    samples.add("$w – $b ($resSym$ecoPart)")
+                }
+            }
+        }
+
+        return PgnImportPreview(
+            totalGames = blocks.size,
+            validGamesCount = validCount,
+            batchSampleLines = samples,
+            batchAutoColorCount = autoColorCount,
+            batchDuplicatesCount = dupCount,
+            truncatedCount = truncated,
+            sourceFileName = sourceFileName
+        )
     }
 
     /**
@@ -142,9 +431,9 @@ class GameViewModel(
     }
 
     /**
-     * Загрузить и анализировать партию С ПРОГРЕССОМ
+     * Загрузить одну партию и сразу запустить анализ Stockfish с прогрессом.
      */
-    fun uploadAndAnalyzeGame() {
+    fun uploadAndAnalyzeGame(allowDuplicate: Boolean = false) {
         val userId = currentUser.value?.id
         if (userId == null) {
             message.value = "❌ Необходимо войти в систему"
@@ -154,9 +443,10 @@ class GameViewModel(
         val pgn = pgnInput.value.trim()
         val color = selectedColor.value
         val time = timeControl.value.trim().ifEmpty { null }
+        val hint = chessUsernameHint.value.trim().ifEmpty { null }
 
         if (pgn.isBlank()) {
-            message.value = "❌ Введите PGN партии"
+            message.value = "❌ Введите или вставьте PGN партии"
             return
         }
 
@@ -170,10 +460,16 @@ class GameViewModel(
                     pgnData = pgn,
                     playerColor = color,
                     timeControl = time,
-                    playedAt = System.currentTimeMillis()
+                    playedAt = System.currentTimeMillis(),
+                    playerNameHint = hint,
+                    allowDuplicate = allowDuplicate
                 )
 
-                when (val uploadResult = container.uploadGameUseCase.execute(input)) {
+                val uploadResult = withContext(Dispatchers.IO) {
+                    container.uploadGameUseCase.execute(input)
+                }
+
+                when (uploadResult) {
                     is UploadGameUseCase.Result.Success -> {
                         val gameId = uploadResult.game.id
                         if (gameId == null) {
@@ -182,10 +478,13 @@ class GameViewModel(
                             return@launch
                         }
 
-                        pgnInput.value = ""
-                        timeControl.value = ""
-
+                        clearImportForm()
                         analyzeGameWithProgress(gameId)
+                    }
+
+                    is UploadGameUseCase.Result.Duplicate -> {
+                        message.value = "❌ Эта партия уже есть в вашей библиотеке"
+                        isLoading.value = false
                     }
 
                     is UploadGameUseCase.Result.Error -> {
@@ -194,11 +493,176 @@ class GameViewModel(
                     }
                 }
             } catch (e: CancellationException) {
+                isLoading.value = false
                 throw e
             } catch (e: Exception) {
                 message.value = "❌ Ошибка: ${e.message}"
                 isLoading.value = false
                 Log.e(TAG, "Error uploading game", e)
+            }
+        }
+    }
+
+    /**
+     * Сохранить одну партию в библиотеку без немедленного запуска анализа.
+     */
+    fun saveGameWithoutAnalysis(
+        allowDuplicate: Boolean = false,
+        onSavedToLibrary: () -> Unit = {}
+    ) {
+        val userId = currentUser.value?.id
+        if (userId == null) {
+            message.value = "❌ Необходимо войти в систему"
+            return
+        }
+
+        val pgn = pgnInput.value.trim()
+        if (pgn.isBlank()) {
+            message.value = "❌ Введите или вставьте PGN партии"
+            return
+        }
+
+        val color = selectedColor.value
+        val time = timeControl.value.trim().ifEmpty { null }
+        val hint = chessUsernameHint.value.trim().ifEmpty { null }
+
+        isLoading.value = true
+        message.value = ""
+
+        viewModelScope.launch {
+            try {
+                val res = withContext(Dispatchers.IO) {
+                    container.uploadGameUseCase.execute(
+                        UploadGameUseCase.Input(
+                            userId = userId,
+                            pgnData = pgn,
+                            playerColor = color,
+                            timeControl = time,
+                            playedAt = System.currentTimeMillis(),
+                            playerNameHint = hint,
+                            allowDuplicate = allowDuplicate
+                        )
+                    )
+                }
+                isLoading.value = false
+                when (res) {
+                    is UploadGameUseCase.Result.Success -> {
+                        clearImportForm()
+                        loadUserData()
+                        message.value = "✅ Партия добавлена в библиотеку (можно разобрать в любой момент)"
+                        onSavedToLibrary()
+                    }
+                    is UploadGameUseCase.Result.Duplicate -> {
+                        message.value = "❌ Эта партия уже есть в вашей библиотеке"
+                    }
+                    is UploadGameUseCase.Result.Error -> {
+                        message.value = "❌ ${res.message}"
+                    }
+                }
+            } catch (e: CancellationException) {
+                isLoading.value = false
+                throw e
+            } catch (e: Exception) {
+                isLoading.value = false
+                message.value = "❌ Ошибка сохранения: ${e.message}"
+                Log.e(TAG, "Error saving game without analysis", e)
+            }
+        }
+    }
+
+    /**
+     * Пакетный импорт мульти-PGN файла или текста в библиотеку пользователя.
+     */
+    fun importBatchGames(
+        analyzeNewest: Boolean = false,
+        onImportedToLibrary: () -> Unit = {}
+    ) {
+        val userId = currentUser.value?.id
+        if (userId == null) {
+            message.value = "❌ Необходимо войти в систему"
+            return
+        }
+
+        val rawArchive = pgnInput.value.trim()
+        if (rawArchive.isBlank()) {
+            message.value = "❌ Вставьте PGN или выберите файл .pgn"
+            return
+        }
+
+        val fallbackColor = selectedColor.value
+        val manualTc = timeControl.value.trim().ifEmpty { null }
+        val hint = chessUsernameHint.value.trim().ifEmpty { null }
+
+        isLoading.value = true
+        message.value = ""
+
+        viewModelScope.launch {
+            try {
+                val batchRes = withContext(Dispatchers.IO) {
+                    container.uploadGameUseCase.executeBatch(
+                        UploadGameUseCase.BatchInput(
+                            userId = userId,
+                            rawPgnArchive = rawArchive,
+                            fallbackColor = fallbackColor,
+                            manualTimeControl = manualTc,
+                            playerNameHint = hint,
+                            autoDetectColor = true,
+                            skipDuplicates = true
+                        )
+                    )
+                }
+
+                when (batchRes) {
+                    is UploadGameUseCase.BatchResult.Success -> {
+                        val importedCount = batchRes.importedGames.size
+                        if (importedCount == 0) {
+                            isLoading.value = false
+                            message.value = "ℹ️ Все партии из файла (${batchRes.skippedDuplicates}) уже есть в библиотеке"
+                            return@launch
+                        }
+
+                        clearImportForm()
+                        loadUserData()
+
+                        val details = buildList {
+                            add("импортировано: $importedCount")
+                            if (batchRes.skippedDuplicates > 0) {
+                                add("дубликатов пропущено: ${batchRes.skippedDuplicates}")
+                            }
+                            if (batchRes.failedCount > 0) {
+                                add("с ошибками: ${batchRes.failedCount}")
+                            }
+                            if (batchRes.truncatedCount > 0) {
+                                add("лимит ${UploadGameUseCase.MAX_BATCH_GAMES} за раз")
+                            }
+                        }.joinToString(" · ")
+
+                        val newestId = batchRes.importedGames
+                            .maxByOrNull { it.playedAt }
+                            ?.id
+
+                        if (analyzeNewest && newestId != null) {
+                            message.value = "✅ Пакет загружен ($details). Запускаем анализ последней партии..."
+                            analyzeGameWithProgress(newestId)
+                        } else {
+                            isLoading.value = false
+                            message.value = "✅ Готово — $details"
+                            onImportedToLibrary()
+                        }
+                    }
+
+                    is UploadGameUseCase.BatchResult.Error -> {
+                        isLoading.value = false
+                        message.value = "❌ ${batchRes.message}"
+                    }
+                }
+            } catch (e: CancellationException) {
+                isLoading.value = false
+                throw e
+            } catch (e: Exception) {
+                isLoading.value = false
+                message.value = "❌ Ошибка импорта: ${e.message}"
+                Log.e(TAG, "Error importing PGN batch", e)
             }
         }
     }
@@ -213,6 +677,7 @@ class GameViewModel(
         }
 
         isLoading.value = true
+        activeAnalysisGameId = gameId
         analysisJob = viewModelScope.launch {
             try {
                 container.analyzeGameUseCase.executeWithProgress(
@@ -242,10 +707,23 @@ class GameViewModel(
                                         evaluations = result.evaluations
                                     )
 
-                                    val errorsCount = result.analyzedMoves.count { it.isMistake() }
-                                    val goodMovesCount = result.analyzedMoves.count { it.isGoodMove() }
-                                    message.value =
-                                        "✅ Анализ завершён! Ошибок: $errorsCount, хороших ходов: $goodMovesCount"
+                                    val pColor = result.game.playerColor
+                                    val playerMoves = result.analyzedMoves.filter { it.color == pColor }
+                                    val opponentMoves = result.analyzedMoves.filter { it.color == pColor.opposite() }
+                                    val errorsCount = playerMoves.count { it.isMistake() }
+                                    val playerAcc = result.game.accuracy
+                                    val oppAccText = if (opponentMoves.isNotEmpty()) {
+                                        val oppAcc = com.example.chessmentor.domain.analysis.GameMoveClassifier
+                                            .calculateGameAccuracy(result.analyzedMoves, pColor.opposite())
+                                        " · соперник: ${String.format(java.util.Locale.US, "%.1f", oppAcc)}%"
+                                    } else {
+                                        ""
+                                    }
+                                    message.value = if (playerAcc != null) {
+                                        "✅ Точность: ${String.format(java.util.Locale.US, "%.1f", playerAcc)}%$oppAccText (ошибок: $errorsCount)"
+                                    } else {
+                                        "✅ Анализ завершён! Ошибок: $errorsCount"
+                                    }
 
                                     Log.i(
                                         TAG,
@@ -279,6 +757,10 @@ class GameViewModel(
                 )
                 message.value = "❌ Ошибка анализа: ${e.message}"
                 Log.e(TAG, "Analysis flow crashed", e)
+            } finally {
+                if (activeAnalysisGameId == gameId) {
+                    activeAnalysisGameId = null
+                }
             }
         }
     }
@@ -290,8 +772,45 @@ class GameViewModel(
         container.chessEngine.stop()
         analysisJob?.cancel()
         analysisJob = null
+        activeAnalysisGameId = null
         isLoading.value = false
         _analysisProgress.value = null
+    }
+
+    /**
+     * Повторить загрузку/инициализацию Stockfish и его нейросети NNUE в `viewModelScope`,
+     * чтобы процесс не прерывался при повороте экрана или смене вкладки.
+     */
+    fun retryEngineInit(forceRedownload: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                container.chessEngine.retryInit(forceRedownload = forceRedownload)
+            } catch (e: CancellationException) {
+                Log.i(TAG, "Engine retry cancelled")
+            } catch (e: Exception) {
+                Log.e(TAG, "Engine retry failed", e)
+            }
+        }
+    }
+
+    /**
+     * Запустить полную проверку SHA-256 установленного файла NNUE.
+     */
+    fun verifyEngineNetwork() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                container.chessEngine.verifyNetwork()
+            } catch (e: CancellationException) {
+                Log.i(TAG, "NNUE verification cancelled")
+            } catch (e: Exception) {
+                Log.e(TAG, "NNUE verification failed", e)
+            }
+        }
+    }
+
+    /** Приостановить активную загрузку нейросети NNUE. */
+    fun cancelEngineInit() {
+        container.chessEngine.cancelInit()
     }
 
     /**
@@ -382,8 +901,12 @@ class GameViewModel(
     }
 
     fun deleteGame(gameId: Long) {
+        if (activeAnalysisGameId == gameId) {
+            cancelAnalysis()
+        }
         viewModelScope.launch {
             try {
+                container.exerciseRepository.deleteBySourceGameId(gameId)
                 container.analyzedMoveRepository.deleteByGameId(gameId)
                 container.mistakeRepository.deleteByGameId(gameId)
                 container.gameRepository.deleteById(gameId)
@@ -397,7 +920,7 @@ class GameViewModel(
                 }
 
                 message.value = "✅ Партия удалена"
-                Log.d(TAG, "Game $gameId deleted")
+                Log.d(TAG, "Game $gameId and dependent data deleted")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

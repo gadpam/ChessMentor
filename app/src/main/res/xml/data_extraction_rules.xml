@@ -3,6 +3,7 @@
     <cloud-backup>
         <exclude domain="file" path="nnue" />
         <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="user_session.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="nnue" />

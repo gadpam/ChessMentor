@@ -24,8 +24,8 @@ class LoginUserUseCase(
     }
 
     suspend fun execute(input: Input): Result {
-        val normalizedEmail = input.email.trim()
-        if (normalizedEmail.isBlank()) {
+        val rawEmail = input.email.trim()
+        if (rawEmail.isBlank()) {
             return Result.Error("Email не может быть пустым")
         }
 
@@ -33,8 +33,12 @@ class LoginUserUseCase(
             return Result.Error("Пароль не может быть пустым")
         }
 
-        val user = userRepository.findByEmail(normalizedEmail)
-            ?: return Result.Error("Пользователь с таким email не найден")
+        val lowerEmail = rawEmail.lowercase(java.util.Locale.ROOT)
+        val user = userRepository.findByEmail(lowerEmail)
+            ?: if (lowerEmail != rawEmail) userRepository.findByEmail(rawEmail) else null
+        if (user == null) {
+            return Result.Error("Пользователь с таким email не найден")
+        }
 
         // PBKDF2 (310 000 итераций) выполняем вне главного потока, чтобы не блокировать UI
         val legacy = PasswordHasher.isLegacyHash(user.passwordHash)

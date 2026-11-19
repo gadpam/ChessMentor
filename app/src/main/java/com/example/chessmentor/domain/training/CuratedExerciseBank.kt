@@ -23,6 +23,9 @@ data class CuratedPuzzle(
     val pattern: TacticalPattern,
     val theme: TacticalTheme,
     val difficultyRating: Int,
+    val preFen: String? = null,
+    val prevMoveUci: String? = null,
+    val explanation: String? = null,
     val extraFeatures: List<String> = emptyList()
 ) {
     val isWhiteToMove: Boolean
@@ -40,6 +43,12 @@ data class CuratedPuzzle(
         val features = buildList {
             add(ExerciseMetadata.curatedIdTag(id))
             add(ExerciseMetadata.titleTag(title))
+            if (!prevMoveUci.isNullOrBlank()) {
+                add(ExerciseMetadata.prevMoveTag(prevMoveUci))
+            }
+            if (!preFen.isNullOrBlank() && !prevMoveUci.isNullOrBlank()) {
+                add(ExerciseMetadata.preFenTag(preFen))
+            }
             addAll(extraFeatures)
         }
         return Exercise(
@@ -83,6 +92,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.BACK_RANK_MATE,
             theme = TacticalTheme.MATE,
             difficultyRating = 15,
+            preFen = "r5k1/5ppp/8/8/8/8/P4PPP/3R2K1 b - - 0 1",
+            prevMoveUci = "a8a7",
+            explanation = "Ладья чёрных покинула 8-ю горизонталь, и у короля g8 нет форточки — 1. Rd8# решает мгновенно.",
             extraFeatures = listOf("WITH_CHECK", "MATE_PATTERN")
         ),
         CuratedPuzzle(
@@ -94,6 +106,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.BACK_RANK_MATE,
             theme = TacticalTheme.MATE,
             difficultyRating = 30,
+            preFen = "3r2k1/3r1ppp/8/8/8/8/P4PPP/2R3K1 w - - 0 1",
+            prevMoveUci = "a2a3",
+            explanation = "Сдвоенные ладьи по открытой линии d перегружают единственного защитника: 1... Rd1+ 2. Rxd1 Rxd1#.",
             extraFeatures = listOf("WITH_CHECK", "MATE_PATTERN")
         ),
         CuratedPuzzle(
@@ -105,6 +120,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.BACK_RANK_MATE,
             theme = TacticalTheme.MATE,
             difficultyRating = 50,
+            preFen = "1r4k1/5ppp/8/8/3Q4/q7/P4PPP/3R2K1 b - - 0 1",
+            prevMoveUci = "a3a2",
+            explanation = "Жертва ферзя 1. Qd8+! отвлекает единственного защитника 8-й горизонтали: 1... Rxd8 2. Rxd8#.",
             extraFeatures = listOf("WITH_CHECK", "SACRIFICE", "MATE_PATTERN")
         ),
         CuratedPuzzle(
@@ -116,6 +134,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.SMOTHERED_MATE,
             theme = TacticalTheme.MATE,
             difficultyRating = 68,
+            preFen = "r4r1k/4q1pp/7N/8/2Q5/8/5PPP/6K1 b - - 0 1",
+            prevMoveUci = "e7e5",
+            explanation = "Наследие Филидора: жертва 1. Qg8+! вынуждает 1... Rxg8 (король не бьёт из-за коня h6), запирая короля под 2. Nf7#.",
             extraFeatures = listOf("WITH_CHECK", "SACRIFICE", "MATE_PATTERN")
         ),
         CuratedPuzzle(
@@ -127,6 +148,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.ARABIAN_MATE,
             theme = TacticalTheme.MATE,
             difficultyRating = 22,
+            preFen = "3q3k/2R4p/5N2/8/8/8/5PPP/6K1 b - - 0 1",
+            prevMoveUci = "d8b8",
+            explanation = "Арабский мат: конь f6 одновременно защищает ладью на h7 и отнимает поле бегства g8 — 1. Rxh7#.",
             extraFeatures = listOf("WITH_CHECK", "WITH_CAPTURE", "MATE_PATTERN")
         ),
         CuratedPuzzle(
@@ -138,6 +162,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.ANASTASIA_MATE,
             theme = TacticalTheme.MATE,
             difficultyRating = 72,
+            preFen = "5r1k/4Nppp/8/7Q/8/q1R5/P4PPP/6K1 b - - 0 1",
+            prevMoveUci = "a3a2",
+            explanation = "Мат Анастасии: жертва 1. Qxh7+! вскрывает вертикаль h, а конь e7 держит поле g8 — после 1... Kxh7 следует 2. Rh3#.",
             extraFeatures = listOf("WITH_CHECK", "SACRIFICE", "MATE_PATTERN")
         ),
         CuratedPuzzle(
@@ -149,6 +176,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.BODEN_MATE,
             theme = TacticalTheme.MATE,
             difficultyRating = 76,
+            preFen = "2kr1b1r/pppnqppp/8/8/5B2/2Q5/PPP1BPPP/2KR4 b - - 0 1",
+            prevMoveUci = "c7c6",
+            explanation = "Мат Бодена: жертва 1. Qxc6+! bxc6 разрушает прикрытие короля, и перекрёстные слоны матуют ходом 2. Ba6#.",
             extraFeatures = listOf("WITH_CHECK", "SACRIFICE", "MATE_PATTERN")
         ),
         CuratedPuzzle(
@@ -160,6 +190,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.BACK_RANK_MATE,
             theme = TacticalTheme.MATE,
             difficultyRating = 62,
+            preFen = "4kb1r/p2nqppp/8/4p1B1/4P3/1Q6/PPP2PPP/2KR4 b - - 0 1",
+            prevMoveUci = "e7e6",
+            explanation = "Финал «Оперной партии» Морфи: 1. Qb8+! отвлекает коня от поля d8, и после 1... Nxb8 решает 2. Rd8#.",
             extraFeatures = listOf("WITH_CHECK", "SACRIFICE", "MATE_PATTERN")
         ),
         CuratedPuzzle(
@@ -171,6 +204,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.ANASTASIA_MATE,
             theme = TacticalTheme.MATE,
             difficultyRating = 80,
+            preFen = "3q2kr/5pp1/8/8/5n2/8/5PPP/3Q1RK1 w - - 0 1",
+            prevMoveUci = "d1c1",
+            explanation = "Атака Греко по линии h: 1... Ne2+ 2. Kh1 Rxh2+! 3. Kxh2 Qh4# — король полностью лишён прикрытия.",
             extraFeatures = listOf("WITH_CHECK", "SACRIFICE", "MATE_PATTERN")
         ),
 
@@ -186,6 +222,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.DOUBLE_CHECK,
             theme = TacticalTheme.DISCOVERED_ATTACK,
             difficultyRating = 84,
+            preFen = "rnb1kb1r/pp3ppp/2p2n2/4q3/4P3/3Q4/PPPB1PPP/2KR1BNR b - - 0 1",
+            prevMoveUci = "f6e4",
+            explanation = "Партия Рети — Тартаковер (1910): жертва 1. Qd8+! Kxd8 заманивает короля под двойной шах 2. Bg5+, завершая атаку матом.",
             extraFeatures = listOf("WITH_CHECK", "SACRIFICE", "MATE_PATTERN")
         ),
         CuratedPuzzle(
@@ -197,6 +236,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.DISCOVERED_CHECK,
             theme = TacticalTheme.DISCOVERED_ATTACK,
             difficultyRating = 48,
+            preFen = "6k1/3q1ppp/8/3B4/8/8/3R1PPP/6K1 b - - 0 1",
+            prevMoveUci = "d7d8",
+            explanation = "Ферзь d8 попал под рентген ладьи d2: вскрытый шах 1. Bxf7+! выигрывает темп, и после отхода короля падает ферзь — 2. Rxd8.",
             extraFeatures = listOf("WITH_CHECK", "WITH_CAPTURE", "WINS_QUEEN")
         ),
 
@@ -212,6 +254,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.FORK_KNIGHT,
             theme = TacticalTheme.FORK,
             difficultyRating = 20,
+            preFen = "1q2k3/ppp2ppp/8/3N4/8/8/PPP2PPP/6K1 b - - 0 1",
+            prevMoveUci = "b8a8",
+            explanation = "Король e8 и ферзь a8 оказались на полях одного цвета: вилка 1. Nc7+ форсированно выигрывает ферзя 2. Nxa8.",
             extraFeatures = listOf("WITH_CHECK", "FAMILY_FORK", "WINS_QUEEN")
         ),
         CuratedPuzzle(
@@ -223,6 +268,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.FORK_KNIGHT,
             theme = TacticalTheme.FORK,
             difficultyRating = 26,
+            preFen = "6k1/5pp1/7p/4n3/8/8/1Q4PP/R5K1 w - - 0 1",
+            prevMoveUci = "g1f2",
+            explanation = "Выход короля на f2 подставил его под королевскую вилку: 1... Nd3+ и 2... Nxb2 выигрывают чистого ферзя.",
             extraFeatures = listOf("WITH_CHECK", "FAMILY_FORK", "WINS_QUEEN")
         ),
         CuratedPuzzle(
@@ -234,6 +282,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.FORK_KNIGHT,
             theme = TacticalTheme.FORK,
             difficultyRating = 64,
+            preFen = "4rk2/1q3ppp/8/3N4/8/8/5PPP/4R1K1 b - - 0 1",
+            prevMoveUci = "b7a6",
+            explanation = "Завлечение под вилку: размен 1. Rxe8+ Kxe8 ставит короля на e8 точно под двойной удар 2. Nc7+ и 3. Nxa6.",
             extraFeatures = listOf("WITH_CHECK", "SACRIFICE", "FAMILY_FORK")
         ),
         CuratedPuzzle(
@@ -245,6 +296,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.FORK_PAWN,
             theme = TacticalTheme.FORK,
             difficultyRating = 24,
+            preFen = "4r1k1/p1p2pp1/2r4p/8/2PP4/1P4P1/5P1P/5RK1 b - - 0 1",
+            prevMoveUci = "e8e6",
+            explanation = "Обе ладьи чёрных встали на 6-ю горизонталь через клетку — тычок 1. d5 атакует обе сразу и выигрывает ладью.",
             extraFeatures = listOf("WINS_ROOK")
         ),
         CuratedPuzzle(
@@ -256,6 +310,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.FORK_BISHOP,
             theme = TacticalTheme.FORK,
             difficultyRating = 28,
+            preFen = "8/5pkp/2r3p1/8/5B2/8/5PPP/6K1 b - - 0 1",
+            prevMoveUci = "c6c3",
+            explanation = "Король g7 и незащищённая ладья c3 оказались на одной диагонали: 1. Be5+ с шахом забирает ладью 2. Bxc3.",
             extraFeatures = listOf("WITH_CHECK", "WINS_ROOK")
         ),
         CuratedPuzzle(
@@ -267,6 +324,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.FORK_QUEEN,
             theme = TacticalTheme.FORK,
             difficultyRating = 34,
+            preFen = "4k3/5ppp/8/6r1/8/3Q4/5PPP/6K1 b - - 0 1",
+            prevMoveUci = "g5h5",
+            explanation = "Незащищённая ладья h5 и раскрытый король e8 ловятся двойным ударом ферзя с шахом и последующим взятием на h5.",
             extraFeatures = listOf("WITH_CHECK", "WINS_ROOK")
         ),
         CuratedPuzzle(
@@ -278,6 +338,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.FORK_ROOK,
             theme = TacticalTheme.FORK,
             difficultyRating = 36,
+            preFen = "4r1k1/5pp1/7p/8/5P2/6KP/1B4P1/2R5 w - - 0 1",
+            prevMoveUci = "b2a3",
+            explanation = "Слон a3 остался без защиты на 3-й горизонтали с королём g3 — шах 1... Re3+ выигрывает фигуру.",
             extraFeatures = listOf("WITH_CHECK", "WINS_BISHOP")
         ),
 
@@ -293,6 +356,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.PIN_ABSOLUTE,
             theme = TacticalTheme.PIN,
             difficultyRating = 38,
+            preFen = "2r1k3/4qppp/8/8/8/6P1/5P1P/R4K2 b - - 0 1",
+            prevMoveUci = "e7e6",
+            explanation = "Ферзь e6 встал на открытую вертикаль перед собственным королём: 1. Re1 намертво связывает и выигрывает ферзя за ладью.",
             extraFeatures = listOf("TO_KING", "WINS_QUEEN")
         ),
         CuratedPuzzle(
@@ -304,6 +370,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.PIN_ABSOLUTE,
             theme = TacticalTheme.PIN,
             difficultyRating = 52,
+            preFen = "4k3/3q1ppp/8/8/8/8/4BPPP/4R1K1 b - - 0 1",
+            prevMoveUci = "d7e6",
+            explanation = "Вскрытие линии с темпом: 1. Bb5+! объявляет шах и одновременно включает ладью e1 против ферзя e6.",
             extraFeatures = listOf("WITH_CHECK", "TO_KING", "WINS_QUEEN")
         ),
         CuratedPuzzle(
@@ -315,6 +384,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.SKEWER,
             theme = TacticalTheme.PIN,
             difficultyRating = 40,
+            preFen = "4q3/5ppp/8/4k3/8/8/5PPP/R5K1 b - - 0 1",
+            prevMoveUci = "e5e4",
+            explanation = "Сквозной удар: 1. Re1+ вынуждает короля сойти с линии e, открывая путь к взятию ферзя 2. Rxe8.",
             extraFeatures = listOf("WITH_CHECK", "WINS_QUEEN")
         ),
         CuratedPuzzle(
@@ -326,6 +398,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.SKEWER,
             theme = TacticalTheme.PIN,
             difficultyRating = 44,
+            preFen = "6k1/4bppp/8/8/4K3/8/5PPP/Q7 w - - 0 1",
+            prevMoveUci = "e4e5",
+            explanation = "Король e5 встал на большую диагональ перед своим ферзём: 1... Bf6+ вынуждает отход короля и выигрывает ферзя 2... Bxa1.",
             extraFeatures = listOf("WITH_CHECK", "WINS_QUEEN")
         ),
 
@@ -341,6 +416,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.DEFLECTION,
             theme = TacticalTheme.TACTIC,
             difficultyRating = 56,
+            preFen = "8/5k1p/3p2q1/8/8/6QP/5PP1/4R1K1 b - - 0 1",
+            prevMoveUci = "g6g7",
+            explanation = "Ферзя g7 защищает только король f7: жертва 1. Re7+! отвлекает короля, и на 1... Kxe7 падает ферзь 2. Qxg7+.",
             extraFeatures = listOf("WITH_CHECK", "SACRIFICE", "WINS_QUEEN")
         ),
         CuratedPuzzle(
@@ -352,6 +430,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.REMOVING_DEFENDER,
             theme = TacticalTheme.TACTIC,
             difficultyRating = 58,
+            preFen = "3r2k1/5pp1/5n1p/8/8/5R1P/5PBK/8 b - - 0 1",
+            prevMoveUci = "d8d5",
+            explanation = "Устранение защитника: ладья d5 держится на одном коне f6 — 1. Rxf6! gxf6 и 2. Bxd5 даёт белым лишнюю фигуру.",
             extraFeatures = listOf("WITH_CAPTURE", "WINS_ROOK")
         ),
         CuratedPuzzle(
@@ -363,6 +444,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.PAWN_BREAKTHROUGH,
             theme = TacticalTheme.TACTIC,
             difficultyRating = 74,
+            preFen = "8/3P1k2/5q2/8/8/8/6PP/6K1 b - - 0 1",
+            prevMoveUci = "f6e6",
+            explanation = "Слабое превращение 1. d8=N+! объявляет королевскую вилку королю f7 и ферзю e6 и сразу решает исход.",
             extraFeatures = listOf("WITH_CHECK", "FAMILY_FORK", "UNDERPROMOTION")
         ),
         CuratedPuzzle(
@@ -374,6 +458,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.PAWN_BREAKTHROUGH,
             theme = TacticalTheme.TACTIC,
             difficultyRating = 46,
+            preFen = "3r2k1/1P3pp1/4r2p/8/8/7P/5PP1/3R2K1 b - - 0 1",
+            prevMoveUci = "e6f6",
+            explanation = "Уничтожение сторожа поля b8 с шахом: 1. Rxd8+ Kh7 освобождает пешке путь к превращению 2. b8=Q.",
             extraFeatures = listOf("WITH_CHECK", "WITH_CAPTURE", "PROMOTION")
         ),
 
@@ -389,6 +476,9 @@ object CuratedExerciseBank {
             pattern = TacticalPattern.HANGING_PIECE,
             theme = TacticalTheme.MATERIAL_LOSS,
             difficultyRating = 12,
+            preFen = "2r3k1/5ppp/8/8/4N3/7P/5PP1/6K1 w - - 0 1",
+            prevMoveUci = "e4c5",
+            explanation = "Конь c5 прыгнул на открытую линию c без единого защитника — 1... Rxc5 забирает чистую фигуру.",
             extraFeatures = listOf("WITH_CAPTURE", "WINS_KNIGHT")
         ),
 
@@ -398,13 +488,258 @@ object CuratedExerciseBank {
         CuratedPuzzle(
             id = "only_defense_back_rank",
             title = "Точная защита на 1-й горизонтали",
-            subtitle = "Отразите шах с сохранением решающего перевеса",
+            subtitle = "Отразите вторжение ладьи без потери перевеса",
             fen = "6k1/5ppp/8/8/3Q4/7P/5PP1/1q1r1RK1 w - - 0 1",
             solutionMoves = listOf("f1d1"),
             pattern = TacticalPattern.DEFENSIVE_MOVE,
             theme = TacticalTheme.KING_SAFETY,
             difficultyRating = 32,
-            extraFeatures = listOf("WITH_CAPTURE", "WINS_ROOK")
+            preFen = "6k1/5ppp/8/8/3Q4/7P/3r1PP1/1q3RK1 b - - 0 1",
+            prevMoveUci = "d2d1",
+            explanation = "Ферзь d4 контролирует поле d1 по вертикали: 1. Rxd1! забирает чистую ладью, а на 1... Qxd1+ решает 2. Qxd1 с лишним ферзём.",
+            extraFeatures = listOf("WITH_CAPTURE", "GOAL:DEFENSE")
+        ),
+        CuratedPuzzle(
+            id = "defense_battery_neutralize",
+            title = "Ликвидация матовой батареи",
+            subtitle = "Отразите двойную угрозу мата на g2 и потери ферзя",
+            fen = "7k/6pp/2b5/3Q2q1/8/7P/5PP1/5RK1 w - - 0 1",
+            solutionMoves = listOf("d5g5"),
+            pattern = TacticalPattern.DEFENSIVE_MOVE,
+            theme = TacticalTheme.KING_SAFETY,
+            difficultyRating = 28,
+            preFen = "7k/1b4pp/8/3Q2q1/8/7P/5PP1/5RK1 b - - 0 1",
+            prevMoveUci = "b7c6",
+            explanation = "Ходом 1... Bc6 чёрные напали на ферзя и создали угрозу мата Qxg2#, но забыли о защите самого ферзя — 1. Qxg5! снимает все угрозы.",
+            extraFeatures = listOf("WITH_CAPTURE", "GOAL:DEFENSE")
+        ),
+        CuratedPuzzle(
+            id = "defense_black_only_move_qd8",
+            title = "Хладнокровная защита 8-й горизонтали",
+            subtitle = "Отразите вторжение сдвоенных ладей",
+            fen = "3R2k1/5ppp/2b2q2/8/8/7P/5PP1/4R1K1 b - - 0 1",
+            solutionMoves = listOf("f6d8"),
+            pattern = TacticalPattern.DEFENSIVE_MOVE,
+            theme = TacticalTheme.KING_SAFETY,
+            difficultyRating = 30,
+            preFen = "6k1/5ppp/2b2q2/8/8/7P/5PP1/3RR1K1 w - - 0 1",
+            prevMoveUci = "d1d8",
+            explanation = "Слон c6 проигрывал бы на 1... Bxe8?? 2. Rxe8#, а точное 1... Qxd8! ликвидирует шахующую ладью и держит поле e8 под контролем.",
+            extraFeatures = listOf("WITH_CAPTURE", "GOAL:DEFENSE")
+        ),
+        CuratedPuzzle(
+            id = "defense_counter_back_rank",
+            title = "Встречный удар вместо пассивной защиты",
+            subtitle = "Опровергните связку по вертикали d",
+            fen = "3r2k1/5ppp/8/8/3q4/7P/3Q1PP1/4R1K1 w - - 0 1",
+            solutionMoves = listOf("d2d4", "d8d4", "e1e8"),
+            pattern = TacticalPattern.COUNTER_ATTACK,
+            theme = TacticalTheme.KING_SAFETY,
+            difficultyRating = 44,
+            preFen = "4r1k1/5ppp/8/8/3q4/7P/3Q1PP1/4R1K1 b - - 0 1",
+            prevMoveUci = "e8d8",
+            explanation = "Связав ферзя ходом 1... Rd8, чёрные ослабили свою 8-ю горизонталь: 1. Qxd4! использует слабость короля — на 1... Rxd4 следует 2. Re8#.",
+            extraFeatures = listOf("WITH_CAPTURE", "WITH_CHECK", "GOAL:DEFENSE")
+        ),
+        CuratedPuzzle(
+            id = "defense_black_f6_blocks_diagonal",
+            title = "Перекрытие смертельной диагонали",
+            subtitle = "Найдите единственную защиту от матовой батареи",
+            fen = "1r4k1/5p1p/6p1/8/3Q4/q1B4P/5PPK/8 b - - 0 1",
+            solutionMoves = listOf("f7f6"),
+            pattern = TacticalPattern.DEFENSIVE_MOVE,
+            theme = TacticalTheme.KING_SAFETY,
+            difficultyRating = 50,
+            preFen = "1r4k1/5p1p/6p1/8/3Q4/q6P/1B3PPK/8 w - - 0 1",
+            prevMoveUci = "b2c3",
+            explanation = "Батарея Qd4+Bc3 грозит матом на g7 и h8 (на 1... Qf8?? решает 2. Qh8#). Скромное 1... f6! наглухо перекрывает диагональ и сохраняет лишнюю ладью.",
+            extraFeatures = listOf("GOAL:DEFENSE")
+        ),
+        CuratedPuzzle(
+            id = "defense_stop_queening_with_check",
+            title = "Задержание проходной с темпом",
+            subtitle = "Не дайте пешке a2 превратиться в ферзя",
+            fen = "4B3/8/8/2bk4/5PP1/6K1/p7/8 w - - 0 1",
+            solutionMoves = listOf("e8f7", "d5d4", "f7a2"),
+            pattern = TacticalPattern.DEFENSIVE_MOVE,
+            theme = TacticalTheme.KING_SAFETY,
+            difficultyRating = 56,
+            preFen = "4B3/8/8/2bk4/5PP1/p5K1/8/8 b - - 0 1",
+            prevMoveUci = "a3a2",
+            explanation = "Слон c5 перекрывает доступ к полю a1, но промежуточный шах 1. Bf7+! выигрывает решающий темп и переводит слона на диагональ a2–g8: 2. Bxa2.",
+            extraFeatures = listOf("WITH_CHECK", "ENDGAME", "GOAL:DEFENSE")
+        ),
+        CuratedPuzzle(
+            id = "defense_forced_stalemate",
+            title = "Спасительный пат",
+            subtitle = "Спасите безнадёжную позицию при угрозе мата в 1 ход",
+            fen = "1R4bk/7p/8/8/6p1/6Pp/5q1P/7K w - - 0 1",
+            solutionMoves = listOf("b8g8"),
+            pattern = TacticalPattern.STALEMATE_TRICK,
+            theme = TacticalTheme.KING_SAFETY,
+            difficultyRating = 62,
+            preFen = "1R4bk/7p/8/8/6p1/6Pp/q6P/7K b - - 0 1",
+            prevMoveUci = "a2f2",
+            explanation = "Чёрные грозят матом Qf1#, а белый король и пешки полностью обездвижены: жертва 1. Rxg8+! вынуждает единственный ответ 1... Kxg8 — на доске пат!",
+            extraFeatures = listOf("WITH_CHECK", "WITH_CAPTURE", "ENDGAME", "GOAL:DEFENSE")
+        ),
+
+        // ============================================================
+        // ЗОРКОСТЬ ПАТТЕРНОВ И ГЛУБОКИЙ МНОГОХОДОВЫЙ РАСЧЁТ (1350 – 2150 Эло)
+        // ============================================================
+        CuratedPuzzle(
+            id = "vision_edge_file_mate",
+            title = "Матовая сеть на краю доски",
+            subtitle = "Используйте взаимодействие ладьи, коня и пешки против короля a7",
+            fen = "1r6/kpN5/1p1P2pp/1P6/8/5R2/4rPPP/6K1 w - - 0 2",
+            solutionMoves = listOf("f3a3"),
+            pattern = TacticalPattern.ARABIAN_MATE,
+            theme = TacticalTheme.MATE,
+            difficultyRating = 34,
+            preFen = "1r6/kpN4p/1p1P2p1/1P6/8/5R2/4rPPP/6K1 b - - 0 1",
+            prevMoveUci = "h7h6",
+            explanation = "Конь c7 отнимает поле a8, а собственные фигуры b8, b7 и b6 запирают короля: 1. Ra3# мгновенно завершает матовую сеть.",
+            extraFeatures = listOf("WITH_CHECK", "ENDS_IN_MATE")
+        ),
+        CuratedPuzzle(
+            id = "vision_bishop_skewer_a8",
+            title = "Сквозной удар по большой диагонали",
+            subtitle = "Используйте неудачную стоянку короля на диагонали h1–a8",
+            fen = "r7/p4ppp/1p6/3k4/8/6P1/PP2BP1P/6K1 w - - 1 2",
+            solutionMoves = listOf("e2f3", "d5d4", "f3a8"),
+            pattern = TacticalPattern.SKEWER,
+            theme = TacticalTheme.PIN,
+            difficultyRating = 36,
+            preFen = "r7/p4ppp/1p6/4k3/8/6P1/PP2BP1P/6K1 b - - 0 1",
+            prevMoveUci = "e5d5",
+            explanation = "Король d5 встал на открытую большую диагональ перед незащищённой ладьёй a8 — 1. Bf3+! вынуждает отход короля и 2. Bxa8 выигрывает ладью.",
+            extraFeatures = listOf("WITH_CHECK", "WITH_CAPTURE", "ENDGAME")
+        ),
+        CuratedPuzzle(
+            id = "vision_discovered_check_win_queen",
+            title = "Вскрытое нападение на ферзя",
+            subtitle = "Освободите вертикаль d с темпом шаха",
+            fen = "4r1k1/1p3ppp/p7/8/3q4/3B3P/PPP2PP1/3Q2K1 w - - 0 2",
+            solutionMoves = listOf("d3h7", "g8h7", "d1d4"),
+            pattern = TacticalPattern.DISCOVERED_ATTACK,
+            theme = TacticalTheme.DISCOVERED_ATTACK,
+            difficultyRating = 38,
+            preFen = "4r1k1/pp3ppp/8/8/3q4/3B3P/PPP2PP1/3Q2K1 b - - 0 1",
+            prevMoveUci = "a7a6",
+            explanation = "Жертва с шахом 1. Bh7+! открывает линию d для белого ферзя — чёрные обязаны реагировать на шах, и 2. Qxd4 забирает незащищённого ферзя.",
+            extraFeatures = listOf("WITH_CHECK", "WITH_CAPTURE", "WINS_QUEEN")
+        ),
+        CuratedPuzzle(
+            id = "vision_black_knight_royal_fork",
+            title = "Опорный пункт d4",
+            subtitle = "Накажите неточный выход белого короля королевской вилкой",
+            fen = "3r2k1/pp3ppp/8/2p2n2/8/5KP1/PPQ2P1P/7R b - - 1 1",
+            solutionMoves = listOf("f5d4", "f3e4", "d4c2"),
+            pattern = TacticalPattern.FORK_KNIGHT,
+            theme = TacticalTheme.FORK,
+            difficultyRating = 42,
+            preFen = "3r2k1/pp3ppp/8/2p2n2/8/6P1/PPQ1KP1P/7R w - - 0 1",
+            prevMoveUci = "e2f3",
+            explanation = "Пешка c5 надёжно прикрывает поле d4: прыжок 1... Nd4+! объявляет королевскую вилку королю f3 и ферзю c2, выигрывая ферзя.",
+            extraFeatures = listOf("WITH_CHECK", "WITH_CAPTURE", "WINS_QUEEN")
+        ),
+        CuratedPuzzle(
+            id = "defense_black_backrank_refutes_mate",
+            title = "Встречный шах опровергает вторжение",
+            subtitle = "Отразите выпад ферзя на f6 форсированным контрударом",
+            fen = "4r1k1/pp3p1p/5Qp1/8/8/7P/Pq3PP1/4R1K1 b - - 1 1",
+            solutionMoves = listOf("e8e1", "g1h2", "b2f6"),
+            pattern = TacticalPattern.COUNTER_ATTACK,
+            theme = TacticalTheme.KING_SAFETY,
+            difficultyRating = 54,
+            preFen = "4r1k1/pp3p1p/6p1/8/8/5Q1P/Pq3PP1/4R1K1 w - - 0 1",
+            prevMoveUci = "f3f6",
+            explanation = "Вторгаясь на f6, белые ослабили 1-ю горизонталь: промежуточное 1... Rxe1+! с шахом забирает ладью, и после 2. Kh2 Qxf6 чёрные забирают ещё и ферзя.",
+            extraFeatures = listOf("WITH_CHECK", "WITH_CAPTURE", "GOAL:DEFENSE")
+        ),
+        CuratedPuzzle(
+            id = "calc_black_overloaded_bishop_promo",
+            title = "Перегруженный слон d2",
+            subtitle = "Используйте перегрузку защитника между 1-й горизонталью и пешкой c2",
+            fen = "4r1k1/p4ppp/8/8/8/P7/2pB1PPP/4R1K1 b - - 0 1",
+            solutionMoves = listOf("e8e1", "d2e1", "c2c1q"),
+            pattern = TacticalPattern.OVERLOADING,
+            theme = TacticalTheme.TACTIC,
+            difficultyRating = 58,
+            preFen = "4r1k1/p4ppp/8/8/8/8/P1pB1PPP/4R1K1 w - - 0 1",
+            prevMoveUci = "a2a3",
+            explanation = "Слон d2 одновременно стережёт ладью e1 от мата и поле превращения c1: 1... Rxe1+! вынуждает 2. Bxe1, после чего 2... c1=Q решает партию.",
+            extraFeatures = listOf("WITH_CHECK", "WITH_CAPTURE", "PROMOTION")
+        ),
+        CuratedPuzzle(
+            id = "calc_rook_clearance_promotion",
+            title = "Жертва освобождения поля a8",
+            subtitle = "Уберите собственную ладью с пути проходной пешки с темпом",
+            fen = "R7/P1r4k/6p1/5p2/8/1p3PP1/7P/6K1 w - - 1 2",
+            solutionMoves = listOf("a8h8", "h7h8", "a7a8q"),
+            pattern = TacticalPattern.PAWN_BREAKTHROUGH,
+            theme = TacticalTheme.TACTIC,
+            difficultyRating = 62,
+            preFen = "R7/P1r3k1/6p1/5p2/8/1p3PP1/7P/6K1 b - - 0 1",
+            prevMoveUci = "g7h7",
+            explanation = "Ладья a8 сама мешает проходной пешке a7: парадоксальная жертва 1. Rh8+! Kxh8 освобождает поле превращения с темпом, и 2. a8=Q+ выигрывает.",
+            extraFeatures = listOf("WITH_CHECK", "SACRIFICE", "ENDGAME")
+        ),
+        CuratedPuzzle(
+            id = "calc_exchange_into_royal_fork",
+            title = "Завлечение ферзя под вилку",
+            subtitle = "Досчитайте трёхходовую комбинацию с выигрышем ферзя",
+            fen = "2r3k1/pq3ppp/1p6/3N4/8/6P1/P2Q1P1P/2R3K1 w - - 1 2",
+            solutionMoves = listOf("c1c8", "b7c8", "d5e7", "g8h8", "e7c8"),
+            pattern = TacticalPattern.DECOY,
+            theme = TacticalTheme.FORK,
+            difficultyRating = 68,
+            preFen = "r5k1/pq3ppp/1p6/3N4/8/6P1/P2Q1P1P/2R3K1 b - - 0 1",
+            prevMoveUci = "a8c8",
+            explanation = "Размен 1. Rxc8+! заманивает чёрного ферзя на поле c8 под удар коня: после единственного 1... Qxc8 следует 2. Ne7+! Kh8 3. Nxc8 с лишним ферзём.",
+            extraFeatures = listOf("WITH_CHECK", "WITH_CAPTURE", "WINS_QUEEN")
+        ),
+        CuratedPuzzle(
+            id = "calc_queen_sac_backrank_mate3",
+            title = "Каскадная жертва на 8-й горизонтали",
+            subtitle = "Рассчитайте форсированный мат в 3 хода",
+            fen = "2qr2k1/5ppp/pp6/3Q4/8/7P/PPP1RPP1/4R1K1 w - - 0 2",
+            solutionMoves = listOf("d5d8", "c8d8", "e2e8", "d8e8", "e1e8"),
+            pattern = TacticalPattern.BACK_RANK_MATE,
+            theme = TacticalTheme.MATE,
+            difficultyRating = 72,
+            preFen = "2qr2k1/p4ppp/1p6/3Q4/8/7P/PPP1RPP1/4R1K1 b - - 0 1",
+            prevMoveUci = "a7a6",
+            explanation = "У белых три тяжёлые фигуры против двух защитников 8-й горизонтали: 1. Qxd8+! Qxd8 2. Re8+! Qxe8 3. Rxe8# уничтожает оборону до мата.",
+            extraFeatures = listOf("WITH_CHECK", "WITH_CAPTURE", "SACRIFICE", "ENDS_IN_MATE")
+        ),
+        CuratedPuzzle(
+            id = "calc_black_philidor_mate3",
+            title = "Спёртый мат Филидора",
+            subtitle = "Проведите классическую жертву ферзя с матом в 3 хода",
+            fen = "6k1/pp3ppp/1q6/3Q4/8/8/PPP2nPP/4R1K1 b - - 1 1",
+            solutionMoves = listOf("f2h3", "g1h1", "b6g1", "e1g1", "h3f2"),
+            pattern = TacticalPattern.SMOTHERED_MATE,
+            theme = TacticalTheme.MATE,
+            difficultyRating = 78,
+            preFen = "6k1/pp3ppp/1q6/3Q4/8/8/PPP1RnPP/6K1 w - - 0 1",
+            prevMoveUci = "e2e1",
+            explanation = "Двойной шах 1... Nh3+! загоняет короля в угол (на 2. Kf1 — 2... Qf2#), затем блестящее 2... Qg1+!! вынуждает 3. Rxg1, и 3... Nf2# ставит спёртый мат.",
+            extraFeatures = listOf("WITH_CHECK", "SACRIFICE", "ENDS_IN_MATE")
+        ),
+        CuratedPuzzle(
+            id = "calc_pawn_breakthrough",
+            title = "Классический пешечный прорыв",
+            subtitle = "Проведите пешку в ферзи без помощи короля",
+            fen = "8/5ppp/8/5PPP/K7/8/k7/8 w - - 1 2",
+            solutionMoves = listOf("g5g6", "h7g6", "f5f6", "g7f6", "h5h6"),
+            pattern = TacticalPattern.PAWN_BREAKTHROUGH,
+            theme = TacticalTheme.TACTIC,
+            difficultyRating = 84,
+            preFen = "8/5ppp/8/5PPP/K7/8/1k6/8 b - - 0 1",
+            prevMoveUci = "b2a2",
+            explanation = "Жертва центральной пешки 1. g6! разрывает фалангу: на 1... hxg6 решает 2. f6! gxf6 3. h6!, а на 1... fxg6 — симметричное 2. h6! gxh6 3. f6! с неудержимым ферзём.",
+            extraFeatures = listOf("SACRIFICE", "ENDGAME")
         )
     )
 
@@ -414,14 +749,26 @@ object CuratedExerciseBank {
 
     /**
      * Детерминированно возвращает задачу дня для заданного [epochDay].
-     * Благодаря взаимной простоте [CYCLE_STEP] и размера списка, все 28 задач
-     * чередуются без повторов на протяжении 28 дней подряд.
+     * Шаг автоматически подбирается взаимно простым с размером банка, поэтому
+     * все задачи гарантированно чередуются без повторов на протяжении полного цикла.
      */
     fun getDailyPuzzle(epochDay: Long = currentEpochDay()): CuratedPuzzle {
         val count = puzzles.size
-        val index = Math.floorMod(epochDay * CYCLE_STEP + CYCLE_OFFSET, count.toLong()).toInt()
+        val step = coprimeStepFor(count)
+        val index = Math.floorMod(epochDay * step + CYCLE_OFFSET, count.toLong()).toInt()
         return puzzles[index]
     }
+
+    private fun coprimeStepFor(count: Int): Long {
+        if (count <= 1) return 1L
+        var candidate = CYCLE_STEP.coerceAtLeast(3)
+        while (gcd(candidate, count) != 1) {
+            candidate += 2
+        }
+        return candidate.toLong()
+    }
+
+    private tailrec fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
 
     fun findTemplateById(id: String): CuratedPuzzle? = puzzles.firstOrNull { it.id == id }
 

@@ -1,206 +1,281 @@
 // presentation/ui/components/EvaluationGraph.kt
-
 package com.example.chessmentor.presentation.ui.components
 
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.*
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.chessmentor.data.engine.ChessEngine
+import com.example.chessmentor.domain.analysis.GameMoveClassifier
+import com.example.chessmentor.domain.analysis.GameReviewHelper
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.KeyMoment
 import kotlin.math.abs
-import kotlin.math.exp
+import kotlin.math.roundToInt
 
+/**
+ * Интерактивный график оценки партии в шкале вероятности победы (`Win%` Lichess):
+ * - клик и горизонтальное перетаскивание мгновенно переходят к соответствующему ходу (`onMoveClick`),
+ *   включая маркеры ключевых моментов;
+ * - при попадании на ключевой момент под графиком (не перекрывая кривую) показывается компактная
+ *   карточка хода с кнопкой перехода к разбору на доске (`onOpenReview`);
+ * - контрастная палитра одинаково хорошо читается в светлой и тёмной теме.
+ */
 @Composable
 fun EvaluationGraph(
     evaluations: List<Int>,
     keyMoments: List<KeyMoment>,
     currentMoveIndex: Int,
-    playerColor: ChessColor,
+    @Suppress("UNUSED_PARAMETER") playerColor: ChessColor,
     onMoveClick: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    chartHeight: Dp = 152.dp,
+    showHeader: Boolean = true,
     showMoveNumbers: Boolean = true,
-    animateChanges: Boolean = true
+    @Suppress("UNUSED_PARAMETER") animateChanges: Boolean = true,
+    startMoveNumber: Int = 1,
+    firstMoveIsWhite: Boolean = true,
+    onOpenReview: ((Int) -> Unit)? = null
 ) {
     if (evaluations.isEmpty()) {
-        EmptyGraphPlaceholder(modifier)
+        EmptyGraphPlaceholder(modifier = modifier, height = chartHeight)
         return
     }
 
-    var selectedMoment by remember { mutableStateOf<KeyMoment?>(null) }
+    val currentOnMoveClick by rememberUpdatedState(onMoveClick)
+    val momentsByIndex = remember(keyMoments) { keyMoments.associateBy { it.moveIndex } }
 
-    // +1 потому что evaluations[0] = начальная позиция, evaluations[1] = после первого хода
-    val evaluationIndex = currentMoveIndex + 1
+    // Синхронизируем выбранный ключевой момент с текущим ходом
+    val activeMoment = momentsByIndex[currentMoveIndex]
 
-    val animatedCurrentIndex by animateFloatAsState(
+    // evaluations[0] = стартовая позиция, evaluations[i + 1] = после полухода i
+    val maxEvalIndex = (evaluations.size - 1).coerceAtLeast(0)
+    val evaluationIndex = (currentMoveIndex + 1).coerceIn(0, maxEvalIndex)
+
+    val animatedEvalIndex by animateFloatAsState(
         targetValue = evaluationIndex.toFloat(),
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
-        label = "currentIndexAnimation"
+        animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
+        label = "evalGraphCursor"
     )
 
     val textMeasurer = rememberTextMeasurer()
 
-    val whiteAdvantageColor = Color.White
-    val blackAdvantageColor = Color(0xFF1A1A1A)
+    val whiteAreaColor = Color(0xFFF3F5F8)
+    val blackAreaColor = Color(0xFF232A34)
+    val backdropColor = Color(0xFF7D8590).copy(alpha = 0.22f)
     val lineColor = MaterialTheme.colorScheme.primary
-    val currentPositionColor = MaterialTheme.colorScheme.tertiary
-    val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-    val backgroundColor = MaterialTheme.colorScheme.surface
+    val cursorColor = MaterialTheme.colorScheme.tertiary
+    val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+    val borderColor = MaterialTheme.colorScheme.outlineVariant
 
-    Column(modifier = modifier) {
-        GraphHeader(playerColor = playerColor)
+    fun resolveMoveIndexFromX(x: Float, width: Float, snapToMarkers: Boolean): Int {
+        if (evaluations.size <= 1) return -1
+        val leftPad = 34f
+        val rightPad = 14f
+        val graphW = (width - leftPad - rightPad).coerceAtLeast(1f)
+        val clampedX = (x - leftPad).coerceIn(0f, graphW)
+        val rawEvalIdx = ((clampedX / graphW) * maxEvalIndex).roundToInt().coerceIn(0, maxEvalIndex)
 
-        Spacer(modifier = Modifier.height(8.dp))
+        if (snapToMarkers && keyMoments.isNotEmpty()) {
+            // При одиночном тапе притягиваем палец к ближайшему маркеру в радиусе ~16 px
+            val snapRadiusPx = 22f
+            val nearestMoment = keyMoments
+                .filter { it.moveIndex + 1 in 0..maxEvalIndex }
+                .minByOrNull { m ->
+                    val mx = leftPad + ((m.moveIndex + 1).toFloat() / maxEvalIndex) * graphW
+                    abs(mx - x)
+                }
+            if (nearestMoment != null) {
+                val mx = leftPad + ((nearestMoment.moveIndex + 1).toFloat() / maxEvalIndex) * graphW
+                if (abs(mx - x) <= snapRadiusPx) {
+                    return nearestMoment.moveIndex
+                }
+            }
+        }
+        return rawEvalIdx - 1
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (showHeader) {
+            GraphHeader()
+            Spacer(modifier = Modifier.height(8.dp))
+        }
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(180.dp)
-                .background(color = backgroundColor, shape = RoundedCornerShape(12.dp))
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .height(chartHeight)
+                .clip(RoundedCornerShape(10.dp))
+                .background(backdropColor)
+                .border(1.dp, borderColor, RoundedCornerShape(10.dp))
         ) {
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(evaluations, keyMoments) {
                         detectTapGestures { offset ->
-                            val clickedEvalIndex = findClosestEvalIndex(
-                                offset = offset,
-                                canvasWidth = size.width.toFloat(),
-                                totalEvaluations = evaluations.size
+                            val targetMove = resolveMoveIndexFromX(
+                                x = offset.x,
+                                width = size.width.toFloat(),
+                                snapToMarkers = true
                             )
-
-                            // Конвертируем индекс оценки в индекс хода
-                            val moveIndex = clickedEvalIndex - 1
-
-                            val moment = keyMoments.find { it.moveIndex == moveIndex }
-                            if (moment != null) {
-                                selectedMoment = moment
-                            } else {
-                                selectedMoment = null
-                                if (moveIndex >= 0) {
-                                    onMoveClick(moveIndex)
-                                }
-                            }
+                            currentOnMoveClick(targetMove)
                         }
                     }
+                    .pointerInput(evaluations) {
+                        var lastEmitted = Int.MIN_VALUE
+                        detectHorizontalDragGestures(
+                            onDragStart = { start ->
+                                val target = resolveMoveIndexFromX(
+                                    x = start.x,
+                                    width = size.width.toFloat(),
+                                    snapToMarkers = false
+                                )
+                                lastEmitted = target
+                                currentOnMoveClick(target)
+                            },
+                            onHorizontalDrag = { change, _ ->
+                                change.consume()
+                                val target = resolveMoveIndexFromX(
+                                    x = change.position.x,
+                                    width = size.width.toFloat(),
+                                    snapToMarkers = false
+                                )
+                                if (target != lastEmitted) {
+                                    lastEmitted = target
+                                    currentOnMoveClick(target)
+                                }
+                            }
+                        )
+                    }
             ) {
-                val canvasWidth = size.width
-                val canvasHeight = size.height
-                val padding = 40f
-                val graphWidth = canvasWidth - padding * 2
-                val graphHeight = canvasHeight - padding * 2
-                val centerY = canvasHeight / 2
+                val leftPad = 34f
+                val rightPad = 14f
+                val topPad = 12f
+                val bottomPad = if (showMoveNumbers) 24f else 12f
+                val graphWidth = (size.width - leftPad - rightPad).coerceAtLeast(1f)
+                val graphHeight = (size.height - topPad - bottomPad).coerceAtLeast(1f)
+                val centerY = topPad + graphHeight / 2f
 
-                drawEvaluationBackground(
+                drawEvaluationAreas(
                     evaluations = evaluations,
+                    leftPad = leftPad,
                     graphWidth = graphWidth,
                     graphHeight = graphHeight,
                     centerY = centerY,
-                    padding = padding,
-                    whiteColor = whiteAdvantageColor,
-                    blackColor = blackAdvantageColor
+                    whiteColor = whiteAreaColor,
+                    blackColor = blackAreaColor
                 )
 
-                drawGrid(
-                    canvasWidth = canvasWidth,
-                    canvasHeight = canvasHeight,
-                    padding = padding,
+                drawGraphGrid(
+                    leftPad = leftPad,
+                    topPad = topPad,
+                    graphWidth = graphWidth,
+                    graphHeight = graphHeight,
+                    centerY = centerY,
                     gridColor = gridColor,
+                    labelColor = labelColor,
                     textMeasurer = textMeasurer,
                     showMoveNumbers = showMoveNumbers,
-                    totalEvaluations = evaluations.size
+                    totalEvaluations = evaluations.size,
+                    startMoveNumber = startMoveNumber,
+                    firstMoveIsWhite = firstMoveIsWhite
                 )
 
+                // Линия равенства (0.0 / 50% Win%)
                 drawLine(
-                    color = gridColor.copy(alpha = 0.6f),
-                    start = Offset(padding, centerY),
-                    end = Offset(canvasWidth - padding, centerY),
-                    strokeWidth = 2f,
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 5f))
+                    color = labelColor.copy(alpha = 0.55f),
+                    start = Offset(leftPad, centerY),
+                    end = Offset(leftPad + graphWidth, centerY),
+                    strokeWidth = 1.8f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 5f))
                 )
 
-                drawEvaluationLine(
+                drawEvaluationCurve(
                     evaluations = evaluations,
+                    leftPad = leftPad,
                     graphWidth = graphWidth,
                     graphHeight = graphHeight,
                     centerY = centerY,
-                    padding = padding,
                     lineColor = lineColor
                 )
 
-                drawKeyMomentMarkers(
+                drawMomentDots(
                     keyMoments = keyMoments,
                     evaluations = evaluations,
+                    leftPad = leftPad,
                     graphWidth = graphWidth,
                     graphHeight = graphHeight,
                     centerY = centerY,
-                    padding = padding,
-                    selectedMoment = selectedMoment
+                    activeMoveIndex = currentMoveIndex
                 )
 
-                // Текущая позиция
-                if (animatedCurrentIndex >= 0 && evaluations.size > 1) {
-                    val maxIndex = evaluations.size - 1
-                    val clampedIndex = animatedCurrentIndex.coerceIn(0f, maxIndex.toFloat())
-                    val currentX = padding + (clampedIndex / maxIndex) * graphWidth
+                // Курсор текущей позиции
+                if (evaluations.size > 1) {
+                    val clamped = animatedEvalIndex.coerceIn(0f, maxEvalIndex.toFloat())
+                    val cursorX = leftPad + (clamped / maxEvalIndex) * graphWidth
+                    val evalVal = evaluations[clamped.roundToInt().coerceIn(0, maxEvalIndex)]
+                    val cursorY = centerY - normalizeEvaluationByWinProb(evalVal) * (graphHeight / 2f)
 
                     drawLine(
-                        color = currentPositionColor,
-                        start = Offset(currentX, padding / 2),
-                        end = Offset(currentX, canvasHeight - padding / 2),
-                        strokeWidth = 3f
+                        color = cursorColor.copy(alpha = 0.85f),
+                        start = Offset(cursorX, topPad),
+                        end = Offset(cursorX, topPad + graphHeight),
+                        strokeWidth = 2.5f
                     )
-
-                    val evalIdx = clampedIndex.toInt().coerceIn(0, maxIndex)
-                    val currentEval = evaluations[evalIdx]
-                    val normalizedEval = normalizeEvaluation(currentEval)
-                    val currentY = centerY - normalizedEval * (graphHeight / 2)
-
                     drawCircle(
-                        color = currentPositionColor,
-                        radius = 8f,
-                        center = Offset(currentX, currentY)
+                        color = cursorColor,
+                        radius = 7.5f,
+                        center = Offset(cursorX, cursorY)
                     )
                     drawCircle(
                         color = Color.White,
-                        radius = 4f,
-                        center = Offset(currentX, currentY)
+                        radius = 3.5f,
+                        center = Offset(cursorX, cursorY)
                     )
                 }
             }
+        }
 
-            selectedMoment?.let { moment ->
-                KeyMomentTooltip(
-                    moment = moment,
-                    onDismiss = { selectedMoment = null },
-                    onNavigate = {
-                        onMoveClick(moment.moveIndex)
-                        selectedMoment = null
-                    }
-                )
-            }
+        // Компактная информационная плашка выбранного ключевого момента (под графиком — не закрывает его!)
+        if (activeMoment != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            SelectedMomentStrip(
+                moment = activeMoment,
+                onOpenReview = onOpenReview?.let { cb -> { cb(activeMoment.moveIndex) } }
+            )
         }
     }
 }
 
 @Composable
-private fun GraphHeader(playerColor: ChessColor) {
+private fun GraphHeader() {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -211,19 +286,18 @@ private fun GraphHeader(playerColor: ChessColor) {
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold
         )
-
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            LegendItem(color = Color.White, label = "Белые")
-            LegendItem(color = Color(0xFF1A1A1A), label = "Чёрные")
+            HeaderLegendSwatch(color = Color(0xFFF3F5F8), label = "Белые")
+            HeaderLegendSwatch(color = Color(0xFF232A34), label = "Чёрные")
         }
     }
 }
 
 @Composable
-private fun LegendItem(color: Color, label: String) {
+private fun HeaderLegendSwatch(color: Color, label: String) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -232,6 +306,7 @@ private fun LegendItem(color: Color, label: String) {
             modifier = Modifier
                 .size(12.dp)
                 .background(color, RoundedCornerShape(2.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), RoundedCornerShape(2.dp))
         )
         Text(
             text = label,
@@ -242,95 +317,103 @@ private fun LegendItem(color: Color, label: String) {
 }
 
 @Composable
-private fun KeyMomentTooltip(
+private fun SelectedMomentStrip(
     moment: KeyMoment,
-    onDismiss: () -> Unit,
-    onNavigate: () -> Unit
+    onOpenReview: (() -> Unit)?
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(8.dp),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    val accent = moment.quality.getColor()
+    val userDelta = moment.userPerspectiveDelta()
+    val deltaText = GameReviewHelper.formatSignedEvalDelta(userDelta)
+    val whoSuffix = if (moment.isPlayerMove) "" else " (соперник)"
+
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = accent.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.35f)),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .background(accent, CircleShape)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(text = moment.quality.getEmoji(), fontSize = 20.sp)
-                    Column {
+                    Text(
+                        text = moment.formattedMove(),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "${moment.quality.getDisplayName()}$whoSuffix",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = accent,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (userDelta != 0) {
                         Text(
-                            text = moment.quality.getDisplayName(),
-                            style = MaterialTheme.typography.titleSmall,
+                            text = deltaText,
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = moment.quality.getColor()
-                        )
-                        val moveNum = (moment.moveIndex / 2) + 1
-                        val side = if (moment.moveIndex % 2 == 0) "" else "..."
-                        Text(
-                            text = "$moveNum$side ${moment.san}",
-                            style = MaterialTheme.typography.bodyMedium
+                            color = if (userDelta > 0) Color(0xFF4CAF50) else Color(0xFFE53935)
                         )
                     }
                 }
-                TextButton(onClick = onDismiss) { Text("✕") }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
+                val subtitle = when {
+                    !moment.bestMove.isNullOrBlank() && moment.quality.isBad() && moment.bestMove != moment.san ->
+                        "Сильнее было: ${moment.bestMove}"
+                    !moment.comment.isNullOrBlank() -> moment.comment
+                    else -> null
+                }
+                if (subtitle != null) {
                     Text(
-                        text = "Изменение оценки",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = formatEvaluationChange(moment.evaluationChange),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = getEvaluationChangeColor(moment.evaluationChange)
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-                Button(
-                    onClick = onNavigate,
-                    colors = ButtonDefaults.buttonColors(containerColor = moment.quality.getColor())
+            }
+            if (onOpenReview != null) {
+                TextButton(
+                    onClick = onOpenReview,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                 ) {
-                    Text("Перейти")
+                    Text("На доске", style = MaterialTheme.typography.labelMedium)
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
-            }
-
-            // Показываем комментарий если есть
-            moment.comment?.let { comment ->
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = comment,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
     }
 }
 
 @Composable
-private fun EmptyGraphPlaceholder(modifier: Modifier) {
+private fun EmptyGraphPlaceholder(
+    modifier: Modifier,
+    height: Dp
+) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(180.dp)
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp)),
+            .height(height)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp)),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -341,227 +424,195 @@ private fun EmptyGraphPlaceholder(modifier: Modifier) {
     }
 }
 
-// ============ Функции рисования ============
+// ==================== ОТРИСОВКА ГРАФИКА ====================
 
-private fun DrawScope.drawEvaluationBackground(
+private fun DrawScope.drawEvaluationAreas(
     evaluations: List<Int>,
+    leftPad: Float,
     graphWidth: Float,
     graphHeight: Float,
     centerY: Float,
-    padding: Float,
     whiteColor: Color,
     blackColor: Color
 ) {
     if (evaluations.size < 2) return
+    val maxIdx = (evaluations.size - 1).toFloat()
 
-    val whitePath = Path()
-    val blackPath = Path()
+    val whitePath = Path().apply { moveTo(leftPad, centerY) }
+    val blackPath = Path().apply { moveTo(leftPad, centerY) }
 
-    whitePath.moveTo(padding, centerY)
-    blackPath.moveTo(padding, centerY)
+    var prevX = leftPad
+    var prevNorm = normalizeEvaluationByWinProb(evaluations[0])
 
-    evaluations.forEachIndexed { index, eval ->
-        val x = padding + (index.toFloat() / (evaluations.size - 1)) * graphWidth
-        val normalizedEval = normalizeEvaluation(eval)
-        val y = centerY - normalizedEval * (graphHeight / 2)
+    evaluations.forEachIndexed { idx, eval ->
+        val x = leftPad + (idx / maxIdx) * graphWidth
+        val norm = normalizeEvaluationByWinProb(eval)
+        val y = centerY - norm * (graphHeight / 2f)
 
-        if (normalizedEval >= 0) {
+        // Точная точка пересечения нуля, чтобы области белых и чёрных не «рвались»
+        if (idx > 0 && (prevNorm > 0f && norm < 0f || prevNorm < 0f && norm > 0f)) {
+            val t = abs(prevNorm) / (abs(prevNorm) + abs(norm))
+            val crossX = prevX + (x - prevX) * t
+            whitePath.lineTo(crossX, centerY)
+            blackPath.lineTo(crossX, centerY)
+        }
+
+        if (norm >= 0f) {
             whitePath.lineTo(x, y)
             blackPath.lineTo(x, centerY)
         } else {
             whitePath.lineTo(x, centerY)
             blackPath.lineTo(x, y)
         }
+
+        prevX = x
+        prevNorm = norm
     }
 
-    whitePath.lineTo(padding + graphWidth, centerY)
+    val endX = leftPad + graphWidth
+    whitePath.lineTo(endX, centerY)
     whitePath.close()
-    blackPath.lineTo(padding + graphWidth, centerY)
+    blackPath.lineTo(endX, centerY)
     blackPath.close()
 
-    drawPath(path = whitePath, color = whiteColor.copy(alpha = 0.8f))
-    drawPath(path = blackPath, color = blackColor.copy(alpha = 0.8f))
+    drawPath(path = whitePath, color = whiteColor.copy(alpha = 0.9f))
+    drawPath(path = blackPath, color = blackColor.copy(alpha = 0.88f))
 }
 
-private fun DrawScope.drawEvaluationLine(
+private fun DrawScope.drawEvaluationCurve(
     evaluations: List<Int>,
+    leftPad: Float,
     graphWidth: Float,
     graphHeight: Float,
     centerY: Float,
-    padding: Float,
     lineColor: Color
 ) {
     if (evaluations.size < 2) return
-
+    val maxIdx = (evaluations.size - 1).toFloat()
     val path = Path()
 
-    evaluations.forEachIndexed { index, eval ->
-        val x = padding + (index.toFloat() / (evaluations.size - 1)) * graphWidth
-        val normalizedEval = normalizeEvaluation(eval)
-        val y = centerY - normalizedEval * (graphHeight / 2)
-
-        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+    evaluations.forEachIndexed { idx, eval ->
+        val x = leftPad + (idx / maxIdx) * graphWidth
+        val y = centerY - normalizeEvaluationByWinProb(eval) * (graphHeight / 2f)
+        if (idx == 0) path.moveTo(x, y) else path.lineTo(x, y)
     }
 
     drawPath(
         path = path,
         color = lineColor,
-        style = Stroke(width = 3f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        style = Stroke(width = 2.6f, cap = StrokeCap.Round, join = StrokeJoin.Round)
     )
 }
 
-private fun DrawScope.drawGrid(
-    canvasWidth: Float,
-    canvasHeight: Float,
-    padding: Float,
-    gridColor: Color,
-    textMeasurer: TextMeasurer,
-    showMoveNumbers: Boolean,
-    totalEvaluations: Int
-) {
-    val graphHeight = canvasHeight - padding * 2
-    val graphWidth = canvasWidth - padding * 2
-    val centerY = canvasHeight / 2
-
-    val evalLevels = listOf(-10f, -5f, -3f, -1f, 1f, 3f, 5f, 10f)
-
-    evalLevels.forEach { evalPawns ->
-        val normalizedEval = normalizeEvaluation((evalPawns * 100).toInt())
-        val y = centerY - normalizedEval * (graphHeight / 2)
-
-        if (y > padding && y < canvasHeight - padding) {
-            drawLine(
-                color = gridColor,
-                start = Offset(padding, y),
-                end = Offset(canvasWidth - padding, y),
-                strokeWidth = 1f,
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f))
-            )
-
-            val label = if (evalPawns > 0) "+${evalPawns.toInt()}" else "${evalPawns.toInt()}"
-            val textResult = textMeasurer.measure(
-                text = AnnotatedString(label),
-                style = TextStyle(fontSize = 10.sp, color = gridColor)
-            )
-            drawText(
-                textLayoutResult = textResult,
-                topLeft = Offset(4f, y - textResult.size.height / 2)
-            )
-        }
-    }
-
-    // Номера ходов (не оценок)
-    if (showMoveNumbers && totalEvaluations > 10) {
-        val totalMoves = totalEvaluations - 1  // Первая оценка - начальная позиция
-        val step = (totalMoves / 5).coerceAtLeast(10)
-        var moveNum = step
-
-        while (moveNum < totalMoves) {
-            // +1 потому что evaluations[0] = начальная позиция
-            val evalIndex = moveNum + 1
-            val x = padding + (evalIndex.toFloat() / (totalEvaluations - 1)) * graphWidth
-
-            drawLine(
-                color = gridColor,
-                start = Offset(x, padding),
-                end = Offset(x, canvasHeight - padding),
-                strokeWidth = 1f
-            )
-
-            // Показываем номер хода (полухода / 2 + 1)
-            val displayMoveNum = (moveNum / 2) + 1
-            val textResult = textMeasurer.measure(
-                text = AnnotatedString("$displayMoveNum"),
-                style = TextStyle(fontSize = 10.sp, color = gridColor)
-            )
-            drawText(
-                textLayoutResult = textResult,
-                topLeft = Offset(x - textResult.size.width / 2, canvasHeight - padding + 4f)
-            )
-
-            moveNum += step
-        }
-    }
-}
-
-private fun DrawScope.drawKeyMomentMarkers(
-    keyMoments: List<KeyMoment>,
-    evaluations: List<Int>,
+private fun DrawScope.drawGraphGrid(
+    leftPad: Float,
+    topPad: Float,
     graphWidth: Float,
     graphHeight: Float,
     centerY: Float,
-    padding: Float,
-    selectedMoment: KeyMoment?
+    gridColor: Color,
+    labelColor: Color,
+    textMeasurer: TextMeasurer,
+    showMoveNumbers: Boolean,
+    totalEvaluations: Int,
+    startMoveNumber: Int,
+    firstMoveIsWhite: Boolean
 ) {
-    if (evaluations.size < 2) return
+    // Горизонтальные ориентиры +3 / 0 / -3 пешки (не перегружая мобильный экран)
+    val evalMarksCp = listOf(300 to "+3", 0 to "0", -300 to "-3")
+    for ((cp, label) in evalMarksCp) {
+        val y = centerY - normalizeEvaluationByWinProb(cp) * (graphHeight / 2f)
+        if (cp != 0) {
+            drawLine(
+                color = gridColor,
+                start = Offset(leftPad, y),
+                end = Offset(leftPad + graphWidth, y),
+                strokeWidth = 1f,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f))
+            )
+        }
+        val measured = textMeasurer.measure(
+            text = AnnotatedString(label),
+            style = TextStyle(fontSize = 9.sp, color = labelColor.copy(alpha = 0.8f))
+        )
+        drawText(
+            textLayoutResult = measured,
+            topLeft = Offset(
+                (leftPad - measured.size.width - 4f).coerceAtLeast(2f),
+                (y - measured.size.height / 2f).coerceIn(2f, topPad + graphHeight - measured.size.height)
+            )
+        )
+    }
 
-    keyMoments.forEach { moment ->
-        // Маркер должен быть на позиции ПОСЛЕ хода
-        // moveIndex = 0 → evaluations[1] (после первого хода)
-        val evalIndex = moment.moveIndex + 1
-
-        if (evalIndex >= 0 && evalIndex < evaluations.size) {
-            val x = padding + (evalIndex.toFloat() / (evaluations.size - 1)) * graphWidth
-            val eval = evaluations[evalIndex]
-            val normalizedEval = normalizeEvaluation(eval)
-            val y = centerY - normalizedEval * (graphHeight / 2)
-
-            val isSelected = selectedMoment?.moveIndex == moment.moveIndex
-            val radius = if (isSelected) 12f else 8f
-            val color = moment.quality.getColor()
-
-            if (isSelected) {
-                drawCircle(color = color.copy(alpha = 0.3f), radius = radius + 6f, center = Offset(x, y))
-            }
-
-            drawCircle(color = color, radius = radius, center = Offset(x, y))
-            drawCircle(color = Color.White, radius = radius * 0.4f, center = Offset(x, y))
+    // Вертикальные отметки номеров ходов
+    if (showMoveNumbers && totalEvaluations > 8) {
+        val totalPlies = totalEvaluations - 1
+        val fullMoveStep = when {
+            totalPlies <= 30 -> 5
+            totalPlies <= 70 -> 10
+            totalPlies <= 130 -> 15
+            else -> 25
+        }
+        val plyStep = fullMoveStep * 2
+        var ply = plyStep
+        while (ply < totalPlies) {
+            val evalIdx = ply + 1
+            val x = leftPad + (evalIdx.toFloat() / (totalEvaluations - 1)) * graphWidth
+            drawLine(
+                color = gridColor.copy(alpha = 0.5f),
+                start = Offset(x, topPad),
+                end = Offset(x, topPad + graphHeight),
+                strokeWidth = 1f
+            )
+            val fullMove = startMoveNumber + ((ply + if (firstMoveIsWhite) 0 else 1) / 2)
+            val measured = textMeasurer.measure(
+                text = AnnotatedString("$fullMove"),
+                style = TextStyle(fontSize = 9.sp, color = labelColor.copy(alpha = 0.85f))
+            )
+            drawText(
+                textLayoutResult = measured,
+                topLeft = Offset(x - measured.size.width / 2f, topPad + graphHeight + 3f)
+            )
+            ply += plyStep
         }
     }
 }
 
-// ============ Вспомогательные функции ============
+private fun DrawScope.drawMomentDots(
+    keyMoments: List<KeyMoment>,
+    evaluations: List<Int>,
+    leftPad: Float,
+    graphWidth: Float,
+    graphHeight: Float,
+    centerY: Float,
+    activeMoveIndex: Int
+) {
+    if (evaluations.size < 2) return
+    val maxIdx = evaluations.size - 1
 
-private fun normalizeEvaluation(centipawns: Int): Float {
-    if (ChessEngine.isMateScore(centipawns)) {
-        return if (centipawns > 0) 0.98f else -0.98f
+    keyMoments.forEach { moment ->
+        val evalIndex = moment.moveIndex + 1
+        if (evalIndex in 0..maxIdx) {
+            val x = leftPad + (evalIndex.toFloat() / maxIdx) * graphWidth
+            val y = centerY - normalizeEvaluationByWinProb(evaluations[evalIndex]) * (graphHeight / 2f)
+            val isSelected = moment.moveIndex == activeMoveIndex
+            val radius = if (isSelected) 9.5f else 6.5f
+            val color = moment.quality.getColor()
+
+            if (isSelected) {
+                drawCircle(color = color.copy(alpha = 0.3f), radius = radius + 5f, center = Offset(x, y))
+            }
+            drawCircle(color = color, radius = radius, center = Offset(x, y))
+            drawCircle(color = Color.White, radius = radius * 0.38f, center = Offset(x, y))
+        }
     }
-
-    val cappedEval = centipawns.coerceIn(-3000, 3000)
-    val normalized = 1.0f / (1.0f + exp(-cappedEval / 400.0f).toFloat())
-
-    return (normalized * 2 - 1).coerceIn(-0.98f, 0.98f)
 }
 
 /**
- * Находит ближайший индекс в массиве evaluations по клику
+ * Единая шкала вероятности победы Lichess (`Win%` белых): `50% -> 0f`, `100% -> +0.96f`, `0% -> -0.96f`.
  */
-private fun findClosestEvalIndex(offset: Offset, canvasWidth: Float, totalEvaluations: Int): Int {
-    val padding = 40f
-    val graphWidth = canvasWidth - padding * 2
-    val relativeX = (offset.x - padding).coerceIn(0f, graphWidth)
-    val maxIndex = totalEvaluations - 1
-    return ((relativeX / graphWidth) * maxIndex).toInt().coerceIn(0, maxIndex)
-}
-
-private fun formatEvaluationChange(change: Int): String {
-    if (ChessEngine.isMateScore(change) || abs(change) > 50_000) {
-        return if (change > 0) "+Мат" else "-Мат"
-    }
-    val pawns = change / 100.0
-    return when {
-        change > 0 -> String.format(java.util.Locale.US, "+%.2f", pawns)
-        change < 0 -> String.format(java.util.Locale.US, "%.2f", pawns)
-        else -> "0.00"
-    }
-}
-
-private fun getEvaluationChangeColor(change: Int): Color {
-    return when {
-        change > 100 -> Color(0xFF4CAF50)   // Зелёный для +1 пешка
-        change > 0 -> Color(0xFF81C784)     // Светло-зелёный
-        change < -100 -> Color(0xFFE53935)  // Красный для -1 пешка
-        change < 0 -> Color(0xFFEF9A9A)     // Светло-красный
-        else -> Color(0xFF9E9E9E)
-    }
+private fun normalizeEvaluationByWinProb(evalWhiteCp: Int): Float {
+    val winPct = GameMoveClassifier.winProbability(evalWhiteCp, ChessColor.WHITE)
+    val unit = ((winPct - 50.0) / 50.0).toFloat()
+    return (unit * 0.96f).coerceIn(-0.96f, 0.96f)
 }

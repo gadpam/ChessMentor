@@ -15,12 +15,22 @@ import com.example.chessmentor.domain.entity.ExerciseAttempt
 import com.example.chessmentor.domain.entity.TacticalPattern
 import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.training.AttemptMetadata
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.ExerciseMetadata
 import com.example.chessmentor.domain.training.HintUsage
+import com.example.chessmentor.domain.training.InterleavedPatternQueue
+import com.example.chessmentor.domain.training.PuzzleQualityEvaluator
+import com.example.chessmentor.domain.training.ReviewCardState
+import com.example.chessmentor.domain.training.SessionPhase
+import com.example.chessmentor.domain.training.SessionSummary
+import com.example.chessmentor.domain.training.SolutionReviewHelper
+import com.example.chessmentor.domain.training.SolutionReviewStep
+import com.example.chessmentor.domain.training.SpacedRepetitionScheduler
 import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.training.TrainingRatingCalculator
+import com.example.chessmentor.domain.training.TrainingSessionPlanner
 import com.example.chessmentor.domain.usecase.GenerateExercisesFromMistakesUseCase
 import com.example.chessmentor.domain.usecase.GetTrainingExerciseUseCase
 import com.example.chessmentor.domain.util.ChessMoveUtils
@@ -81,8 +91,29 @@ data class TrainingUiState(
     val sourceLabel: String = "",
     val isDailyAlreadySolved: Boolean = false,
     val isReviewOfFailed: Boolean = false,
+    val reviewBox: Int? = null,
+    val dueReviewCount: Int = 0,
     val currentStepNumber: Int = 1,
     val totalPlayerSteps: Int = 1,
+    val isAnimatingIntro: Boolean = false,
+
+    // Структурированная сессия (TrainingMode.SmartSession)
+    val sessionStepNumber: Int = 0,
+    val sessionTotalSteps: Int = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
+    val sessionPhase: SessionPhase? = null,
+    val sessionSummary: SessionSummary? = null,
+
+    // Пост-разбор решения и свободный анализ со Stockfish
+    val reviewSteps: List<SolutionReviewStep> = emptyList(),
+    val reviewStepIndex: Int = 0,
+    val solutionSanLine: String? = null,
+    val postSolveExplanation: String? = null,
+    val isFreeAnalysisMode: Boolean = false,
+    val isAnalyzingPosition: Boolean = false,
+    val analysisEvalText: String? = null,
+    val analysisBestMoveSan: String? = null,
+    val analysisBestMoveUci: String? = null,
+    val canUndoAnalysisMove: Boolean = false,
 
     // Ошибки и анимации
     val currentMistakeAnalysis: MistakeAnalysis? = null,
@@ -102,7 +133,9 @@ data class TrainingUiState(
 
 data class SessionStats(
     val solved: Int = 0,
+    val cleanFirstTrySolved: Int = 0,
     val failed: Int = 0,
+    val impulsiveMistakes: Int = 0,
     val skipped: Int = 0,
     val currentStreak: Int = 0,
     val bestStreak: Int = 0,
@@ -118,11 +151,12 @@ class TrainingViewModel(
 
     companion object {
         private const val TAG = "TrainingVM"
+        private const val INTRO_PRE_MOVE_DELAY_MS = 450L
         private const val HUMAN_REACTION_DELAY_MS = 650L
         private const val ANIMATION_DELAY_MS = 600L
         private const val PUNISHMENT_DISPLAY_MS = 2200L
-        private const val SIMILAR_EXERCISES_COUNT = 2
-        private const val MAX_SOLUTION_PLIES = 5
+        private const val MAX_SOLUTION_PLIES = PuzzleQualityEvaluator.MAX_QUIESCENCE_PLIES
+        private const val FREE_ANALYSIS_DEPTH = 12
     }
 
     private val semanticAnalyzer = container.semanticMistakeAnalyzer
@@ -137,6 +171,8 @@ class TrainingViewModel(
     private val recordedMoves = mutableListOf<String>()
     private var currentMoveIndex = 0
     private var startTime: Long = 0
+    private var firstMoveThinkTimeMs: Long? = null
+    private var attemptMistakeCount: Int = 0
     private var attemptFailed = false
     private var failedAttemptSaved = false
     private var maxHintUsed: HintUsage = HintUsage.NONE
@@ -144,11 +180,42 @@ class TrainingViewModel(
     private var soundCounter = 0L
     private var currentJob: Job? = null
     private var generationJob: Job? = null
+    private var analysisJob: Job? = null
     private var positionBeforePlayerMove: String = ""
     private var lastMoveBeforePlayerMove: Pair<Square, Square>? = null
+    private var initialTriggerMoveUci: String? = null
+    private var currentCuratedExplanation: String? = null
+    private var lastMistakeCoachingNote: String? = null
+    private var completedRatedSittings: Int = 0
+    private val analysisHistory = mutableListOf<Pair<String, Pair<Square, Square>?>>()
 
-    private val sessionQueue = mutableListOf<Exercise>()
-    private var lastMistakePattern: String? = null
+    /** Очередь отложенного чередования мотивов (interleaved practice вместо предсказуемых блоков подряд). */
+    private val interleavedQueue = InterleavedPatternQueue()
+
+    // Состояние активной структурированной сессии (10 задач)
+    private var smartSessionStep: Int = 0
+    private var smartSessionCleanCount: Int = 0
+    private var smartSessionSolvedCount: Int = 0
+    private var smartSessionFailedCount: Int = 0
+    private var smartSessionImpulsiveCount: Int = 0
+    private var smartSessionNetElo: Int = 0
+    private var smartSessionTotalSeconds: Int = 0
+    private var smartSessionOutcomeRecorded: Boolean = false
+    private val smartSessionSeenIds = mutableSetOf<Long>()
+    private val smartSessionMissedPatterns = mutableListOf<String>()
+
+    private fun resetSmartSessionTrackers() {
+        smartSessionStep = 0
+        smartSessionCleanCount = 0
+        smartSessionSolvedCount = 0
+        smartSessionFailedCount = 0
+        smartSessionImpulsiveCount = 0
+        smartSessionNetElo = 0
+        smartSessionTotalSeconds = 0
+        smartSessionOutcomeRecorded = false
+        smartSessionSeenIds.clear()
+        smartSessionMissedPatterns.clear()
+    }
 
     // ================================================================
     // ИНИЦИАЛИЗАЦИЯ И ПЕРЕКЛЮЧЕНИЕ РЕЖИМОВ
@@ -163,34 +230,82 @@ class TrainingViewModel(
         val isNewUser = currentUser?.id != user.id
         currentUser = user
 
-        val modeChangedByNavigation = initialMode != null && initialMode != _uiState.value.mode
+        val modeChangedByNavigation = initialMode != null &&
+            (initialMode != _uiState.value.mode || initialMode is TrainingMode.FromGame)
 
         if (isNewUser) {
-            sessionQueue.clear()
-            lastMistakePattern = null
+            interleavedQueue.clear()
+            resetSmartSessionTrackers()
+            completedRatedSittings = 0
             val targetMode = initialMode ?: TrainingMode.All
             _uiState.value = TrainingUiState(mode = targetMode)
             initializeExercisesAndLoad(targetMode)
         } else if (modeChangedByNavigation && initialMode != null) {
             selectMode(initialMode)
-        } else if (currentExercise == null && !_uiState.value.isLoading) {
+        } else if (currentExercise == null && !_uiState.value.isLoading && _uiState.value.sessionSummary == null) {
             initializeExercisesAndLoad(_uiState.value.mode)
         }
     }
 
     /**
-     * Переключение режима тренировки пользователем (Все / Мои ошибки / Слабые темы / По теме / Задача дня).
+     * Запускает новую структурированную сессию из 10 задач с первой разминочной позиции.
+     */
+    fun restartSmartSession() {
+        val userId = currentUser?.id ?: return
+        currentJob?.cancel()
+        interleavedQueue.clear()
+        resetSmartSessionTrackers()
+        smartSessionStep = 1
+        val firstPhase = TrainingSessionPlanner.phaseForStep(1)
+
+        _uiState.value = _uiState.value.copy(
+            mode = TrainingMode.SmartSession,
+            isLoading = true,
+            isInputLocked = true,
+            hasNoUserMistakes = false,
+            sessionSummary = null,
+            sessionStepNumber = 1,
+            sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
+            sessionPhase = firstPhase,
+            arrows = emptyList(),
+            highlights = emptyList(),
+            lastRatingDelta = null,
+            feedbackMessage = "Готовим сессию из ${TrainingSessionPlanner.DEFAULT_SESSION_SIZE} задач..."
+        )
+
+        currentJob = viewModelScope.launch {
+            runCatching { CuratedExerciseBank.ensureSeeded(container.exerciseRepository) }
+            loadNextExerciseInternal(userId, excludeId = -1L, mode = TrainingMode.SmartSession)
+        }
+    }
+
+    /**
+     * Переключение режима тренировки пользователем.
      */
     fun selectMode(mode: TrainingMode) {
         val userId = currentUser?.id ?: return
-        if (_uiState.value.mode == mode && currentExercise != null && !_uiState.value.isLoading) {
+        if (mode is TrainingMode.SmartSession && _uiState.value.sessionSummary != null) {
+            restartSmartSession()
+            return
+        }
+        if (_uiState.value.mode == mode &&
+            mode !is TrainingMode.FromGame &&
+            currentExercise != null &&
+            !_uiState.value.isLoading
+        ) {
             return
         }
 
         currentJob?.cancel()
-        sessionQueue.clear()
-        if (mode !is TrainingMode.All) {
-            lastMistakePattern = null
+        if (mode !is TrainingMode.All && mode !is TrainingMode.SmartSession) {
+            interleavedQueue.clear()
+        }
+        resetSmartSessionTrackers()
+        val initialPhase = if (mode is TrainingMode.SmartSession) {
+            smartSessionStep = 1
+            TrainingSessionPlanner.phaseForStep(1)
+        } else {
+            null
         }
 
         _uiState.value = _uiState.value.copy(
@@ -198,6 +313,10 @@ class TrainingViewModel(
             isLoading = true,
             isInputLocked = true,
             hasNoUserMistakes = false,
+            sessionSummary = null,
+            sessionStepNumber = smartSessionStep,
+            sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
+            sessionPhase = initialPhase,
             similarExercisesQueued = 0,
             arrows = emptyList(),
             highlights = emptyList(),
@@ -206,7 +325,18 @@ class TrainingViewModel(
         )
 
         currentJob = viewModelScope.launch {
-            if (mode is TrainingMode.MyMistakes) {
+            if (mode is TrainingMode.FromGame) {
+                runCatching {
+                    container.generateExercisesFromMistakesUseCase.executeForGame(
+                        userId = userId,
+                        gameId = mode.gameId,
+                        focusMoveNumber = mode.focusMoveNumber
+                    )
+                }.onFailure { e ->
+                    if (e is CancellationException) throw e
+                    Log.e(TAG, "Failed generating exercises for game ${mode.gameId}", e)
+                }
+            } else if (mode is TrainingMode.MyMistakes) {
                 // Если пользователь открыл «Мои ошибки», дожидаемся первичной генерации при пустом списке
                 val existing = runCatching { container.exerciseRepository.findByUserId(userId) }
                     .getOrDefault(emptyList())
@@ -229,11 +359,23 @@ class TrainingViewModel(
         val userId = currentUser?.id ?: return
         currentJob?.cancel()
 
+        resetSmartSessionTrackers()
+        val initialPhase = if (mode is TrainingMode.SmartSession) {
+            smartSessionStep = 1
+            TrainingSessionPlanner.phaseForStep(1)
+        } else {
+            null
+        }
+
         _uiState.value = _uiState.value.copy(
             mode = mode,
             isLoading = true,
             isInputLocked = true,
             hasNoUserMistakes = false,
+            sessionSummary = null,
+            sessionStepNumber = smartSessionStep,
+            sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
+            sessionPhase = initialPhase,
             feedbackMessage = "Подготавливаем задачи..."
         )
 
@@ -254,21 +396,35 @@ class TrainingViewModel(
                     )
                 }
 
-                val existingUserExercises = container.exerciseRepository.findByUserId(userId)
-                if (existingUserExercises.isEmpty()) {
-                    if (mode is TrainingMode.MyMistakes || mode is TrainingMode.All) {
-                        runCatching {
-                            container.generateExercisesFromMistakesUseCase.execute(
-                                GenerateExercisesFromMistakesUseCase.Input(userId, maxExercises = 12)
-                            )
-                        }.onFailure { e ->
-                            if (e is CancellationException) throw e
-                            Log.e(TAG, "Error generating initial exercises", e)
-                        }
+                if (mode is TrainingMode.FromGame) {
+                    runCatching {
+                        container.generateExercisesFromMistakesUseCase.executeForGame(
+                            userId = userId,
+                            gameId = mode.gameId,
+                            focusMoveNumber = mode.focusMoveNumber
+                        )
+                    }.onFailure { e ->
+                        if (e is CancellationException) throw e
+                        Log.e(TAG, "Error generating exercises for game ${mode.gameId}", e)
                     }
                     scheduleBackgroundGeneration(userId)
                 } else {
-                    scheduleBackgroundGeneration(userId)
+                    val existingUserExercises = container.exerciseRepository.findByUserId(userId)
+                    if (existingUserExercises.isEmpty()) {
+                        if (mode is TrainingMode.MyMistakes || mode is TrainingMode.All) {
+                            runCatching {
+                                container.generateExercisesFromMistakesUseCase.execute(
+                                    GenerateExercisesFromMistakesUseCase.Input(userId, maxExercises = 12)
+                                )
+                            }.onFailure { e ->
+                                if (e is CancellationException) throw e
+                                Log.e(TAG, "Error generating initial exercises", e)
+                            }
+                        }
+                        scheduleBackgroundGeneration(userId)
+                    } else {
+                        scheduleBackgroundGeneration(userId)
+                    }
                 }
 
                 loadNextExerciseInternal(userId, excludeId = -1L, mode = mode)
@@ -288,9 +444,17 @@ class TrainingViewModel(
     private suspend fun loadCurrentStreak(userId: Long): Int {
         return runCatching {
             val attempts = container.exerciseRepository.getAttemptsByUserId(userId)
+            val sittings = attempts.groupBy { it.exerciseId }
+                .flatMap { (_, list) -> SpacedRepetitionScheduler.groupIntoSittings(list) }
+                .sortedBy { it.finishedAt }
             var streak = 0
-            for (attempt in attempts.asReversed()) {
-                if (attempt.solved) streak++ else break
+            for (sitting in sittings.asReversed()) {
+                if (sitting.quality == com.example.chessmentor.domain.training.AttemptQuality.FAILED ||
+                    sitting.quality == com.example.chessmentor.domain.training.AttemptQuality.RETRY_SOLVE
+                ) {
+                    break
+                }
+                streak++
             }
             streak
         }.getOrDefault(0)
@@ -317,40 +481,67 @@ class TrainingViewModel(
 
     fun loadNextExercise() {
         val userId = currentUser?.id ?: return
-        val currentMode = _uiState.value.mode
+        val state = _uiState.value
+        val currentMode = state.mode
         val excludeId = currentExercise?.id ?: -1L
+
+        // Структурированная сессия из 10 задач: после 10-й позиции открываем тренерский отчёт
+        if (currentMode is TrainingMode.SmartSession) {
+            finalizeCurrentSessionExerciseIfNeeded()
+            val total = TrainingSessionPlanner.DEFAULT_SESSION_SIZE
+            if (smartSessionStep >= total) {
+                currentJob?.cancel()
+                analysisJob?.cancel()
+                currentExercise = null
+                val summary = TrainingSessionPlanner.buildSessionSummary(
+                    totalExercises = total,
+                    cleanFirstTryCount = smartSessionCleanCount,
+                    solvedTotalCount = smartSessionSolvedCount,
+                    failedOrRevealedCount = smartSessionFailedCount,
+                    impulsiveMistakeCount = smartSessionImpulsiveCount,
+                    netRatingDelta = smartSessionNetElo,
+                    totalTimeSeconds = smartSessionTotalSeconds,
+                    missedPatternNames = smartSessionMissedPatterns
+                )
+                _uiState.value = state.copy(
+                    isLoading = false,
+                    isInputLocked = true,
+                    hasActiveExercise = false,
+                    isFreeAnalysisMode = false,
+                    arrows = emptyList(),
+                    highlights = emptyList(),
+                    sessionSummary = summary,
+                    feedbackMessage = null
+                )
+                return
+            }
+            smartSessionStep = (smartSessionStep + 1).coerceIn(1, total)
+        }
 
         // После завершения «Задачи дня» кнопка «Следующая» плавно переводит в общий поток задач
         val effectiveMode = if (currentMode is TrainingMode.Daily &&
-            (_uiState.value.isSolved || _uiState.value.isSolutionRevealed)
+            (state.isSolved || state.isSolutionRevealed)
         ) {
             TrainingMode.All
         } else {
             currentMode
         }
 
-        currentJob?.cancel()
-
-        // 1. В общем режиме сначала отрабатываем очередь похожих задач после ошибки
-        if (effectiveMode is TrainingMode.All && sessionQueue.isNotEmpty()) {
-            val nextFromQueue = sessionQueue.removeFirst()
-            currentJob = viewModelScope.launch {
-                resetStateForNewExercise()
-                setupExercise(
-                    exercise = nextFromQueue,
-                    mode = effectiveMode,
-                    isAlreadySolvedDaily = false,
-                    isReviewOfFailed = false
-                )
-            }
-            return
+        val nextPhase = if (effectiveMode is TrainingMode.SmartSession) {
+            TrainingSessionPlanner.phaseForStep(smartSessionStep)
+        } else {
+            null
         }
 
-        // 2. Загружаем следующую задачу из БД
+        currentJob?.cancel()
+
         _uiState.value = _uiState.value.copy(
             mode = effectiveMode,
             isLoading = true,
             isInputLocked = true,
+            sessionSummary = null,
+            sessionStepNumber = if (effectiveMode is TrainingMode.SmartSession) smartSessionStep else 0,
+            sessionPhase = nextPhase,
             arrows = emptyList(),
             highlights = emptyList(),
             lastRatingDelta = null,
@@ -361,6 +552,18 @@ class TrainingViewModel(
 
         currentJob = viewModelScope.launch {
             loadNextExerciseInternal(userId, excludeId, effectiveMode)
+        }
+    }
+
+    private fun finalizeCurrentSessionExerciseIfNeeded() {
+        if (_uiState.value.mode !is TrainingMode.SmartSession || smartSessionOutcomeRecorded) return
+        val ex = currentExercise ?: return
+        smartSessionOutcomeRecorded = true
+        val elapsed = ((System.currentTimeMillis() - startTime) / 1000).toInt().coerceIn(1, 600)
+        smartSessionTotalSeconds += elapsed
+        if (attemptFailed || _uiState.value.isSolutionRevealed) {
+            smartSessionFailedCount++
+            smartSessionMissedPatterns.add(ex.tacticalPattern.displayName)
         }
     }
 
@@ -437,7 +640,11 @@ class TrainingViewModel(
             )
 
             if (shouldRecordFail) {
-                runCatching { saveAttempt(solved = false) }
+                runCatching {
+                    saveAttempt(solved = false, solutionRevealed = true)
+                    completedRatedSittings++
+                }
+                scheduleInterleavedReinforcement(null)
             }
 
             // Пошагово разыгрываем оставшуюся линию решения
@@ -463,11 +670,22 @@ class TrainingViewModel(
                 delay(ANIMATION_DELAY_MS / 2)
             }
 
+            val scheduleNote = refreshCardAndDueCount()?.let { "\n${SpacedRepetitionScheduler.formatNextIntervalNote(it)}" }
+                ?: "\n📅 Вернёмся к задаче через 10 мин"
+
+            val postReview = buildPostSolveReviewState()
+            val fullSan = postReview.second.ifBlank { sanNotation }
+
             _uiState.value = _uiState.value.copy(
                 isSolutionRevealed = true,
                 isInputLocked = true,
+                isFreeAnalysisMode = false,
                 arrows = emptyList(),
-                feedbackMessage = "💡 Решение: $sanNotation\nЗадача вернётся позже для закрепления."
+                reviewSteps = postReview.first,
+                reviewStepIndex = (postReview.first.size - 1).coerceAtLeast(0),
+                solutionSanLine = fullSan,
+                postSolveExplanation = postReview.third,
+                feedbackMessage = "💡 Решение: $fullSan$scheduleNote"
             )
         }
     }
@@ -490,46 +708,100 @@ class TrainingViewModel(
     ) {
         resetStateForNewExercise()
         try {
-            val preferred = if (mode is TrainingMode.All) lastMistakePattern else null
+            // Отложенное закрепление (interleaved practice): если подошёл срок мотива после 2+ других задач —
+            // незаметно подмешиваем его без предварительной подсказки.
+            val isSmart = mode is TrainingMode.SmartSession
+            val activePhase = if (isSmart) {
+                if (smartSessionStep <= 0) smartSessionStep = 1
+                TrainingSessionPlanner.phaseForStep(smartSessionStep)
+            } else {
+                null
+            }
+            val dueInterleavedPattern = if (mode is TrainingMode.All || activePhase == SessionPhase.CORE_INTERLEAVED) {
+                interleavedQueue.pollDuePattern()
+            } else {
+                null
+            }
+            val avoidRepeatedPattern = interleavedQueue.lastServedPattern
+            val sessionExclusions = if (isSmart) smartSessionSeenIds.toSet() else emptySet()
+
             val result = container.getTrainingExerciseUseCase.execute(
                 GetTrainingExerciseUseCase.Input(
                     userId = userId,
                     excludeExerciseId = excludeId,
-                    preferredPattern = preferred,
+                    excludeExerciseIds = sessionExclusions,
+                    preferredPattern = dueInterleavedPattern,
+                    avoidPattern = avoidRepeatedPattern,
+                    sessionPhase = activePhase,
                     mode = mode
                 )
             )
 
-            // Если кроме только что решённой задачи других в этом режиме нет — разрешаем повтор
-            val finalResult = if (result is GetTrainingExerciseUseCase.Result.NoSuitableExercises && excludeId != -1L) {
+            // Если кроме только что решённых задач других в этом режиме нет — мягкий откат
+            val finalResult = if (result is GetTrainingExerciseUseCase.Result.NoSuitableExercises &&
+                (excludeId != -1L || sessionExclusions.isNotEmpty())
+            ) {
                 container.getTrainingExerciseUseCase.execute(
                     GetTrainingExerciseUseCase.Input(
                         userId = userId,
-                        excludeExerciseId = -1L,
+                        excludeExerciseId = excludeId,
+                        excludeExerciseIds = emptySet(),
                         preferredPattern = null,
+                        avoidPattern = null,
+                        sessionPhase = activePhase,
                         mode = mode
                     )
-                )
+                ).let { second ->
+                    if (second is GetTrainingExerciseUseCase.Result.NoSuitableExercises && excludeId != -1L) {
+                        container.getTrainingExerciseUseCase.execute(
+                            GetTrainingExerciseUseCase.Input(
+                                userId = userId,
+                                excludeExerciseId = -1L,
+                                mode = mode
+                            )
+                        )
+                    } else {
+                        second
+                    }
+                }
             } else {
                 result
             }
 
             when (finalResult) {
                 is GetTrainingExerciseUseCase.Result.Success -> {
+                    completedRatedSittings = finalResult.completedRatedSittings
+                    interleavedQueue.onExerciseServed(finalResult.exercise.tacticalPattern.name)
+                    if (isSmart) {
+                        finalResult.exercise.id?.let { smartSessionSeenIds.add(it) }
+                        _uiState.value = _uiState.value.copy(
+                            sessionStepNumber = smartSessionStep,
+                            sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
+                            sessionPhase = activePhase,
+                            sessionSummary = null
+                        )
+                    }
                     setupExercise(
                         exercise = finalResult.exercise,
                         mode = mode,
                         isAlreadySolvedDaily = finalResult.isAlreadySolvedDaily,
-                        isReviewOfFailed = finalResult.isReviewOfFailed
+                        isReviewOfFailed = finalResult.isReviewOfFailed,
+                        reviewState = finalResult.reviewState,
+                        dueReviewCount = finalResult.dueReviewCount
                     )
                 }
                 is GetTrainingExerciseUseCase.Result.NoSuitableExercises -> {
                     currentExercise = null
                     val isMistakesMode = mode is TrainingMode.MyMistakes
-                    val emptyMessage = if (isMistakesMode) {
-                        "У вас пока нет задач из собственных партий. Загрузите PGN и запустите анализ — или выберите общий режим!"
-                    } else {
-                        "В выбранной теме пока нет задач. Попробуйте другую тему или общий режим."
+                    val emptyMessage = when {
+                        mode is TrainingMode.FromGame && excludeId > 0L ->
+                            "Отлично! Все ключевые ошибки этой партии отработаны. Можно вернуться к разбору партии или продолжить тренировку в общем режиме."
+                        mode is TrainingMode.FromGame ->
+                            "В этой партии не найдено подходящих тактических ошибок для тренажёра. Вернитесь к разбору партии или выберите общий режим!"
+                        isMistakesMode ->
+                            "У вас пока нет задач из собственных партий. Загрузите PGN и запустите анализ — или выберите общий режим!"
+                        else ->
+                            "В выбранной теме пока нет задач. Попробуйте другую тему или общий режим."
                     }
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
@@ -562,23 +834,33 @@ class TrainingViewModel(
     }
 
     private fun resetStateForNewExercise() {
+        analysisJob?.cancel()
+        analysisHistory.clear()
         targetSequence.clear()
         recordedMoves.clear()
         currentMoveIndex = 0
+        attemptMistakeCount = 0
         attemptFailed = false
         failedAttemptSaved = false
         maxHintUsed = HintUsage.NONE
         isCurrentDailyAlreadySolved = false
         startTime = System.currentTimeMillis()
+        firstMoveThinkTimeMs = null
         positionBeforePlayerMove = ""
         lastMoveBeforePlayerMove = null
+        initialTriggerMoveUci = null
+        currentCuratedExplanation = null
+        lastMistakeCoachingNote = null
+        smartSessionOutcomeRecorded = false
     }
 
     private suspend fun setupExercise(
         exercise: Exercise,
         mode: TrainingMode,
         isAlreadySolvedDaily: Boolean,
-        isReviewOfFailed: Boolean
+        isReviewOfFailed: Boolean,
+        reviewState: ReviewCardState? = null,
+        dueReviewCount: Int = 0
     ) {
         currentExercise = exercise
         isCurrentDailyAlreadySolved = isAlreadySolvedDaily
@@ -603,38 +885,49 @@ class TrainingViewModel(
             targetSequence.addAll(oddStored)
         }
 
-        val initialPrevMove = ExerciseMetadata.extractPrevMove(exercise)?.let { parseSquaresFromUci(it) }
+        val prevMoveUci = ExerciseMetadata.extractPrevMove(exercise)
+            ?: curatedTemplate?.prevMoveUci
+        val preFen = ExerciseMetadata.extractPreFen(exercise)
+            ?: curatedTemplate?.preFen
+        val canAnimateIntro = SolutionReviewHelper.validateTriggerTransition(
+            preFen = preFen,
+            prevMoveUci = prevMoveUci,
+            targetFen = exercise.fenPosition
+        )
+
+        initialTriggerMoveUci = prevMoveUci
+        currentCuratedExplanation = curatedTemplate?.explanation
+        val initialPrevMove = prevMoveUci?.let { parseSquaresFromUci(it) }
         lastMoveBeforePlayerMove = initialPrevMove
 
         val effectiveDiff = exercise.getEffectiveDifficulty()
         val totalPlayerSteps = ((targetSequence.size + 1) / 2).coerceAtLeast(1)
-        val sideText = if (newBoard.sideToMove == Side.WHITE) "белых" else "чёрных"
+        val isDefensive = ExerciseMetadata.isDefensiveGoal(exercise)
 
         val title = curatedTemplate?.title
             ?: ExerciseMetadata.extractTitle(exercise)
             ?: exercise.tacticalPattern.displayName
-        val subtitle = curatedTemplate?.subtitle
-            ?: if (totalPlayerSteps > 1) {
-                "Найдите комбинацию в $totalPlayerSteps ${pluralizeMoves(totalPlayerSteps)} за $sideText"
-            } else {
-                "Найдите сильнейший ход за $sideText"
-            }
+        // Без микро-спойлеров мотива и глубины расчёта ДО решения (как в живой партии)
+        val neutralPrompt = SolutionReviewHelper.buildNeutralPrompt(
+            playerSide = newBoard.sideToMove,
+            hasOpponentTriggerMove = initialPrevMove != null,
+            isDefensiveGoal = isDefensive
+        )
 
         val initialBanner = when {
             isAlreadySolvedDaily -> "✓ Задача дня уже решена сегодня — можно перерешать без изменения рейтинга"
+            reviewState != null -> SpacedRepetitionScheduler.formatReviewBanner(reviewState)
             isReviewOfFailed -> "🔁 Повтор задачи, в которой ранее была ошибка"
+            mode is TrainingMode.DeepCalculation -> "🧠 Досчитайте весь форсированный вариант до первого хода"
             else -> null
         }
 
-        _uiState.value = _uiState.value.copy(
-            board = newBoard,
+        val baseReadyState = _uiState.value.copy(
             mode = mode,
             playerSide = newBoard.sideToMove,
             arrows = emptyList(),
             highlights = emptyList(),
-            lastMove = initialPrevMove,
             hintLevel = HintLevel.NONE,
-            isInputLocked = false,
             isSolved = false,
             isSolutionRevealed = false,
             isAnimatingPunishment = false,
@@ -643,7 +936,7 @@ class TrainingViewModel(
             hasNoUserMistakes = false,
             lastRatingDelta = null,
             exerciseTitle = title,
-            exerciseSubtitle = subtitle,
+            exerciseSubtitle = neutralPrompt,
             currentPattern = exercise.tacticalPattern.name,
             patternDisplayName = exercise.tacticalPattern.displayName,
             theme = exercise.theme,
@@ -653,14 +946,80 @@ class TrainingViewModel(
             sourceLabel = TrainingLabels.sourceLabel(exercise, isDailyMode = mode is TrainingMode.Daily),
             isDailyAlreadySolved = isAlreadySolvedDaily,
             isReviewOfFailed = isReviewOfFailed,
+            reviewBox = reviewState?.box,
+            dueReviewCount = dueReviewCount,
             currentStepNumber = 1,
             totalPlayerSteps = totalPlayerSteps,
-            similarExercisesQueued = sessionQueue.size,
+            similarExercisesQueued = interleavedQueue.pendingCount,
             currentMistakeAnalysis = null,
             showBetterMoveHint = false,
             betterMoveShown = false,
-            feedbackMessage = initialBanner
+            reviewSteps = emptyList(),
+            reviewStepIndex = 0,
+            solutionSanLine = null,
+            postSolveExplanation = null,
+            isFreeAnalysisMode = false,
+            isAnalyzingPosition = false,
+            analysisEvalText = null,
+            analysisBestMoveSan = null,
+            analysisBestMoveUci = null,
+            canUndoAnalysisMove = false
         )
+
+        // Входная анимация последнего хода соперника: тренирует живое включение тактического зрения
+        if (canAnimateIntro && preFen != null && prevMoveUci != null) {
+            val preBoard = runCatching { Board().apply { loadFromFen(preFen) } }.getOrNull()
+            val triggerMove = preBoard?.let { ChessMoveUtils.parseUciMove(it, prevMoveUci) }
+            if (preBoard != null && triggerMove != null) {
+                val wasCapture = isCaptureMove(preBoard, triggerMove)
+                _uiState.value = baseReadyState.copy(
+                    board = preBoard,
+                    lastMove = null,
+                    isInputLocked = true,
+                    isAnimatingIntro = true,
+                    feedbackMessage = initialBanner ?: neutralPrompt
+                )
+                delay(INTRO_PRE_MOVE_DELAY_MS)
+
+                soundCounter++
+                val introSound = when {
+                    newBoard.isKingAttacked -> TrainingSoundEvent.CHECK
+                    wasCapture -> TrainingSoundEvent.CAPTURE
+                    else -> TrainingSoundEvent.MOVE
+                }
+                startTime = System.currentTimeMillis()
+                firstMoveThinkTimeMs = null
+                _uiState.value = baseReadyState.copy(
+                    board = newBoard,
+                    lastMove = initialPrevMove,
+                    isInputLocked = false,
+                    isAnimatingIntro = false,
+                    feedbackMessage = initialBanner,
+                    soundEvent = introSound,
+                    soundEventId = soundCounter
+                )
+            } else {
+                startTime = System.currentTimeMillis()
+                firstMoveThinkTimeMs = null
+                _uiState.value = baseReadyState.copy(
+                    board = newBoard,
+                    lastMove = initialPrevMove,
+                    isInputLocked = false,
+                    isAnimatingIntro = false,
+                    feedbackMessage = initialBanner
+                )
+            }
+        } else {
+            startTime = System.currentTimeMillis()
+            firstMoveThinkTimeMs = null
+            _uiState.value = baseReadyState.copy(
+                board = newBoard,
+                lastMove = initialPrevMove,
+                isInputLocked = false,
+                isAnimatingIntro = false,
+                feedbackMessage = initialBanner
+            )
+        }
 
         exercise.id?.let { id ->
             runCatching { container.exerciseRepository.incrementTimesShown(id) }
@@ -699,7 +1058,13 @@ class TrainingViewModel(
                         board.fen,
                         line?.principalVariation?.take(MAX_SOLUTION_PLIES).orEmpty()
                     )
-                    val oddPv = TrainingRatingCalculator.trimPvToPlayerLastMove(validatedPv, MAX_SOLUTION_PLIES)
+                    // Обрезаем линию строго в точке успокоения позиции (после разменов/шахов),
+                    // не навязывая игроку угадывание лишних «тихих» ходов
+                    val oddPv = PuzzleQualityEvaluator.trimPvAtQuiescence(
+                        startFen = board.fen,
+                        rawUciMoves = validatedPv,
+                        maxPlies = MAX_SOLUTION_PLIES
+                    )
 
                     when {
                         oddPv.isNotEmpty() -> targetSequence.addAll(oddPv)
@@ -727,9 +1092,17 @@ class TrainingViewModel(
 
     fun onMoveMade(move: Move) {
         val state = _uiState.value
-        if (state.isInputLocked || state.isSolved || state.isSolutionRevealed ||
-            state.isAnimatingPunishment || state.isLoading || !state.hasActiveExercise
-        ) {
+        if (state.isLoading || state.isAnimatingIntro || state.isAnimatingPunishment || !state.hasActiveExercise) {
+            return
+        }
+
+        // В режиме пост-разбора со Stockfish игрок может свободно двигать фигуры за обе стороны
+        if (state.isFreeAnalysisMode && (state.isSolved || state.isSolutionRevealed)) {
+            handleFreeAnalysisMove(move)
+            return
+        }
+
+        if (state.isInputLocked || state.isSolved || state.isSolutionRevealed) {
             return
         }
         if (state.board.sideToMove != state.playerSide) return
@@ -745,6 +1118,10 @@ class TrainingViewModel(
                 }
             }
             return
+        }
+
+        if (firstMoveThinkTimeMs == null && currentMoveIndex == 0 && attemptMistakeCount == 0) {
+            firstMoveThinkTimeMs = (System.currentTimeMillis() - startTime).coerceAtLeast(0L)
         }
 
         positionBeforePlayerMove = state.board.fen
@@ -965,20 +1342,66 @@ class TrainingViewModel(
 
     private suspend fun handleMistakeComprehensive(fenBefore: String, userMove: Move) {
         val isFirstMistakeOnExercise = !attemptFailed
-        attemptFailed = true
-        val stats = _uiState.value.sessionStats
+        val exercise = currentExercise
+        val user = currentUser
 
+        // Детектор импульсивного первого хода («игры руками» без расчёта ответа соперника)
+        val thinkMs = firstMoveThinkTimeMs
+        val activeMode = _uiState.value.mode
+        val wasImpulsiveFirstMove = isFirstMistakeOnExercise &&
+            TrainingRatingCalculator.isImpulsiveMistake(
+                firstMoveThinkMs = thinkMs,
+                exercise = exercise,
+                isFirstMoveOfPuzzle = currentMoveIndex == 0,
+                mode = activeMode
+            )
+
+        attemptMistakeCount++
+        attemptFailed = true
+
+        // Тренерская диагностика дисциплины расчёта
+        lastMistakeCoachingNote = when {
+            wasImpulsiveFirstMove && thinkMs != null -> {
+                val secs = String.format(java.util.Locale.US, "%.1f", thinkMs / 1000.0)
+                "⚡ Поспешный ход ($secs с)! Сначала проверьте шахи, взятия и лучший ответ соперника."
+            }
+            attemptMistakeCount >= 2 -> {
+                "🛑 Не перебирайте ходы наугад — посчитайте ответ соперника или возьмите подсказку фигуры."
+            }
+            else -> null
+        }
+
+        val stats = _uiState.value.sessionStats
+        var shouldSaveFirstFailedAttempt = false
         var appliedDelta: Int? = null
-        if (isFirstMistakeOnExercise && !failedAttemptSaved && !isCurrentDailyAlreadySolved) {
-            failedAttemptSaved = true
-            val exercise = currentExercise
-            val user = currentUser
-            if (exercise != null && user != null) {
-                appliedDelta = TrainingRatingCalculator.calculateFailureDelta(user.rating, exercise)
+
+        if (!isCurrentDailyAlreadySolved && exercise != null && user != null) {
+            if (isFirstMistakeOnExercise && !failedAttemptSaved) {
+                failedAttemptSaved = true
+                shouldSaveFirstFailedAttempt = true
+                appliedDelta = TrainingRatingCalculator.calculateFailureDelta(
+                    playerElo = user.rating,
+                    exercise = exercise,
+                    completedRatedSittings = completedRatedSittings
+                )
+            } else {
+                // Мягкий дисциплинирующий штраф за повторный слепой перебор ходов в той же задаче
+                val guessPenalty = TrainingRatingCalculator.calculateRepeatedGuessPenalty(attemptMistakeCount)
+                if (guessPenalty != 0) {
+                    appliedDelta = guessPenalty
+                }
+            }
+        }
+
+        if (activeMode is TrainingMode.SmartSession) {
+            smartSessionNetElo += (appliedDelta ?: 0)
+            if (wasImpulsiveFirstMove) {
+                smartSessionImpulsiveCount++
             }
         }
 
         val updatedNet = stats.netRatingDelta + (appliedDelta ?: 0)
+        val updatedImpulsive = if (wasImpulsiveFirstMove) stats.impulsiveMistakes + 1 else stats.impulsiveMistakes
         soundCounter++
         _uiState.value = _uiState.value.copy(
             isInputLocked = true,
@@ -986,6 +1409,7 @@ class TrainingViewModel(
             lastRatingDelta = appliedDelta,
             sessionStats = stats.copy(
                 failed = stats.failed + 1,
+                impulsiveMistakes = updatedImpulsive,
                 currentStreak = 0,
                 netRatingDelta = updatedNet
             ),
@@ -994,14 +1418,24 @@ class TrainingViewModel(
             soundEventId = soundCounter
         )
 
-        if (appliedDelta != null) {
+        if (shouldSaveFirstFailedAttempt || appliedDelta != null) {
             runCatching {
-                saveAttempt(solved = false)
-                updateRating(appliedDelta)
+                if (shouldSaveFirstFailedAttempt) {
+                    saveAttempt(solved = false, wasImpulsive = wasImpulsiveFirstMove)
+                    completedRatedSittings++
+                }
+                if (appliedDelta != null) {
+                    updateRating(appliedDelta)
+                }
             }.onFailure { e ->
                 if (e is CancellationException) throw e
                 Log.e(TAG, "Error saving failed attempt", e)
             }
+        }
+
+        // Отложенное чередование мотива (даже если движок недоступен — по мотиву самой задачи)
+        if (isFirstMistakeOnExercise) {
+            scheduleInterleavedReinforcement(null)
         }
 
         try {
@@ -1047,7 +1481,9 @@ class TrainingViewModel(
                 return
             }
 
-            loadSimilarExercisesIntoQueue(analysis)
+            if (isFirstMistakeOnExercise) {
+                scheduleInterleavedReinforcement(analysis)
+            }
             displayMistakeAnalysis(boardAfterPlayer, analysis, punishmentLineObj.principalVariation)
         } catch (e: CancellationException) {
             throw e
@@ -1062,16 +1498,11 @@ class TrainingViewModel(
         analysis: MistakeAnalysis,
         punishmentMoves: List<String>
     ) {
-        val queueInfo = if (sessionQueue.isNotEmpty() && _uiState.value.mode is TrainingMode.All) {
-            "\n📚 +${sessionQueue.size} похожих задач для закрепления"
-        } else {
-            ""
-        }
-
         val cleanExplanation = cleanEvaluationText(analysis.explanation)
+        val coachingSuffix = lastMistakeCoachingNote?.let { "\n$it" } ?: ""
 
         _uiState.value = _uiState.value.copy(
-            feedbackMessage = cleanExplanation + queueInfo,
+            feedbackMessage = cleanExplanation + coachingSuffix,
             currentMistakeAnalysis = analysis,
             showBetterMoveHint = analysis.shouldShowBetterMove()
         )
@@ -1170,10 +1601,17 @@ class TrainingViewModel(
         } else {
             null
         }
-        val prompt = if (keptExplanation != null) {
-            "$keptExplanation\nПопробуйте ещё раз!"
-        } else {
-            "Попробуйте ещё раз!"
+        val coaching = lastMistakeCoachingNote
+        val prompt = buildString {
+            if (keptExplanation != null) {
+                append(keptExplanation)
+                append('\n')
+            }
+            if (coaching != null) {
+                append(coaching)
+                append('\n')
+            }
+            append("Попробуйте ещё раз!")
         }
 
         _uiState.value = prev.copy(
@@ -1193,43 +1631,20 @@ class TrainingViewModel(
     // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
     // ================================================================
 
-    private suspend fun loadSimilarExercisesIntoQueue(analysis: MistakeAnalysis) {
-        if (_uiState.value.mode !is TrainingMode.All) return
-        val userId = currentUser?.id ?: return
-
-        val pattern = analysis.tacticalMotif?.let { TacticalPattern.fromMotif(it) }
+    /**
+     * Планирует отложенный (interleaved) возврат к ошибочному тактическому мотиву
+     * через 2 и 5 задач на другие темы — без механических «блоков подряд» и без спойлера.
+     */
+    private fun scheduleInterleavedReinforcement(analysis: MistakeAnalysis?) {
+        val mode = _uiState.value.mode
+        if (mode !is TrainingMode.All && mode !is TrainingMode.SmartSession) return
+        val pattern = analysis?.tacticalMotif?.let { TacticalPattern.fromMotif(it) }
             ?: currentExercise?.tacticalPattern
             ?: return
-        val patternName = pattern.name
-        lastMistakePattern = patternName
-
-        try {
-            val currentId = currentExercise?.id ?: -1L
-            val currentDifficulty = currentExercise?.getEffectiveDifficulty() ?: 50
-            val alreadyQueuedIds = sessionQueue.mapNotNull { it.id }.toSet()
-
-            val remainingSlots = (4 - sessionQueue.size).coerceAtLeast(0)
-            if (remainingSlots == 0) return
-
-            val similarExercises = container.exerciseRepository.findForMistakeRepetition(
-                userId = userId,
-                pattern = patternName,
-                difficulty = currentDifficulty,
-                excludeId = currentId,
-                limit = minOf(SIMILAR_EXERCISES_COUNT, remainingSlots)
-            ).filter { it.id !in alreadyQueuedIds }
-
-            if (similarExercises.isNotEmpty()) {
-                sessionQueue.addAll(similarExercises)
-                _uiState.value = _uiState.value.copy(
-                    similarExercisesQueued = sessionQueue.size
-                )
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading similar exercises", e)
-        }
+        interleavedQueue.scheduleAfterMistake(pattern.name)
+        _uiState.value = _uiState.value.copy(
+            similarExercisesQueued = interleavedQueue.pendingCount
+        )
     }
 
     private suspend fun checkMoveQuality(fen: String, userMove: Move): TrainingMoveQuality {
@@ -1271,9 +1686,16 @@ class TrainingViewModel(
                 }
 
                 val cpLoss = playerEvalBest - playerEvalAfterUser
+                val isDefensive = currentExercise?.let { ExerciseMetadata.isDefensiveGoal(it) } == true
                 when {
                     cpLoss <= 15 -> TrainingMoveQuality.BEST
-                    cpLoss <= 40 -> TrainingMoveQuality.EXCELLENT
+                    cpLoss <= 45 -> TrainingMoveQuality.EXCELLENT
+                    // В защитной задаче любой ход, надёжно удерживающий равновесие без тактических потерь, корректен
+                    isDefensive && playerEvalAfterUser >= -140 && cpLoss <= 60 ->
+                        TrainingMoveQuality.EXCELLENT
+                    // При реализации уже подавляющего перевеса (+4 пешки) допускаем равноценный выигрывающий путь
+                    playerEvalAfterUser >= 400 && cpLoss <= 65 ->
+                        TrainingMoveQuality.EXCELLENT
                     else -> TrainingMoveQuality.MISTAKE
                 }
             } catch (e: CancellationException) {
@@ -1321,10 +1743,24 @@ class TrainingViewModel(
         onUserUpdatedCallback?.invoke(updated)
     }
 
-    private suspend fun saveAttempt(solved: Boolean) {
+    private suspend fun saveAttempt(
+        solved: Boolean,
+        solutionRevealed: Boolean = false,
+        wasImpulsive: Boolean = false
+    ) {
         val userId = currentUser?.id ?: return
         val exerciseId = currentExercise?.id ?: return
-        val timeSpent = ((System.currentTimeMillis() - startTime) / 1000).toInt().coerceAtLeast(0)
+        val now = System.currentTimeMillis()
+        val timeSpent = ((now - startTime) / 1000).toInt().coerceAtLeast(0)
+
+        val taggedMoves = AttemptMetadata.buildTaggedMoves(
+            rawUciMoves = recordedMoves,
+            hintUsage = maxHintUsed,
+            retryCount = if (solved) attemptMistakeCount else attemptMistakeCount.coerceAtLeast(0),
+            firstMoveThinkMs = firstMoveThinkTimeMs,
+            solutionRevealed = solutionRevealed,
+            wasImpulsive = wasImpulsive
+        )
 
         val attempt = ExerciseAttempt(
             id = null,
@@ -1332,10 +1768,47 @@ class TrainingViewModel(
             exerciseId = exerciseId,
             solved = solved,
             timeSpentSeconds = timeSpent,
-            movesMade = recordedMoves.toList(),
-            attemptedAt = System.currentTimeMillis()
+            movesMade = taggedMoves,
+            attemptedAt = now
         )
         container.exerciseRepository.saveAttempt(attempt)
+    }
+
+    /**
+     * Пересчитывает состояние SM-2/Лейтнера для текущей задачи и счётчик подошедших повторов.
+     */
+    private suspend fun refreshCardAndDueCount(): ReviewCardState? {
+        val userId = currentUser?.id ?: return null
+        val exercise = currentExercise
+        val exerciseId = exercise?.id
+        return try {
+            val now = System.currentTimeMillis()
+            val accessible = container.exerciseRepository.findAccessibleByUserId(userId)
+            val byId = accessible.mapNotNull { ex -> ex.id?.let { it to ex } }.toMap()
+            val attempts = container.exerciseRepository.getAttemptsByUserId(userId)
+            val schedule = SpacedRepetitionScheduler.buildSchedule(attempts, byId)
+            val dueCount = accessible.count { ex ->
+                val id = ex.id ?: return@count false
+                schedule[id]?.isDue(now) == true
+            }
+            val currentCard = exerciseId?.let { id ->
+                schedule[id] ?: SpacedRepetitionScheduler.computeCardState(
+                    id,
+                    attempts.filter { it.exerciseId == id },
+                    exercise
+                )
+            }
+            _uiState.value = _uiState.value.copy(
+                dueReviewCount = dueCount,
+                reviewBox = currentCard?.box ?: _uiState.value.reviewBox
+            )
+            currentCard
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to refresh spaced-repetition state", e)
+            null
+        }
     }
 
     // ================================================================
@@ -1416,10 +1889,32 @@ class TrainingViewModel(
                 exercise = exercise,
                 hadMistake = attemptFailed,
                 maxHintUsed = maxHintUsed,
-                solutionRevealed = false
+                solutionRevealed = false,
+                completedRatedSittings = completedRatedSittings,
+                mistakeCount = attemptMistakeCount
             )
         } else {
             0
+        }
+
+        val solveSeconds = ((System.currentTimeMillis() - startTime) / 1000).toInt().coerceIn(1, 600)
+        val activeMode = _uiState.value.mode
+        val isCleanFirstTry = !attemptFailed && maxHintUsed == HintUsage.NONE && !isCurrentDailyAlreadySolved
+
+        // Фиксируем результат шага структурированной сессии (10 задач)
+        if (activeMode is TrainingMode.SmartSession && !smartSessionOutcomeRecorded) {
+            smartSessionOutcomeRecorded = true
+            smartSessionTotalSeconds += solveSeconds
+            smartSessionNetElo += ratingDelta
+            if (!usedFullHint) {
+                smartSessionSolvedCount++
+            }
+            if (isCleanFirstTry) {
+                smartSessionCleanCount++
+            } else if (attemptFailed || usedFullHint) {
+                smartSessionFailedCount++
+                exercise?.tacticalPattern?.displayName?.let { smartSessionMissedPatterns.add(it) }
+            }
         }
 
         // Чистое решение (без раскрытия полного ответа и без ошибок) увеличивает серию
@@ -1434,33 +1929,50 @@ class TrainingViewModel(
             usedFullHint -> " (с подсказкой хода: +0 Эло)"
             else -> ""
         }
-        val queueInfo = if (sessionQueue.isNotEmpty() && _uiState.value.mode is TrainingMode.All) {
-            "\n📚 Ещё ${sessionQueue.size} похожих задач для закрепления"
+        val cognitiveNote = if (exercise != null) {
+            TrainingSessionPlanner.formatCognitiveModeFeedback(
+                mode = activeMode,
+                exercise = exercise,
+                solveTimeSeconds = solveSeconds,
+                isCleanFirstTry = isCleanFirstTry
+            )?.let { "\n$it" } ?: ""
         } else {
             ""
         }
+
+        val postReview = buildPostSolveReviewState()
+        val combinedMessage = msg + ratingInfo + cognitiveNote
 
         soundCounter++
         _uiState.value = _uiState.value.copy(
             isSolved = true,
             isInputLocked = true,
+            isFreeAnalysisMode = false,
             lastRatingDelta = if (isCurrentDailyAlreadySolved) null else ratingDelta,
-            feedbackMessage = msg + ratingInfo + queueInfo,
+            feedbackMessage = combinedMessage,
+            reviewSteps = postReview.first,
+            reviewStepIndex = (postReview.first.size - 1).coerceAtLeast(0),
+            solutionSanLine = postReview.second.ifBlank { null },
+            postSolveExplanation = postReview.third,
             sessionStats = stats.copy(
                 solved = stats.solved + 1,
+                cleanFirstTrySolved = if (isCleanFirstTry) stats.cleanFirstTrySolved + 1 else stats.cleanFirstTrySolved,
                 currentStreak = newStreak,
                 bestStreak = newBestStreak,
                 netRatingDelta = stats.netRatingDelta + ratingDelta
             ),
             currentMistakeAnalysis = null,
             showBetterMoveHint = false,
-            similarExercisesQueued = sessionQueue.size,
+            similarExercisesQueued = interleavedQueue.pendingCount,
             soundEvent = TrainingSoundEvent.SOLVED,
             soundEventId = soundCounter
         )
 
-        // Засчитываем задачу как самостоятельно решённую, если не показывался готовый ход стрелкой
+        // Самостоятельное решение (без готовой стрелки) сохраняется как solved = true,
+        // а подсказка готовым ходом — как нерешённая попытка (коробка 0, повтор через 10 мин)
         val markAsSolvedInDb = !usedFullHint && !isCurrentDailyAlreadySolved
+        val markFullHintForReview = usedFullHint && !isCurrentDailyAlreadySolved && !failedAttemptSaved
+        val baseFeedback = combinedMessage
 
         viewModelScope.launch {
             try {
@@ -1469,8 +1981,28 @@ class TrainingViewModel(
                 }
                 if (markAsSolvedInDb) {
                     saveAttempt(solved = true)
-                    exercise?.id?.let { id ->
-                        container.exerciseRepository.incrementTimesSolved(id)
+                    if (!attemptFailed) {
+                        completedRatedSittings++
+                    }
+                    // В глобальную успешность задачи засчитываем только чистое решение с 1-й попытки без подсказок
+                    if (!attemptFailed && maxHintUsed == HintUsage.NONE) {
+                        exercise?.id?.let { id ->
+                            container.exerciseRepository.incrementTimesSolved(id)
+                        }
+                    }
+                } else if (markFullHintForReview) {
+                    failedAttemptSaved = true
+                    saveAttempt(solved = false)
+                    completedRatedSittings++
+                }
+
+                if (!isCurrentDailyAlreadySolved) {
+                    val updatedCard = refreshCardAndDueCount()
+                    if (updatedCard != null && _uiState.value.isSolved && currentExercise?.id == exercise?.id) {
+                        val scheduleNote = SpacedRepetitionScheduler.formatNextIntervalNote(updatedCard)
+                        _uiState.value = _uiState.value.copy(
+                            feedbackMessage = "$baseFeedback\n$scheduleNote"
+                        )
                     }
                 }
             } catch (e: CancellationException) {
@@ -1481,9 +2013,288 @@ class TrainingViewModel(
         }
     }
 
+    // ================================================================
+    // ПОСТ-РАЗБОР РЕШЕНИЯ И СВОБОДНЫЙ АНАЛИЗ СО STOCKFISH
+    // ================================================================
+
+    private fun buildPostSolveReviewState(): Triple<List<SolutionReviewStep>, String, String?> {
+        val exercise = currentExercise ?: return Triple(emptyList(), "", null)
+        val solution = targetSequence.toList().ifEmpty { exercise.solutionMoves }
+        val steps = SolutionReviewHelper.buildReviewSteps(
+            startFen = exercise.fenPosition,
+            solutionUci = solution,
+            initialPrevMoveUci = initialTriggerMoveUci
+        )
+        val sanLine = SolutionReviewHelper.formatNumberedSanLine(exercise.fenPosition, solution)
+        val explanation = SolutionReviewHelper.buildPostSolveExplanation(
+            startFen = exercise.fenPosition,
+            solutionUci = solution,
+            pattern = exercise.tacticalPattern,
+            curatedExplanation = currentCuratedExplanation
+        )
+        return Triple(steps, sanLine, explanation)
+    }
+
+    fun onReviewFirst() = applyReviewStep(0)
+
+    fun onReviewPrev() {
+        val state = _uiState.value
+        applyReviewStep((state.reviewStepIndex - 1).coerceAtLeast(0))
+    }
+
+    fun onReviewNext() {
+        val state = _uiState.value
+        val maxIdx = (state.reviewSteps.size - 1).coerceAtLeast(0)
+        applyReviewStep((state.reviewStepIndex + 1).coerceAtMost(maxIdx))
+    }
+
+    fun onReviewLast() {
+        val state = _uiState.value
+        applyReviewStep((state.reviewSteps.size - 1).coerceAtLeast(0))
+    }
+
+    private fun applyReviewStep(targetIndex: Int) {
+        val state = _uiState.value
+        if ((!state.isSolved && !state.isSolutionRevealed) || state.reviewSteps.isEmpty()) return
+        val clamped = targetIndex.coerceIn(0, state.reviewSteps.lastIndex)
+        val step = state.reviewSteps[clamped]
+
+        analysisJob?.cancel()
+        analysisHistory.clear()
+
+        val board = runCatching { Board().apply { loadFromFen(step.fen) } }.getOrNull() ?: return
+        val lastPair = step.lastMoveUci?.let { parseSquaresFromUci(it) }
+        val stepArrow = if (clamped > 0 && step.lastMoveUci != null) {
+            val color = if (step.isPlayerMove) Color(0x994CAF50) else Color(0x882196F3)
+            listOfNotNull(createArrowFromUci(step.lastMoveUci, color))
+        } else {
+            emptyList()
+        }
+
+        soundCounter++
+        val sound = if (board.isKingAttacked) TrainingSoundEvent.CHECK else TrainingSoundEvent.MOVE
+        _uiState.value = state.copy(
+            board = board,
+            lastMove = lastPair,
+            arrows = stepArrow,
+            highlights = emptyList(),
+            reviewStepIndex = clamped,
+            isFreeAnalysisMode = false,
+            isInputLocked = true,
+            isAnalyzingPosition = false,
+            analysisEvalText = null,
+            analysisBestMoveSan = null,
+            analysisBestMoveUci = null,
+            canUndoAnalysisMove = false,
+            soundEvent = sound,
+            soundEventId = soundCounter
+        )
+    }
+
+    /**
+     * Включает/выключает режим свободного анализа со Stockfish после завершения задачи,
+     * чтобы игрок мог проверить любой побочный вариант («а что если соперник побил ладьёй?»).
+     */
+    fun onToggleFreeAnalysis() {
+        val state = _uiState.value
+        if (!state.isSolved && !state.isSolutionRevealed) return
+
+        if (state.isFreeAnalysisMode) {
+            // Возвращаемся к текущему шагу основного решения
+            if (state.reviewSteps.isNotEmpty()) {
+                applyReviewStep(state.reviewStepIndex)
+            } else {
+                analysisJob?.cancel()
+                analysisHistory.clear()
+                _uiState.value = state.copy(
+                    isFreeAnalysisMode = false,
+                    isInputLocked = true,
+                    isAnalyzingPosition = false,
+                    arrows = emptyList(),
+                    analysisEvalText = null,
+                    analysisBestMoveSan = null,
+                    analysisBestMoveUci = null,
+                    canUndoAnalysisMove = false
+                )
+            }
+            return
+        }
+
+        analysisHistory.clear()
+        val currentFen = state.board.fen
+        analysisHistory.add(currentFen to state.lastMove)
+
+        _uiState.value = state.copy(
+            isFreeAnalysisMode = true,
+            isInputLocked = false,
+            arrows = emptyList(),
+            highlights = emptyList(),
+            canUndoAnalysisMove = false
+        )
+        requestFreeAnalysisEvaluation(currentFen)
+    }
+
+    private fun handleFreeAnalysisMove(move: Move) {
+        val state = _uiState.value
+        val board = Board().apply { loadFromFen(state.board.fen) }
+        if (!board.isMoveLegal(move, true)) return
+
+        val wasCapture = isCaptureMove(board, move)
+        if (!board.doMove(move)) return
+        val pair = move.from to move.to
+        val newFen = board.fen
+        analysisHistory.add(newFen to pair)
+
+        soundCounter++
+        val sound = when {
+            board.isKingAttacked -> TrainingSoundEvent.CHECK
+            wasCapture -> TrainingSoundEvent.CAPTURE
+            else -> TrainingSoundEvent.MOVE
+        }
+
+        _uiState.value = state.copy(
+            board = board,
+            lastMove = pair,
+            arrows = emptyList(),
+            canUndoAnalysisMove = analysisHistory.size > 1,
+            soundEvent = sound,
+            soundEventId = soundCounter
+        )
+        requestFreeAnalysisEvaluation(newFen)
+    }
+
+    fun onUndoAnalysisMove() {
+        val state = _uiState.value
+        if (!state.isFreeAnalysisMode || analysisHistory.size <= 1) return
+
+        analysisHistory.removeAt(analysisHistory.lastIndex)
+        val (prevFen, prevLastMove) = analysisHistory.last()
+        val restored = runCatching { Board().apply { loadFromFen(prevFen) } }.getOrNull() ?: return
+
+        soundCounter++
+        _uiState.value = state.copy(
+            board = restored,
+            lastMove = prevLastMove,
+            arrows = emptyList(),
+            canUndoAnalysisMove = analysisHistory.size > 1,
+            soundEvent = TrainingSoundEvent.MOVE,
+            soundEventId = soundCounter
+        )
+        requestFreeAnalysisEvaluation(prevFen)
+    }
+
+    fun onPlayEngineBestInAnalysis() {
+        val state = _uiState.value
+        if (!state.isFreeAnalysisMode || state.isAnalyzingPosition) return
+        val bestUci = state.analysisBestMoveUci ?: return
+        val parsed = ChessMoveUtils.parseUciMove(state.board, bestUci) ?: return
+        handleFreeAnalysisMove(parsed)
+    }
+
+    private fun requestFreeAnalysisEvaluation(fen: String) {
+        analysisJob?.cancel()
+        val boardCheck = runCatching { Board().apply { loadFromFen(fen) } }.getOrNull() ?: return
+
+        if (boardCheck.isMated) {
+            val winnerLabel = if (boardCheck.sideToMove == Side.WHITE) "0–1 (мат)" else "1–0 (мат)"
+            _uiState.value = _uiState.value.copy(
+                isAnalyzingPosition = false,
+                analysisEvalText = winnerLabel,
+                analysisBestMoveSan = null,
+                analysisBestMoveUci = null,
+                arrows = emptyList()
+            )
+            return
+        }
+        if (boardCheck.isStaleMate || boardCheck.isDraw) {
+            _uiState.value = _uiState.value.copy(
+                isAnalyzingPosition = false,
+                analysisEvalText = "½–½ (ничья)",
+                analysisBestMoveSan = null,
+                analysisBestMoveUci = null,
+                arrows = emptyList()
+            )
+            return
+        }
+
+        _uiState.value = _uiState.value.copy(
+            isAnalyzingPosition = true,
+            analysisEvalText = "Анализ...",
+            analysisBestMoveSan = null,
+            analysisBestMoveUci = null
+        )
+
+        analysisJob = viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val engine = container.chessEngine
+                    if (!engine.init()) return@withContext null
+                    engine.getBestMoveWithLine(fen, FREE_ANALYSIS_DEPTH)
+                }
+
+                val latest = _uiState.value
+                if (!latest.isFreeAnalysisMode || latest.board.fen != fen) return@launch
+
+                if (result == null) {
+                    _uiState.value = latest.copy(
+                        isAnalyzingPosition = false,
+                        analysisEvalText = "Движок недоступен",
+                        analysisBestMoveSan = null,
+                        analysisBestMoveUci = null
+                    )
+                    return@launch
+                }
+
+                // Переводим оценку в стандартную шкалу со стороны белых (+ в пользу белых, − в пользу чёрных)
+                val whiteSign = if (boardCheck.sideToMove == Side.WHITE) 1 else -1
+                val evalLabel = formatEngineEvalLabel(
+                    sideToMoveScore = result.score,
+                    mateIn = result.mateIn,
+                    whiteSign = whiteSign
+                )
+                val bestUci = result.bestMove.takeIf { ChessMoveUtils.isUciMove(it) }
+                val bestSan = bestUci?.let { ChessMoveUtils.uciToSan(it, fen) }
+                val bestArrow = bestUci?.let { listOfNotNull(createArrowFromUci(it, Color(0xAA4CAF50))) }
+                    ?: emptyList()
+
+                _uiState.value = latest.copy(
+                    isAnalyzingPosition = false,
+                    analysisEvalText = evalLabel,
+                    analysisBestMoveSan = bestSan,
+                    analysisBestMoveUci = bestUci,
+                    arrows = bestArrow
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Free analysis failed", e)
+                if (_uiState.value.isFreeAnalysisMode) {
+                    _uiState.value = _uiState.value.copy(
+                        isAnalyzingPosition = false,
+                        analysisEvalText = "Ошибка анализа"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun formatEngineEvalLabel(sideToMoveScore: Int, mateIn: Int?, whiteSign: Int): String {
+        if (mateIn != null && mateIn != 0) {
+            val whiteMate = mateIn * whiteSign
+            val sign = if (whiteMate > 0) "+" else "-"
+            return "${sign}М${kotlin.math.abs(whiteMate)}"
+        }
+        if (ChessEngine.isMateScore(sideToMoveScore)) {
+            val whiteScore = sideToMoveScore * whiteSign
+            return if (whiteScore > 0) "+Мат" else "-Мат"
+        }
+        val pawns = (sideToMoveScore * whiteSign) / 100.0
+        val sign = if (pawns > 0.04) "+" else ""
+        return String.format(java.util.Locale.US, "%s%.1f", sign, pawns)
+    }
+
     fun clearSessionQueue() {
-        sessionQueue.clear()
-        lastMistakePattern = null
+        interleavedQueue.clear()
         _uiState.value = _uiState.value.copy(
             similarExercisesQueued = 0
         )
@@ -1493,6 +2304,9 @@ class TrainingViewModel(
         super.onCleared()
         currentJob?.cancel()
         generationJob?.cancel()
+        analysisJob?.cancel()
+        interleavedQueue.clear()
+        resetSmartSessionTrackers()
         onUserUpdatedCallback = null
     }
 }

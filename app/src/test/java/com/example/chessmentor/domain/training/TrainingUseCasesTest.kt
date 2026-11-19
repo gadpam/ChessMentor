@@ -429,7 +429,9 @@ class TrainingUseCasesTest {
         ) as GetTrainingExerciseUseCase.Result.Success
         assertEquals(TacticalTheme.PIN, pinRes.exercise.theme)
 
-        // Интервальное повторение: Алиса ошибается в pinRes -> при следующем подборе она возвращается как isReviewOfFailed
+        // Интервальное повторение (SM-2/Лейтнер):
+        // 1) Сразу через 1 минуту после ошибки задача в охлаждении — выдаётся ДРУГАЯ новая задача
+        val failAt = 10_000_000L
         exerciseRepo.saveAttempt(
             ExerciseAttempt(
                 userId = alice.id!!,
@@ -437,14 +439,54 @@ class TrainingUseCasesTest {
                 solved = false,
                 timeSpentSeconds = 20,
                 movesMade = listOf("g1h1"),
-                attemptedAt = 2000L
+                attemptedAt = failAt
             )
         )
+        val duringCooldown = useCase.execute(
+            GetTrainingExerciseUseCase.Input(
+                userId = alice.id!!,
+                excludeExerciseId = -1L,
+                mode = TrainingMode.All,
+                nowMs = failAt + SpacedRepetitionScheduler.MINUTE_MS
+            )
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertNotEquals(pinRes.exercise.id, duringCooldown.exercise.id)
+
+        // 2) Через 10 минут охлаждение истекло — задача возвращается с isReviewOfFailed = true и box = 0
         val reviewRes = useCase.execute(
-            GetTrainingExerciseUseCase.Input(userId = alice.id!!, excludeExerciseId = -1L, mode = TrainingMode.All)
+            GetTrainingExerciseUseCase.Input(
+                userId = alice.id!!,
+                excludeExerciseId = -1L,
+                mode = TrainingMode.All,
+                nowMs = failAt + SpacedRepetitionScheduler.FAILURE_COOLDOWN_MS
+            )
         ) as GetTrainingExerciseUseCase.Result.Success
         assertEquals(pinRes.exercise.id, reviewRes.exercise.id)
         assertTrue(reviewRes.isReviewOfFailed)
+        assertEquals(0, reviewRes.reviewState?.box)
+
+        // 3) Если Алиса дорешала её со 2-й попытки — через 4 часа она СНОВА возвращается для чистой проверки!
+        exerciseRepo.saveAttempt(
+            ExerciseAttempt(
+                userId = alice.id!!,
+                exerciseId = pinRes.exercise.id!!,
+                solved = true,
+                timeSpentSeconds = 32,
+                movesMade = AttemptMetadata.buildTaggedMoves(listOf("g1h1") + pinRes.exercise.solutionMoves, retryCount = 1),
+                attemptedAt = failAt + 2 * SpacedRepetitionScheduler.MINUTE_MS
+            )
+        )
+        val retryConsolidation = useCase.execute(
+            GetTrainingExerciseUseCase.Input(
+                userId = alice.id!!,
+                excludeExerciseId = -1L,
+                mode = TrainingMode.All,
+                nowMs = failAt + 2 * SpacedRepetitionScheduler.MINUTE_MS + SpacedRepetitionScheduler.RETRY_CONSOLIDATION_MS
+            )
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertEquals(pinRes.exercise.id, retryConsolidation.exercise.id)
+        assertTrue(retryConsolidation.isReviewOfFailed)
+        assertEquals(AttemptQuality.RETRY_SOLVE, retryConsolidation.reviewState?.lastQuality)
     }
 
     @Test
@@ -572,5 +614,190 @@ class TrainingUseCasesTest {
         assertEquals(10, training.averageSolveTimeSeconds)
         assertEquals(TacticalPattern.FORK_KNIGHT, training.weakPatterns.first().pattern)
         assertEquals(TacticalPattern.BACK_RANK_MATE, training.strongPatterns.first().pattern)
+    }
+
+    @Test
+    fun smartSessionAndCognitiveModes_serveDistinctTargetedExercises() = runBlocking {
+        val userRepo = FakeUserRepo()
+        val gameRepo = FakeGameRepo()
+        val mistakeRepo = FakeMistakeRepo(gameRepo)
+        val exerciseRepo = FakeExerciseRepo(gameRepo)
+        val player = userRepo.save(
+            User(nickname = "Coach", email = "coach@example.com", passwordHash = "h", rating = 1650)
+        )
+        val useCase = GetTrainingExerciseUseCase(userRepo, mistakeRepo, exerciseRepo)
+
+        // 1. Полная «Умная сессия» из 10 задач без единого повтора, с проверкой защиты и глубокого расчёта
+        val servedIds = mutableSetOf<Long>()
+        var lastPattern: String? = null
+        var step7Defensive = false
+        var step9MultiMove = false
+
+        for (step in 1..TrainingSessionPlanner.DEFAULT_SESSION_SIZE) {
+            val phase = TrainingSessionPlanner.phaseForStep(step)
+            val res = useCase.execute(
+                GetTrainingExerciseUseCase.Input(
+                    userId = player.id!!,
+                    excludeExerciseIds = servedIds,
+                    avoidPattern = lastPattern,
+                    sessionPhase = phase,
+                    mode = TrainingMode.SmartSession,
+                    nowMs = 1_000_000L + step * 30_000L
+                )
+            )
+            assertTrue("Step $step must return Success", res is GetTrainingExerciseUseCase.Result.Success)
+            val ex = (res as GetTrainingExerciseUseCase.Result.Success).exercise
+            assertTrue("Session must not repeat exercise ${ex.id}", servedIds.add(ex.id!!))
+            if (step == 7) {
+                step7Defensive = ExerciseMetadata.isDefensiveGoal(ex) || ex.theme == TacticalTheme.KING_SAFETY
+            }
+            if (step == 9) {
+                step9MultiMove = ex.solutionMoves.size >= 3
+            }
+            lastPattern = ex.tacticalPattern.name
+        }
+
+        assertEquals(10, servedIds.size)
+        assertTrue("Step 7 must test defensive/saving alertness", step7Defensive)
+        assertTrue("Step 9 must require multi-move calculation", step9MultiMove)
+
+        // 2. Режим «Защита»
+        val defRes = useCase.execute(
+            GetTrainingExerciseUseCase.Input(userId = player.id!!, mode = TrainingMode.Defense)
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertTrue(
+            ExerciseMetadata.isDefensiveGoal(defRes.exercise) ||
+                defRes.exercise.theme == TacticalTheme.KING_SAFETY
+        )
+
+        // 3. Режим «Зоркость» (короткие паттерны <= 3 полуходов)
+        val visionRes = useCase.execute(
+            GetTrainingExerciseUseCase.Input(userId = player.id!!, mode = TrainingMode.PatternVision)
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertTrue(visionRes.exercise.solutionMoves.size <= 3)
+
+        // 4. Режим «Расчёт» (многоходовые комбинации >= 5 полуходов для 1650 Эло)
+        val calcRes = useCase.execute(
+            GetTrainingExerciseUseCase.Input(userId = player.id!!, mode = TrainingMode.DeepCalculation)
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertTrue(calcRes.exercise.solutionMoves.size >= 5)
+    }
+
+    @Test
+    fun fromGameBridge_generatesForSingleGameServesFocusedMoveFirstAndIsolatesUsers() = runBlocking {
+        val userRepo = FakeUserRepo()
+        val gameRepo = FakeGameRepo()
+        val mistakeRepo = FakeMistakeRepo(gameRepo)
+        val analyzedRepo = FakeAnalyzedMoveRepo()
+        val exerciseRepo = FakeExerciseRepo(gameRepo)
+
+        val alice = userRepo.save(
+            User(nickname = "Alice", email = "a@ex.com", passwordHash = "h", rating = 1500)
+        )
+        val bob = userRepo.save(
+            User(nickname = "Bob", email = "b@ex.com", passwordHash = "h", rating = 1500)
+        )
+
+        val game1 = gameRepo.save(
+            Game(
+                userId = alice.id!!,
+                pgnData = "1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. d3 *",
+                playerColor = ChessColor.WHITE,
+                playedAt = 1_000L,
+                analysisStatus = AnalysisStatus.COMPLETED
+            )
+        )
+        val game2 = gameRepo.save(
+            Game(
+                userId = alice.id!!,
+                pgnData = "1. d4 d5 *",
+                playerColor = ChessColor.WHITE,
+                playedAt = 2_000L,
+                analysisStatus = AnalysisStatus.COMPLETED
+            )
+        )
+
+        val fenMove4 = "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4"
+        val fenMove9 = "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 9"
+        val fenOtherGame = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
+
+        mistakeRepo.save(
+            Mistake(
+                gameId = game1.id!!, themeId = 1L, moveNumber = 4, color = ChessColor.WHITE,
+                evaluationLoss = 600, mistakeType = MistakeType.BLUNDER,
+                bestMove = "Qxf7#", userMove = "d3", fenBefore = fenMove4
+            )
+        )
+        mistakeRepo.save(
+            Mistake(
+                gameId = game1.id!!, themeId = 1L, moveNumber = 9, color = ChessColor.WHITE,
+                evaluationLoss = 550, mistakeType = MistakeType.BLUNDER,
+                bestMove = "Rd8#", userMove = "h3", fenBefore = fenMove9
+            )
+        )
+        mistakeRepo.save(
+            Mistake(
+                gameId = game2.id!!, themeId = 1L, moveNumber = 3, color = ChessColor.WHITE,
+                evaluationLoss = 280, mistakeType = MistakeType.MISTAKE,
+                bestMove = "Bb5", userMove = "a3", fenBefore = fenOtherGame
+            )
+        )
+
+        val generator = GenerateExercisesFromMistakesUseCase(
+            mistakeRepository = mistakeRepo,
+            analyzedMoveRepository = analyzedRepo,
+            exerciseRepository = exerciseRepo,
+            gameRepository = gameRepo,
+            chessEngine = StubEngine()
+        )
+
+        // Чужой пользователь не может сгенерировать задачи по чужой партии
+        val forbidden = generator.executeForGame(userId = bob.id!!, gameId = game1.id!!)
+        assertTrue(forbidden is GenerateExercisesFromMistakesUseCase.Result.Error)
+
+        // Прицельная генерация создаёт задачи ТОЛЬКО для game1 (не трогая game2)
+        val genRes = generator.executeForGame(
+            userId = alice.id!!,
+            gameId = game1.id!!,
+            focusMoveNumber = 9
+        )
+        assertTrue(genRes is GenerateExercisesFromMistakesUseCase.Result.Success)
+        val created = (genRes as GenerateExercisesFromMistakesUseCase.Result.Success).exercises
+        assertEquals(2, created.size)
+        assertTrue(created.all { it.sourceGameId == game1.id })
+
+        val selector = GetTrainingExerciseUseCase(userRepo, mistakeRepo, exerciseRepo)
+
+        // 1. При переходе с карточки 9-го хода первой выдаётся именно задача на 9-й ход
+        val first = selector.execute(
+            GetTrainingExerciseUseCase.Input(
+                userId = alice.id!!,
+                mode = TrainingMode.FromGame(gameId = game1.id!!, focusMoveNumber = 9)
+            )
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertEquals(game1.id, first.exercise.sourceGameId)
+        assertEquals(9, first.exercise.sourceMoveNumber)
+        assertEquals("d1d8", first.exercise.solutionMoves.first())
+
+        // 2. Следующей выдаётся оставшаяся ошибка той же партии (ход 4), без примеси game2 и общего банка
+        val second = selector.execute(
+            GetTrainingExerciseUseCase.Input(
+                userId = alice.id!!,
+                excludeExerciseId = first.exercise.id!!,
+                mode = TrainingMode.FromGame(gameId = game1.id!!, focusMoveNumber = 9)
+            )
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertEquals(game1.id, second.exercise.sourceGameId)
+        assertEquals(4, second.exercise.sourceMoveNumber)
+        assertEquals("h5f7", second.exercise.solutionMoves.first())
+
+        // 3. Для Боба режим FromGame по партии Алисы строго пуст
+        val bobAttempt = selector.execute(
+            GetTrainingExerciseUseCase.Input(
+                userId = bob.id!!,
+                mode = TrainingMode.FromGame(gameId = game1.id!!)
+            )
+        )
+        assertTrue(bobAttempt is GetTrainingExerciseUseCase.Result.NoSuitableExercises)
     }
 }

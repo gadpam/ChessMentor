@@ -371,6 +371,17 @@ interface ExerciseDao {
     suspend fun deleteBySourceGameId(gameId: Long)
 
     /**
+     * Удаляет персональные задачи, ссылающиеся на уже удалённые партии
+     * (вместе с их `exercise_attempts` через `ON DELETE CASCADE`).
+     */
+    @Query("""
+        DELETE FROM exercises
+        WHERE sourceGameId IS NOT NULL
+        AND sourceGameId NOT IN (SELECT id FROM games)
+    """)
+    suspend fun deleteOrphanedGameExercises(): Int
+
+    /**
      * Удалить дубликаты только среди общих задач (`sourceGameId IS NULL`).
      */
     @Query("""

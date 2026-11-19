@@ -23,4 +23,28 @@ interface GameDao {
 
     @Query("DELETE FROM games WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    /**
+     * Завершает партии, оставшиеся в `IN_PROGRESS`, если результаты анализа уже были сохранены.
+     */
+    @Query("""
+        UPDATE games
+        SET analysisStatus = 'COMPLETED'
+        WHERE analysisStatus = 'IN_PROGRESS'
+        AND accuracy IS NOT NULL
+        AND evaluationsJson IS NOT NULL
+        AND evaluationsJson != ''
+        AND evaluationsJson != '[]'
+    """)
+    suspend fun markFinishedInterruptedGamesCompleted(): Int
+
+    /**
+     * Сбрасывает незавершённые `IN_PROGRESS`-партии после перезапуска приложения обратно в `PENDING`.
+     */
+    @Query("""
+        UPDATE games
+        SET analysisStatus = 'PENDING'
+        WHERE analysisStatus = 'IN_PROGRESS'
+    """)
+    suspend fun resetInterruptedGamesToPending(): Int
 }

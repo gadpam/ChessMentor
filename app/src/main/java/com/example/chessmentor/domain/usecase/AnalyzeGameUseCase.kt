@@ -2,12 +2,22 @@
 package com.example.chessmentor.domain.usecase
 
 import android.util.Log
+import com.example.chessmentor.data.engine.AnalysisLine
 import com.example.chessmentor.data.engine.ChessEngine
+import com.example.chessmentor.domain.analysis.GameMoveClassifier
+import com.example.chessmentor.domain.analysis.MistakeAnalysis
+import com.example.chessmentor.domain.analysis.MistakeCategory
 import com.example.chessmentor.domain.analysis.SemanticMistakeAnalyzer
 import com.example.chessmentor.domain.analysis.TacticalMotif
-import com.example.chessmentor.domain.entity.*
+import com.example.chessmentor.domain.entity.AnalysisStatus
+import com.example.chessmentor.domain.entity.AnalyzedMove
+import com.example.chessmentor.domain.entity.ChessColor
+import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.domain.entity.Mistake
+import com.example.chessmentor.domain.entity.MoveQuality
+import com.example.chessmentor.domain.entity.PredefinedThemes
+import com.example.chessmentor.domain.opening.BookMoveMatch
 import com.example.chessmentor.domain.opening.OpeningDatabase
-import com.example.chessmentor.domain.opening.OpeningMatch
 import com.example.chessmentor.domain.repository.AnalyzedMoveRepository
 import com.example.chessmentor.domain.repository.EngineSettingsRepository
 import com.example.chessmentor.domain.repository.GameRepository
@@ -16,6 +26,7 @@ import com.example.chessmentor.domain.repository.UserRepository
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Piece
+import com.github.bhlangonijr.chesslib.PieceType
 import com.github.bhlangonijr.chesslib.Side
 import com.github.bhlangonijr.chesslib.move.Move
 import com.github.bhlangonijr.chesslib.move.MoveList
@@ -25,7 +36,6 @@ import java.util.Collections
 import java.util.Locale
 import kotlin.coroutines.coroutineContext
 import kotlin.math.abs
-import kotlin.math.exp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -52,21 +62,8 @@ class AnalyzeGameUseCase(
         private val activeGameIds: MutableSet<Long> =
             Collections.synchronizedSet(mutableSetOf<Long>())
 
-        // ========== ПОРОГИ ОШИБОК ==========
-        private const val BLUNDER_THRESHOLD = 300    // 3+ пешки
-        private const val MISTAKE_THRESHOLD = 100    // 1-3 пешки
-        private const val INACCURACY_THRESHOLD = 30  // 0.3-1 пешки
-
-        // ========== ПОРОГИ ХОРОШИХ ХОДОВ ==========
-        private const val BEST_MOVE_MAX_LOSS = 5     // Потеря до 5cp
-        private const val EXCELLENT_MAX_LOSS = 15    // Потеря до 15cp
-        private const val GOOD_MAX_LOSS = 29         // Потеря до 29cp
-
-        // ========== ПОЗИЦИОННЫЕ ПОРОГИ ==========
-        private const val WINNING_POSITION = 300
-        private const val EQUAL_POSITION_MAX = 80
-        private const val BOOK_MOVES_LIMIT = 10
-        private const val MAX_ACPL_MOVE_LOSS = 1000
+        private const val PV_PREVIEW_PLIES = 4
+        private const val REFUTATION_PREVIEW_PLIES = 3
     }
 
     private val semanticAnalyzer = SemanticMistakeAnalyzer(chessEngine)
@@ -98,7 +95,11 @@ class AnalyzeGameUseCase(
     }
 
     /**
-     * Основной метод анализа с прогрессом
+     * Основной метод анализа партии с потоковым прогрессом.
+     *
+     * Анализирует ходы обеих сторон (игрока и соперника) через единую модель Win%
+     * ([GameMoveClassifier]), но ошибки в таблице Mistake и персональные метрики Game
+     * сохраняет строго по ходам самого игрока ([Game.playerColor]).
      */
     fun executeWithProgress(input: Input): Flow<AnalysisProgress> = flow {
         emit(AnalysisProgress.Starting)
@@ -162,9 +163,12 @@ class AnalyzeGameUseCase(
                 return@flow
             }
 
+            // Настраиваем движок и очищаем хеш-таблицу перед новой партией,
+            // чтобы оценки от прошлых партий и задач не искажали расчёт.
             withContext(Dispatchers.IO) {
                 chessEngine.setOption("Threads", engineSettings.threads.toString())
                 chessEngine.setOption("Hash", engineSettings.hashSizeMb.toString())
+                chessEngine.clearHash()
             }
 
             val progressChannel = Channel<AnalysisProgress.InProgress>(Channel.BUFFERED)
@@ -177,7 +181,6 @@ class AnalyzeGameUseCase(
                         analysisResult = analyzeAllMoves(
                             gameId = gameId,
                             pgn = game.pgnData,
-                            playerColor = game.playerColor,
                             analysisDepth = engineSettings.depth
                         ) { current, total, moveNotation ->
                             progressChannel.trySend(
@@ -210,27 +213,29 @@ class AnalyzeGameUseCase(
 
             val savedMoves = analyzedMoveRepository.saveAll(data.analyzedMoves)
 
-            val mistakes = savedMoves
-                .filter { it.isMistake() }
+            // Ошибки и персональная статистика Game считаются СТРОГО по ходам игрока
+            val playerMistakes = savedMoves
+                .filter { it.color == game.playerColor && it.isMistake() }
                 .mapNotNull { move ->
                     val fenBefore = data.fenPositions[move.moveIndex].orEmpty()
                     val bestMoveUci = data.bestMovesUci[move.moveIndex].orEmpty()
+                    val semantic = data.semanticByMoveIndex[move.moveIndex]
                     move.toMistake(
-                        themeId = detectThemeId(move, fenBefore, bestMoveUci),
+                        themeId = detectThemeId(move, fenBefore, bestMoveUci, semantic),
                         fenBefore = fenBefore
                     )
                 }
 
-            val savedMistakes = mistakeRepository.saveAll(mistakes)
+            val savedMistakes = mistakeRepository.saveAll(playerMistakes)
 
-            val blunders = savedMoves.count { it.quality == MoveQuality.BLUNDER }
-            val mistakesCount = savedMoves.count {
-                it.quality == MoveQuality.MISTAKE || it.quality == MoveQuality.MISSED_WIN
-            }
-            val inaccuracies = savedMoves.count { it.quality == MoveQuality.INACCURACY }
+            val playerSummary = GameMoveClassifier.summarizeSide(savedMoves, game.playerColor)
+            val opponentSummary = GameMoveClassifier.summarizeSide(savedMoves, game.playerColor.opposite())
 
-            val accuracy = calculateCapsAccuracy(data.evaluations, game.playerColor, data.firstMoveIsWhite)
-            val avgLoss = calculateAverageLoss(data.evaluations, game.playerColor, data.firstMoveIsWhite)
+            val blunders = playerSummary.blunders
+            val mistakesCount = playerSummary.mistakes + playerSummary.missedWins
+            val inaccuracies = playerSummary.inaccuracies
+            val accuracy = playerSummary.accuracy
+            val avgLoss = playerSummary.averageCpLoss
 
             val analyzedGame = gameInProgress.completeAnalysis(
                 accuracy = accuracy,
@@ -246,8 +251,9 @@ class AnalyzeGameUseCase(
 
             Log.i(
                 TAG,
-                "Final: accuracy=${String.format(Locale.US, "%.1f", accuracy)}%, " +
-                    "blunders=$blunders, mistakes=$mistakesCount, inaccuracies=$inaccuracies"
+                "Final: playerAcc=${String.format(Locale.US, "%.1f", accuracy)}% " +
+                    "(acpl=$avgLoss, B=$blunders, M=$mistakesCount, I=$inaccuracies), " +
+                    "oppAcc=${String.format(Locale.US, "%.1f", opponentSummary.accuracy)}%"
             )
 
             emit(
@@ -302,15 +308,15 @@ class AnalyzeGameUseCase(
         val evaluations: List<Int>,
         val fenPositions: Map<Int, String>,
         val bestMovesUci: Map<Int, String>,
+        val semanticByMoveIndex: Map<Int, MistakeAnalysis>,
         val firstMoveIsWhite: Boolean
     )
 
-    // ==================== АНАЛИЗ ВСЕХ ХОДОВ ====================
+    // ==================== ДВУСТОРОННИЙ АНАЛИЗ ВСЕХ ХОДОВ ====================
 
     private suspend fun analyzeAllMoves(
         gameId: Long,
         pgn: String,
-        playerColor: ChessColor,
         analysisDepth: Int,
         onProgress: (current: Int, total: Int, moveNotation: String) -> Unit
     ): AnalysisData {
@@ -318,6 +324,7 @@ class AnalyzeGameUseCase(
         val evaluations = mutableListOf<Int>()
         val fenPositions = mutableMapOf<Int, String>()
         val bestMovesUci = mutableMapOf<Int, String>()
+        val semanticByMoveIndex = mutableMapOf<Int, MistakeAnalysis>()
 
         val normalized = ChessMoveUtils.normalizePgn(pgn)
         val halfMoves = parseMoves(normalized)
@@ -327,6 +334,7 @@ class AnalyzeGameUseCase(
         }
 
         val board = Board()
+        val isCustomStartFen = normalized.startFen != null
         if (normalized.startFen != null) {
             board.loadFromFen(normalized.startFen)
         }
@@ -335,18 +343,22 @@ class AnalyzeGameUseCase(
         val startFullMove = board.moveCounter.coerceAtLeast(1)
         val totalMoves = halfMoves.size
 
-        // Один поиск на каждую позицию даёт и оценку, и лучший ход для следующего полухода
-        val initialLine = chessEngine.getBestMoveWithLine(board.fen, depthLimit = analysisDepth)
-        val initialEvalWhite = toWhitePerspective(initialLine?.score ?: 0, board.sideToMove)
-        var pendingBestMoveUci = initialLine?.bestMove.orEmpty()
+        // Один поиск Stockfish на каждую позицию даёт и оценку, и лучшую линию для следующего полухода
+        var pendingLine = chessEngine.getBestMoveWithLine(board.fen, depthLimit = analysisDepth)
+        val initialEvalWhite = toWhitePerspective(pendingLine?.score ?: 0, board.sideToMove)
         evaluations.add(initialEvalWhite)
+
+        var inBookSequence = !isCustomStartFen
+        var lastAnnouncedOpeningName: String? = null
+        var prevMove: Move? = null
+        var prevCapturedValue = 0
+        var prevPlyWinLoss = 0.0
 
         halfMoves.forEachIndexed { index, move ->
             coroutineContext.ensureActive()
 
-            val isWhiteMove = board.sideToMove == Side.WHITE
-            val movingColor = if (isWhiteMove) ChessColor.WHITE else ChessColor.BLACK
-            val isPlayerMove = playerColor == movingColor
+            val moverSide = board.sideToMove
+            val movingColor = if (moverSide == Side.WHITE) ChessColor.WHITE else ChessColor.BLACK
             val moveNumber = startFullMove + ((index + if (firstMoveIsWhite) 0 else 1) / 2)
 
             val fenBefore = board.fen
@@ -355,9 +367,23 @@ class AnalyzeGameUseCase(
             val san = resolveMoveSan(move, fenBefore)
             onProgress(index + 1, totalMoves, san)
 
-            val bestMoveUci = pendingBestMoveUci
-            val userMoveUci = ChessMoveUtils.moveToUci(move)
-            val isSacrifice = isMaterialSacrifice(board, move)
+            // Снимаем тактический контекст ДО применения хода на доске
+            val beforeLine = pendingLine
+            val bestMoveUci = beforeLine?.bestMove.orEmpty()
+            val playedMoveUci = ChessMoveUtils.moveToUci(move)
+            val capturedValueNow = capturedMaterialValue(board, move)
+            val isAutoRecapture = GameMoveClassifier.isAutomaticRecapture(
+                boardBefore = board,
+                move = move,
+                prevMove = prevMove,
+                prevCapturedValue = prevCapturedValue
+            )
+            val wasInCheckWithChoices = board.isKingAttacked &&
+                runCatching { board.legalMoves().size >= 3 }.getOrDefault(false)
+            val sacrifice = GameMoveClassifier.detectMaterialSacrifice(board, move)
+
+            // Копия доски до хода для семантического разбора ошибок без повторного разбора PGN
+            val boardSnapshotBefore = Board().apply { loadFromFen(fenBefore) }
 
             if (!board.doMove(move)) {
                 throw IllegalArgumentException("Нелегальный ход в PGN на ходу $moveNumber: $san")
@@ -366,65 +392,135 @@ class AnalyzeGameUseCase(
             val fenAfter = board.fen
 
             try {
-                val afterLine = chessEngine.getBestMoveWithLine(fenAfter, depthLimit = analysisDepth)
+                val causedStalemate = !board.isMated && board.isStaleMate
+
+                // Точная обработка терминальных позиций (мат и пат/ничья) без лишнего вызова движка
+                val afterLine: AnalysisLine? = when {
+                    board.isMated -> AnalysisLine(
+                        bestMove = "",
+                        score = -ChessEngine.MATE_VALUE,
+                        mateIn = 0,
+                        principalVariation = emptyList()
+                    )
+                    causedStalemate || board.isDraw -> AnalysisLine(
+                        bestMove = "",
+                        score = 0,
+                        mateIn = null,
+                        principalVariation = emptyList()
+                    )
+                    else -> chessEngine.getBestMoveWithLine(fenAfter, depthLimit = analysisDepth)
+                }
+
                 val evalAfterRaw = afterLine?.score
                     ?: chessEngine.evaluate(fenAfter, depthLimit = analysisDepth)
-                pendingBestMoveUci = afterLine?.bestMove.orEmpty()
+                pendingLine = afterLine
 
+                val evalBefore = evaluations.last()
                 val evalAfter = toWhitePerspective(evalAfterRaw, board.sideToMove)
                 evaluations.add(evalAfter)
 
-                if (isPlayerMove) {
-                    val evalBefore = evaluations[evaluations.size - 2]
-                    val playedEngineBest = bestMoveUci.isNotEmpty() &&
-                        userMoveUci.equals(bestMoveUci, ignoreCase = true)
-                    val isKnownBook = moveNumber <= BOOK_MOVES_LIMIT &&
-                        OpeningDatabase.findOpening(fenAfter) is OpeningMatch.Found
+                val playedEngineBest = bestMoveUci.isNotEmpty() &&
+                    playedMoveUci.equals(bestMoveUci, ignoreCase = true)
 
-                    val quality = classifyMove(
+                val bookMatch = if (
+                    !isCustomStartFen &&
+                    moveNumber <= GameMoveClassifier.BOOK_MAX_FULL_MOVE
+                ) {
+                    OpeningDatabase.matchBookMove(fenAfter)
+                } else {
+                    null
+                }
+
+                val classification = GameMoveClassifier.classifyMove(
+                    evalBefore = evalBefore,
+                    evalAfter = evalAfter,
+                    movingColor = movingColor,
+                    moveNumber = moveNumber,
+                    playedEngineBest = playedEngineBest,
+                    inBookSequence = inBookSequence,
+                    bookMatch = bookMatch,
+                    sacrifice = sacrifice,
+                    prevOpponentWinLoss = prevPlyWinLoss,
+                    isAutomaticRecapture = isAutoRecapture,
+                    wasInCheckWithChoices = wasInCheckWithChoices
+                )
+
+                val quality = classification.quality
+                inBookSequence = quality == MoveQuality.BOOK
+
+                val bestMoveSan = if (quality.isBad() && bestMoveUci.isNotEmpty() && !playedEngineBest) {
+                    ChessMoveUtils.uciToSan(bestMoveUci, fenBefore).takeIf { it.isNotBlank() && it != san }
+                } else {
+                    null
+                }
+
+                if (bestMoveSan != null) {
+                    bestMovesUci[index] = bestMoveUci
+                }
+
+                val semanticAnalysis = if (quality.isBad() && beforeLine != null && afterLine != null) {
+                    runCatching {
+                        semanticAnalyzer.analyzeComprehensive(
+                            boardBefore = boardSnapshotBefore,
+                            playerMove = move,
+                            bestMoveLine = beforeLine,
+                            punishmentLine = afterLine
+                        )
+                    }.getOrNull()?.also { semanticByMoveIndex[index] = it }
+                } else {
+                    null
+                }
+
+                val newlyEnteredOpening = quality == MoveQuality.BOOK &&
+                    bookMatch?.openingName != null &&
+                    bookMatch.openingName != lastAnnouncedOpeningName
+                if (quality == MoveQuality.BOOK && bookMatch?.openingName != null) {
+                    lastAnnouncedOpeningName = bookMatch.openingName
+                }
+
+                val comment = buildMoveComment(
+                    classification = classification,
+                    movingColor = movingColor,
+                    moveNumber = moveNumber,
+                    fenBefore = fenBefore,
+                    fenAfter = fenAfter,
+                    evalAfterWhite = evalAfter,
+                    bestMoveSan = bestMoveSan,
+                    beforeLine = beforeLine,
+                    afterLine = afterLine,
+                    semanticAnalysis = semanticAnalysis,
+                    bookMatch = bookMatch,
+                    isNewOpeningTabiya = newlyEnteredOpening,
+                    causedStalemate = causedStalemate
+                )
+
+                analyzedMoves.add(
+                    AnalyzedMove(
+                        gameId = gameId,
+                        moveIndex = index,
+                        moveNumber = moveNumber,
+                        color = movingColor,
+                        quality = quality,
+                        san = san,
+                        bestMove = bestMoveSan,
                         evalBefore = evalBefore,
                         evalAfter = evalAfter,
-                        playerColor = playerColor,
-                        moveNumber = moveNumber,
-                        playedEngineBest = playedEngineBest,
-                        isSacrifice = isSacrifice,
-                        isKnownBook = isKnownBook
+                        evalLoss = classification.rawCpLoss,
+                        comment = comment
                     )
+                )
 
-                    if (quality != null) {
-                        val cpLoss = calculateRawLoss(evalBefore, evalAfter, playerColor)
-                        val bestMoveSan = if (quality.isBad() && bestMoveUci.isNotEmpty() && !playedEngineBest) {
-                            ChessMoveUtils.uciToSan(bestMoveUci, fenBefore).takeIf { it != san }
-                        } else {
-                            null
-                        }
-
-                        if (bestMoveSan != null) {
-                            bestMovesUci[index] = bestMoveUci
-                        }
-
-                        analyzedMoves.add(
-                            AnalyzedMove(
-                                gameId = gameId,
-                                moveIndex = index,
-                                moveNumber = moveNumber,
-                                color = movingColor,
-                                quality = quality,
-                                san = san,
-                                bestMove = bestMoveSan,
-                                evalBefore = evalBefore,
-                                evalAfter = evalAfter,
-                                evalLoss = cpLoss,
-                                comment = generateComment(quality, cpLoss, evalBefore, evalAfter, playerColor)
-                            )
-                        )
-                    }
-                }
+                prevMove = move
+                prevCapturedValue = capturedValueNow
+                prevPlyWinLoss = if (quality == MoveQuality.BOOK) 0.0 else classification.winPercentLoss
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Error analyzing move $moveNumber: ${e.message}", e)
-                pendingBestMoveUci = ""
+                Log.e(TAG, "Error analyzing move $moveNumber ($san): ${e.message}", e)
+                pendingLine = null
+                prevMove = move
+                prevCapturedValue = capturedValueNow
+                prevPlyWinLoss = 0.0
                 evaluations.add(evaluations.lastOrNull() ?: 0)
             }
         }
@@ -434,9 +530,12 @@ class AnalyzeGameUseCase(
             evaluations = evaluations,
             fenPositions = fenPositions,
             bestMovesUci = bestMovesUci,
+            semanticByMoveIndex = semanticByMoveIndex,
             firstMoveIsWhite = firstMoveIsWhite
         )
     }
+
+    // ==================== РАЗБОР PGN И ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
 
     private fun parseMoves(normalized: ChessMoveUtils.NormalizedPgn): List<Move> {
         val tempFile = File.createTempFile("analyze", ".pgn")
@@ -478,248 +577,322 @@ class AnalyzeGameUseCase(
         return if (sideToMove == Side.BLACK) -scoreForSideToMove else scoreForSideToMove
     }
 
-    private fun isMaterialSacrifice(board: Board, move: Move): Boolean {
-        val piece = board.getPiece(move.from)
-        if (piece == Piece.NONE) return false
-        val pieceVal = ChessMoveUtils.pieceValue(piece.pieceType)
-        if (pieceVal < 300) return false
-
-        val captured = board.getPiece(move.to)
-        val capturedVal = if (captured != Piece.NONE) ChessMoveUtils.pieceValue(captured.pieceType) else 0
-        if (capturedVal >= pieceVal) return false
-
-        val sim = Board().apply {
-            loadFromFen(board.fen)
-            if (!doMove(move)) return false
+    private fun capturedMaterialValue(boardBefore: Board, move: Move): Int {
+        val moving = boardBefore.getPiece(move.from)
+        val target = boardBefore.getPiece(move.to)
+        if (moving.pieceType == PieceType.PAWN && move.from.file != move.to.file && target == Piece.NONE) {
+            return ChessMoveUtils.pieceValue(PieceType.PAWN)
         }
-        val opponentAttacked = sim.squareAttackedBy(move.to, piece.pieceSide.flip()) != 0L
-        return opponentAttacked && (pieceVal - capturedVal) >= 200
+        if (target != Piece.NONE && target.pieceSide != boardBefore.sideToMove) {
+            return ChessMoveUtils.pieceValue(target.pieceType)
+        }
+        return 0
     }
 
-    // ==================== КЛАССИФИКАЦИЯ ХОДА ====================
+    // ==================== ТЕМАТИЧЕСКАЯ КЛАССИФИКАЦИЯ И ТРЕНЕРСКИЕ КОММЕНТАРИИ ====================
 
-    private fun classifyMove(
-        evalBefore: Int,
-        evalAfter: Int,
-        playerColor: ChessColor,
-        moveNumber: Int,
-        playedEngineBest: Boolean,
-        isSacrifice: Boolean,
-        isKnownBook: Boolean
-    ): MoveQuality? {
-        val playerBefore = if (playerColor == ChessColor.WHITE) evalBefore else -evalBefore
-        val playerAfter = if (playerColor == ChessColor.WHITE) evalAfter else -evalAfter
-
-        // Если игрок сделал лучший ход движка, он не может быть ошибкой (защита от эффекта горизонта)
-        if (playedEngineBest) {
-            return when {
-                isKnownBook -> MoveQuality.BOOK
-                isSacrifice && playerAfter >= 100 -> MoveQuality.BRILLIANT
-                moveNumber > BOOK_MOVES_LIMIT && playerBefore in -120..250 && playerAfter >= 150 && isSacrifice ->
-                    MoveQuality.BRILLIANT
-                moveNumber <= BOOK_MOVES_LIMIT -> MoveQuality.BOOK
-                else -> MoveQuality.BEST_MOVE
+    private fun detectThemeId(
+        move: AnalyzedMove,
+        fenBefore: String,
+        bestMoveUci: String,
+        semantic: MistakeAnalysis?
+    ): Long {
+        // 1. Точный тактический мотив из комплексного разбора (учитывает и лучшую линию, и линию наказания)
+        val motif = semantic?.tacticalMotif ?: run {
+            if (fenBefore.isNotBlank() && bestMoveUci.isNotBlank()) {
+                runCatching {
+                    val b = Board().apply { loadFromFen(fenBefore) }
+                    semanticAnalyzer.detectMotif(b, bestMoveUci)
+                }.getOrNull()
+            } else {
+                null
             }
         }
 
-        if (isKnownBook && (playerBefore - playerAfter) < INACCURACY_THRESHOLD) {
-            return MoveQuality.BOOK
+        when (motif) {
+            TacticalMotif.FORK -> return PredefinedThemes.FORK.id!!
+            TacticalMotif.PIN -> return PredefinedThemes.PIN.id!!
+            TacticalMotif.SKEWER -> return PredefinedThemes.SKEWER.id!!
+            TacticalMotif.DISCOVERED_ATTACK,
+            TacticalMotif.DISCOVERED_CHECK -> return PredefinedThemes.DISCOVERED_ATTACK.id!!
+            TacticalMotif.BACK_RANK,
+            TacticalMotif.SMOTHERED_MATE -> return PredefinedThemes.BACK_RANK.id!!
+            TacticalMotif.REMOVING_DEFENDER,
+            TacticalMotif.DEFLECTION,
+            TacticalMotif.OVERLOADING -> return PredefinedThemes.SACRIFICE.id!!
+            else -> {}
         }
 
-        // Допущен мат соперника, которого раньше не было
-        val allowedNewMate = ChessEngine.isMateScore(playerAfter) && playerAfter < 0 &&
-            !(ChessEngine.isMateScore(playerBefore) && playerBefore < 0)
-        if (allowedNewMate) {
-            return MoveQuality.BLUNDER
-        }
-
-        // Упущен форсированный мат или большой перевес сведён к равенству
-        val missedForcedMate = ChessEngine.isMateScore(playerBefore) && playerBefore > 0 &&
-            !(ChessEngine.isMateScore(playerAfter) && playerAfter > 0)
-        if (missedForcedMate) {
-            return if (playerAfter >= 150) MoveQuality.MISSED_WIN else MoveQuality.BLUNDER
-        }
-
-        val cpLoss = (cappedCp(playerBefore) - cappedCp(playerAfter)).coerceAtLeast(0)
-        if (playerBefore >= WINNING_POSITION && playerAfter in -50..EQUAL_POSITION_MAX && cpLoss >= MISTAKE_THRESHOLD) {
-            return MoveQuality.MISSED_WIN
-        }
-
-        return when {
-            cpLoss >= BLUNDER_THRESHOLD -> MoveQuality.BLUNDER
-            cpLoss >= MISTAKE_THRESHOLD -> MoveQuality.MISTAKE
-            cpLoss >= INACCURACY_THRESHOLD -> MoveQuality.INACCURACY
-            moveNumber <= BOOK_MOVES_LIMIT && cpLoss <= EXCELLENT_MAX_LOSS -> MoveQuality.BOOK
-            isSacrifice && cpLoss <= EXCELLENT_MAX_LOSS && playerAfter >= 150 -> MoveQuality.GREAT_MOVE
-            cpLoss <= BEST_MOVE_MAX_LOSS -> MoveQuality.BEST_MOVE
-            cpLoss <= EXCELLENT_MAX_LOSS -> MoveQuality.EXCELLENT
-            cpLoss <= GOOD_MAX_LOSS -> MoveQuality.GOOD
-            else -> null
-        }
-    }
-
-    private fun cappedCp(score: Int): Int {
-        if (ChessEngine.isMateScore(score)) {
-            return if (score > 0) MAX_ACPL_MOVE_LOSS else -MAX_ACPL_MOVE_LOSS
-        }
-        return score.coerceIn(-MAX_ACPL_MOVE_LOSS, MAX_ACPL_MOVE_LOSS)
-    }
-
-    private fun calculateRawLoss(evalBefore: Int, evalAfter: Int, playerColor: ChessColor): Int {
-        val playerBefore = if (playerColor == ChessColor.WHITE) evalBefore else -evalBefore
-        val playerAfter = if (playerColor == ChessColor.WHITE) evalAfter else -evalAfter
-        if ((ChessEngine.isMateScore(playerAfter) && playerAfter < 0) ||
-            (ChessEngine.isMateScore(playerBefore) && playerBefore > 0 && !ChessEngine.isMateScore(playerAfter))
+        // 2. Категория угрозы мата или раскрытия короля
+        if (semantic?.category == MistakeCategory.MATE_THREAT ||
+            semantic?.category == MistakeCategory.KING_SAFETY ||
+            ChessEngine.isMateScore(move.evalAfter)
         ) {
-            return ChessEngine.MATE_VALUE
-        }
-        return (cappedCp(playerBefore) - cappedCp(playerAfter)).coerceAtLeast(0)
-    }
-
-    private fun calculateCappedLoss(evalBefore: Int, evalAfter: Int, playerColor: ChessColor): Int {
-        val playerBefore = cappedCp(if (playerColor == ChessColor.WHITE) evalBefore else -evalBefore)
-        val playerAfter = cappedCp(if (playerColor == ChessColor.WHITE) evalAfter else -evalAfter)
-        return (playerBefore - playerAfter).coerceIn(0, MAX_ACPL_MOVE_LOSS)
-    }
-
-    // ==================== CAPS ACCURACY ====================
-
-    private fun centipawnsToWinProbability(cp: Int): Double {
-        val capped = cappedCp(cp)
-        return 50.0 + 50.0 * (2.0 / (1.0 + exp(-0.00368208 * capped)) - 1.0)
-    }
-
-    private fun calculateMoveAccuracy(cpBefore: Int, cpAfter: Int, playerColor: ChessColor): Double {
-        val winBefore = if (playerColor == ChessColor.WHITE) {
-            centipawnsToWinProbability(cpBefore)
-        } else {
-            centipawnsToWinProbability(-cpBefore)
+            return PredefinedThemes.KING_SAFETY.id!!
         }
 
-        val winAfter = if (playerColor == ChessColor.WHITE) {
-            centipawnsToWinProbability(cpAfter)
-        } else {
-            centipawnsToWinProbability(-cpAfter)
-        }
-
-        if (winAfter >= winBefore) return 100.0
-
-        val winDrop = winBefore - winAfter
-        val accuracy = 103.1668 * exp(-0.04354 * winDrop) - 3.1669
-
-        return accuracy.coerceIn(0.0, 100.0)
-    }
-
-    private fun calculateCapsAccuracy(
-        evaluations: List<Int>,
-        playerColor: ChessColor,
-        firstMoveIsWhite: Boolean
-    ): Double {
-        if (evaluations.size < 2) return 100.0
-
-        var totalAccuracy = 0.0
-        var playerMoveCount = 0
-
-        for (i in 1 until evaluations.size) {
-            val moveIndex = i - 1
-            val isWhiteMove = if (firstMoveIsWhite) moveIndex % 2 == 0 else moveIndex % 2 != 0
-            val isPlayerMove = (playerColor == ChessColor.WHITE && isWhiteMove) ||
-                (playerColor == ChessColor.BLACK && !isWhiteMove)
-
-            if (isPlayerMove) {
-                totalAccuracy += calculateMoveAccuracy(evaluations[i - 1], evaluations[i], playerColor)
-                playerMoveCount++
+        // 3. Фаза партии с учётом реального материала на доске (а не жёсткого номера хода)
+        if (fenBefore.isNotBlank()) {
+            if (GameMoveClassifier.isPurePawnEndgame(fenBefore)) {
+                return PredefinedThemes.PAWN_ENDGAME.id!!
+            }
+            return when (GameMoveClassifier.detectSinglePositionPhase(fenBefore, move.moveNumber)) {
+                GameMoveClassifier.GamePhase.OPENING -> PredefinedThemes.OPENING_PRINCIPLES.id!!
+                GameMoveClassifier.GamePhase.ENDGAME -> PredefinedThemes.KING_ACTIVITY.id!!
+                GameMoveClassifier.GamePhase.MIDDLEGAME -> PredefinedThemes.PIECE_ACTIVITY.id!!
             }
         }
 
-        return if (playerMoveCount > 0) totalAccuracy / playerMoveCount else 100.0
+        return PredefinedThemes.PIECE_ACTIVITY.id!!
     }
 
-    private fun calculateAverageLoss(
-        evaluations: List<Int>,
-        playerColor: ChessColor,
-        firstMoveIsWhite: Boolean
-    ): Int {
-        if (evaluations.size < 2) return 0
-
-        var totalLoss = 0
-        var count = 0
-
-        for (i in 1 until evaluations.size) {
-            val moveIndex = i - 1
-            val isWhiteMove = if (firstMoveIsWhite) moveIndex % 2 == 0 else moveIndex % 2 != 0
-            val isPlayerMove = (playerColor == ChessColor.WHITE && isWhiteMove) ||
-                (playerColor == ChessColor.BLACK && !isWhiteMove)
-
-            if (isPlayerMove) {
-                totalLoss += calculateCappedLoss(evaluations[i - 1], evaluations[i], playerColor)
-                count++
-            }
-        }
-
-        return if (count > 0) totalLoss / count else 0
-    }
-
-    // ==================== ТЕМЫ И КОММЕНТАРИИ ====================
-
-    private fun detectThemeId(move: AnalyzedMove, fenBefore: String, bestMoveUci: String): Long {
-        if (fenBefore.isNotBlank() && bestMoveUci.isNotBlank()) {
-            runCatching {
-                val board = Board().apply { loadFromFen(fenBefore) }
-                when (semanticAnalyzer.detectMotif(board, bestMoveUci)) {
-                    TacticalMotif.FORK -> return PredefinedThemes.FORK.id!!
-                    TacticalMotif.PIN -> return PredefinedThemes.PIN.id!!
-                    TacticalMotif.SKEWER -> return PredefinedThemes.SKEWER.id!!
-                    TacticalMotif.DISCOVERED_ATTACK,
-                    TacticalMotif.DISCOVERED_CHECK -> return PredefinedThemes.DISCOVERED_ATTACK.id!!
-                    TacticalMotif.BACK_RANK,
-                    TacticalMotif.SMOTHERED_MATE -> return PredefinedThemes.BACK_RANK.id!!
-                    else -> {}
-                }
-                if (board.isKingAttacked) {
-                    return PredefinedThemes.KING_SAFETY.id!!
-                }
-            }
-        }
-
-        return when {
-            ChessEngine.isMateScore(move.evalAfter) -> PredefinedThemes.KING_SAFETY.id!!
-            move.moveNumber <= 10 -> PredefinedThemes.OPENING_PRINCIPLES.id!!
-            move.moveNumber >= 40 -> PredefinedThemes.KING_ACTIVITY.id!!
-            else -> PredefinedThemes.PIECE_ACTIVITY.id!!
-        }
-    }
-
-    private fun generateComment(
-        quality: MoveQuality,
-        cpLoss: Int,
-        evalBefore: Int,
-        evalAfter: Int,
-        playerColor: ChessColor
+    private fun buildMoveComment(
+        classification: GameMoveClassifier.MoveClassification,
+        movingColor: ChessColor,
+        moveNumber: Int,
+        fenBefore: String,
+        fenAfter: String,
+        evalAfterWhite: Int,
+        bestMoveSan: String?,
+        beforeLine: AnalysisLine?,
+        afterLine: AnalysisLine?,
+        semanticAnalysis: MistakeAnalysis?,
+        bookMatch: BookMoveMatch?,
+        isNewOpeningTabiya: Boolean,
+        causedStalemate: Boolean = false
     ): String {
-        val playerBefore = if (playerColor == ChessColor.WHITE) evalBefore else -evalBefore
-        val playerAfter = if (playerColor == ChessColor.WHITE) evalAfter else -evalAfter
+        val quality = classification.quality
+        val moverAfter = if (movingColor == ChessColor.WHITE) evalAfterWhite else -evalAfterWhite
 
-        if (ChessEngine.isMateScore(playerAfter) && playerAfter < 0) {
-            val moves = abs(ChessEngine.getMateInMoves(playerAfter))
-            return if (moves > 0) "Допущен мат в $moves!" else "Допущен мат!"
-        }
-        if (ChessEngine.isMateScore(playerBefore) && playerBefore > 0 && !ChessEngine.isMateScore(playerAfter)) {
-            return "Упущен форсированный мат!"
-        }
-
-        val pawns = String.format(Locale.US, "%.1f", abs(cpLoss) / 100.0)
         return when (quality) {
-            MoveQuality.BRILLIANT -> "Блестящая жертва! Отличная находка."
-            MoveQuality.GREAT_MOVE -> "Отличный ход!"
-            MoveQuality.BEST_MOVE -> "Лучший ход."
-            MoveQuality.EXCELLENT -> "Превосходно."
-            MoveQuality.GOOD -> "Хороший ход."
-            MoveQuality.BOOK -> "Теоретический ход."
-            MoveQuality.INACCURACY -> "Неточность (−$pawns)."
-            MoveQuality.MISTAKE -> "Ошибка (−$pawns)."
-            MoveQuality.BLUNDER -> "Грубый зевок! (−$pawns)"
-            MoveQuality.MISSED_WIN -> "Упущена победа! (−$pawns)"
+            MoveQuality.BOOK -> {
+                val openingName = classification.bookOpeningName
+                val eco = classification.bookEco
+                if (openingName != null) {
+                    val header = if (!eco.isNullOrBlank()) {
+                        "Теория: $openingName ($eco)."
+                    } else {
+                        "Теория: $openingName."
+                    }
+                    val idea = if (isNewOpeningTabiya) {
+                        bookMatch?.opening?.keyIdeas?.firstOrNull()
+                    } else {
+                        null
+                    }
+                    if (!idea.isNullOrBlank()) "$header Идея: ${idea.replaceFirstChar { it.lowercase() }}." else header
+                } else {
+                    "Теоретический дебютный ход."
+                }
+            }
+
+            MoveQuality.BRILLIANT -> {
+                val sac = classification.sacrifice
+                val base = if (sac != null) {
+                    when (sac.kind) {
+                        GameMoveClassifier.SacrificeKind.DIRECT_PIECE ->
+                            "Блестящая жертва ${sac.pieceNameGenitive()}! Сильнейшее продолжение."
+                        GameMoveClassifier.SacrificeKind.INDIRECT_HANGING ->
+                            "Блестящий ход с тактической жертвой ${sac.pieceNameGenitive()}!"
+                    }
+                } else {
+                    "Блестящая тактическая находка!"
+                }
+                val mateSuffix = if (ChessEngine.isMateScore(moverAfter) && moverAfter > 0) {
+                    val m = abs(ChessEngine.getMateInMoves(moverAfter))
+                    if (m == 0) " Мат на доске!" else " Ведёт к мату в $m ${pluralMoves(m)}!"
+                } else {
+                    ""
+                }
+                base + mateSuffix
+            }
+
+            MoveQuality.GREAT_MOVE -> {
+                when (classification.greatReason) {
+                    GameMoveClassifier.GreatMoveReason.PUNISHED_OPPONENT_MISTAKE ->
+                        "Отличный ход! Точно наказывает ошибку соперника."
+                    GameMoveClassifier.GreatMoveReason.FOUND_FORCED_MATE -> {
+                        val m = abs(ChessEngine.getMateInMoves(moverAfter))
+                        if (m > 0) {
+                            "Отличный ход! Находит форсированный мат в $m ${pluralMoves(m)}."
+                        } else {
+                            "Отличный ход с матовой атакой!"
+                        }
+                    }
+                    GameMoveClassifier.GreatMoveReason.CRITICAL_DEFENSE ->
+                        "Точная защита под шахом в сложной позиции!"
+                    null -> "Отличный ход!"
+                }
+            }
+
+            MoveQuality.BEST_MOVE -> {
+                if (ChessEngine.isMateScore(moverAfter) && moverAfter > 0) {
+                    val m = abs(ChessEngine.getMateInMoves(moverAfter))
+                    if (m == 0) "Мат!" else "Точный ход к мату в $m ${pluralMoves(m)}."
+                } else {
+                    "Сильнейший ход по оценке движка."
+                }
+            }
+
+            MoveQuality.EXCELLENT -> "Очень точный ход, сохраняющий качество позиции."
+
+            MoveQuality.GOOD -> "Крепкий практичный ход."
+
+            MoveQuality.INACCURACY,
+            MoveQuality.MISTAKE,
+            MoveQuality.MISSED_WIN,
+            MoveQuality.BLUNDER -> buildBadMoveComment(
+                classification = classification,
+                movingColor = movingColor,
+                moveNumber = moveNumber,
+                fenBefore = fenBefore,
+                fenAfter = fenAfter,
+                bestMoveSan = bestMoveSan,
+                beforeLine = beforeLine,
+                afterLine = afterLine,
+                semanticAnalysis = semanticAnalysis,
+                causedStalemate = causedStalemate
+            )
+        }
+    }
+
+    private fun buildBadMoveComment(
+        classification: GameMoveClassifier.MoveClassification,
+        movingColor: ChessColor,
+        moveNumber: Int,
+        fenBefore: String,
+        fenAfter: String,
+        bestMoveSan: String?,
+        beforeLine: AnalysisLine?,
+        afterLine: AnalysisLine?,
+        semanticAnalysis: MistakeAnalysis?,
+        causedStalemate: Boolean = false
+    ): String {
+        val parts = mutableListOf<String>()
+
+        if (causedStalemate && classification.winBefore >= 70.0) {
+            parts.add("Допущен пат в выигранной позиции — победа упущена!")
+        } else if (classification.unpunishedOpponentMistake) {
+            parts.add("Упущен шанс наказать ошибку соперника!")
+        }
+
+        // Основное смысловое объяснение причины ошибки
+        val semanticText = if (causedStalemate && classification.winBefore >= 70.0) {
+            ""
+        } else {
+            semanticAnalysis?.explanation?.trim().orEmpty()
+        }
+        if (semanticText.isNotEmpty()) {
+            // Если это ошибка или зевок, не называем её мягким словом «неточность»
+            val adjusted = if (
+                semanticAnalysis?.category == MistakeCategory.POSITIONAL &&
+                (classification.quality == MoveQuality.MISTAKE || classification.quality == MoveQuality.BLUNDER)
+            ) {
+                if (classification.quality == MoveQuality.BLUNDER) {
+                    "Серьёзная уступка позиции: оценка резко меняется в пользу соперника."
+                } else {
+                    "Позиционная ошибка: соперник получает устойчивый перевес."
+                }
+            } else if (
+                classification.quality == MoveQuality.INACCURACY &&
+                beforeLine?.mateIn != null &&
+                beforeLine.mateIn > 0 &&
+                classification.winAfter >= 84.0
+            ) {
+                val m = beforeLine.mateIn
+                "Был форсированный мат в $m ${pluralMoves(m)}, но позиция остаётся легко выигранной."
+            } else {
+                semanticText
+            }
+            parts.add(adjusted)
+        } else {
+            val pawns = String.format(Locale.US, "%.1f", classification.cappedCpLoss / 100.0)
+            parts.add(
+                when (classification.quality) {
+                    MoveQuality.INACCURACY -> "Неточность (−$pawns)."
+                    MoveQuality.MISTAKE -> "Ошибка (−$pawns)."
+                    MoveQuality.MISSED_WIN -> "Упущен решающий перевес (−$pawns)."
+                    else -> "Грубый зевок! (−$pawns)"
+                }
+            )
+        }
+
+        // Краткий вариант сильнейшего продолжения в SAN
+        val bestPvText = formatPvSan(
+            startFen = fenBefore,
+            pvUci = beforeLine?.principalVariation.orEmpty(),
+            startMoveNumber = moveNumber,
+            startColor = movingColor,
+            maxPlies = PV_PREVIEW_PLIES
+        ).ifBlank { bestMoveSan.orEmpty() }
+
+        if (bestPvText.isNotBlank()) {
+            parts.add("Сильнее: $bestPvText.")
+        }
+
+        // Для ошибок и зевков показываем короткое опровержение соперника
+        if (classification.quality == MoveQuality.BLUNDER || classification.quality == MoveQuality.MISTAKE) {
+            val nextMoveNumber = if (movingColor == ChessColor.BLACK) moveNumber + 1 else moveNumber
+            val refutationText = formatPvSan(
+                startFen = fenAfter,
+                pvUci = afterLine?.principalVariation.orEmpty(),
+                startMoveNumber = nextMoveNumber,
+                startColor = movingColor.opposite(),
+                maxPlies = REFUTATION_PREVIEW_PLIES
+            )
+            if (refutationText.isNotBlank()) {
+                parts.add("Опровержение: $refutationText.")
+            }
+        }
+
+        return parts.joinToString(" ")
+    }
+
+    /**
+     * Форматирует первые [maxPlies] полуходов UCI-варианта в читаемую шахматную нотацию SAN
+     * с номерами ходов (например: "14. Nxd5 exd5 15. Bb5+").
+     */
+    private fun formatPvSan(
+        startFen: String,
+        pvUci: List<String>,
+        startMoveNumber: Int,
+        startColor: ChessColor,
+        maxPlies: Int
+    ): String {
+        if (startFen.isBlank() || pvUci.isEmpty() || maxPlies <= 0) return ""
+        return runCatching {
+            val sim = Board().apply { loadFromFen(startFen) }
+            val tokens = mutableListOf<String>()
+            var moveNum = startMoveNumber
+            var isWhite = startColor == ChessColor.WHITE
+
+            for ((idx, uci) in pvUci.take(maxPlies).withIndex()) {
+                val parsed = ChessMoveUtils.parseUciMove(sim, uci) ?: break
+                val fenNow = sim.fen
+                val san = ChessMoveUtils.uciToSan(uci, fenNow).takeIf { it.isNotBlank() } ?: break
+                if (!sim.doMove(parsed)) break
+
+                val token = when {
+                    isWhite -> "$moveNum. $san"
+                    idx == 0 -> "$moveNum... $san"
+                    else -> san
+                }
+                tokens.add(token)
+
+                if (!isWhite) moveNum++
+                isWhite = !isWhite
+            }
+            tokens.joinToString(" ")
+        }.getOrDefault("")
+    }
+
+    private fun pluralMoves(n: Int): String {
+        val absN = abs(n) % 100
+        val last = absN % 10
+        return when {
+            absN in 11..19 -> "ходов"
+            last == 1 -> "ход"
+            last in 2..4 -> "хода"
+            else -> "ходов"
         }
     }
 }

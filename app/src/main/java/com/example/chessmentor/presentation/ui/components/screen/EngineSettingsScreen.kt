@@ -1,35 +1,59 @@
 // presentation/ui/screen/EngineSettingsScreen.kt
 package com.example.chessmentor.presentation.ui.components.screen
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.chessmentor.data.engine.ChessEngine
+import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.EngineSettings
 import com.example.chessmentor.domain.repository.EngineSettingsRepository
+import com.example.chessmentor.presentation.ui.components.NnueManagementCard
+import java.util.Locale
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 @Composable
 fun EngineSettingsScreen(
     paddingValues: PaddingValues,
     engineSettingsRepository: EngineSettingsRepository,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    chessEngine: ChessEngine? = null,
+    onRetryDownload: (() -> Unit)? = null,
+    onForceRedownload: (() -> Unit)? = null,
+    onVerifyNetwork: (() -> Unit)? = null,
+    onCancelDownload: (() -> Unit)? = null
 ) {
-    // Загружаем текущие настройки
+    val scope = rememberCoroutineScope()
+    val availableCores = remember {
+        Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+    }
+
     var settings by remember {
         mutableStateOf(engineSettingsRepository.getSettings())
     }
-
     var hasChanges by remember { mutableStateOf(false) }
+
+    val engineStatus by if (chessEngine != null) {
+        chessEngine.status.collectAsState()
+    } else {
+        remember { mutableStateOf<EngineStatus>(EngineStatus.Idle) }
+    }
 
     Column(
         modifier = Modifier
@@ -37,24 +61,60 @@ fun EngineSettingsScreen(
             .background(MaterialTheme.colorScheme.background)
             .padding(paddingValues)
             .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState()), // Скролл
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
-        // Заголовок
-        SettingsHeader(onBack)
+        if (chessEngine != null) {
+            NnueManagementCard(
+                status = engineStatus,
+                onDownloadOrRetry = {
+                    if (onRetryDownload != null) {
+                        onRetryDownload()
+                    } else {
+                        scope.launch(Dispatchers.IO) {
+                            runCatching { chessEngine.retryInit(forceRedownload = false) }
+                        }
+                    }
+                },
+                onCancelDownload = {
+                    if (onCancelDownload != null) {
+                        onCancelDownload()
+                    } else {
+                        chessEngine.cancelInit()
+                    }
+                },
+                onVerifyChecksum = {
+                    if (onVerifyNetwork != null) {
+                        onVerifyNetwork()
+                    } else {
+                        scope.launch(Dispatchers.IO) {
+                            runCatching { chessEngine.verifyNetwork() }
+                        }
+                    }
+                },
+                onForceRedownload = {
+                    if (onForceRedownload != null) {
+                        onForceRedownload()
+                    } else {
+                        scope.launch(Dispatchers.IO) {
+                            runCatching { chessEngine.retryInit(forceRedownload = true) }
+                        }
+                    }
+                }
+            )
+        }
 
-        // Профили
         ProfilesSection(
             currentSettings = settings,
+            availableCores = availableCores,
             onProfileSelected = { newSettings ->
                 settings = newSettings
                 hasChanges = true
             }
         )
 
-        // Глубина анализа
         DepthSetting(
             depth = settings.depth,
             onDepthChange = { newDepth ->
@@ -63,16 +123,15 @@ fun EngineSettingsScreen(
             }
         )
 
-        // Потоки CPU
         ThreadsSetting(
             threads = settings.threads,
+            availableCores = availableCores,
             onThreadsChange = { newThreads ->
                 settings = settings.copy(threads = newThreads)
                 hasChanges = true
             }
         )
 
-        // Размер хеша
         HashSetting(
             hashSizeMb = settings.hashSizeMb,
             onHashChange = { newHash ->
@@ -81,81 +140,46 @@ fun EngineSettingsScreen(
             }
         )
 
-        // Информация о настройках
-        SettingsInfo(settings = settings)
+        SettingsInfo(
+            settings = settings,
+            availableCores = availableCores
+        )
 
-        // ✅ ИСПРАВЛЕНО: Убран weight(1f), заменён на обычный отступ
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // Кнопки
         BottomButtons(
             hasChanges = hasChanges,
             onSave = {
-                engineSettingsRepository.saveSettings(settings)
+                val validated = settings.validate()
+                engineSettingsRepository.saveSettings(validated)
                 hasChanges = false
+                if (chessEngine != null) {
+                    scope.launch(Dispatchers.IO) {
+                        runCatching { chessEngine.applySettings(validated) }
+                    }
+                }
                 onBack()
             },
             onReset = {
                 settings = EngineSettings.default()
                 hasChanges = true
-            },
-            onCancel = onBack
+            }
         )
 
-        // Отступ снизу для удобства
-        Spacer(modifier = Modifier.height(32.dp))
-    }
-}
-
-@Composable
-private fun SettingsHeader(onBack: () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Назад",
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Column {
-                Text(
-                    text = "Настройки движка",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Text(
-                    text = "Stockfish 19 (NNUE)",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                )
-            }
-        }
+        Spacer(modifier = Modifier.height(28.dp))
     }
 }
 
 @Composable
 private fun ProfilesSection(
     currentSettings: EngineSettings,
+    availableCores: Int,
     onProfileSelected: (EngineSettings) -> Unit
 ) {
     Card {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "Быстрый выбор",
+                text = "Профиль анализа",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -178,7 +202,10 @@ private fun ProfilesSection(
                     name = "⚖️ Стандарт",
                     description = "Глубина 15",
                     isSelected = currentSettings.depth in 13..17,
-                    onClick = { onProfileSelected(EngineSettings.default()) },
+                    onClick = {
+                        val def = EngineSettings.default()
+                        onProfileSelected(def.copy(threads = def.threads.coerceAtMost(availableCores)))
+                    },
                     modifier = Modifier.weight(1f)
                 )
 
@@ -186,7 +213,10 @@ private fun ProfilesSection(
                     name = "🔬 Глубокий",
                     description = "Глубина 22",
                     isSelected = currentSettings.depth >= 18,
-                    onClick = { onProfileSelected(EngineSettings.deep()) },
+                    onClick = {
+                        val deep = EngineSettings.deep()
+                        onProfileSelected(deep.copy(threads = deep.threads.coerceAtMost(availableCores)))
+                    },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -212,11 +242,10 @@ private fun ProfileChip(
             MaterialTheme.colorScheme.surfaceVariant
         },
         border = if (isSelected) {
-            androidx.compose.foundation.BorderStroke(
-                2.dp,
-                MaterialTheme.colorScheme.primary
-            )
-        } else null
+            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        } else {
+            null
+        }
     ) {
         Column(
             modifier = Modifier.padding(8.dp),
@@ -246,7 +275,7 @@ private fun DepthSetting(
     SettingCard(
         icon = Icons.Default.Layers,
         title = "Глубина анализа",
-        subtitle = "Количество полуходов вперёд",
+        subtitle = "Количество полуходов расчёта вперёд",
         value = "$depth"
     ) {
         Column {
@@ -263,12 +292,14 @@ private fun DepthSetting(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "${EngineSettings.MIN_DEPTH}",
-                    style = MaterialTheme.typography.labelSmall
+                    text = "${EngineSettings.MIN_DEPTH} (быстро)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = "${EngineSettings.MAX_DEPTH}",
-                    style = MaterialTheme.typography.labelSmall
+                    text = "${EngineSettings.MAX_DEPTH} (макс.)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -278,12 +309,14 @@ private fun DepthSetting(
 @Composable
 private fun ThreadsSetting(
     threads: Int,
+    availableCores: Int,
     onThreadsChange: (Int) -> Unit
 ) {
+    val recommended = (availableCores / 2).coerceIn(1, EngineSettings.MAX_THREADS)
     SettingCard(
         icon = Icons.Default.Memory,
         title = "Потоки CPU",
-        subtitle = "Количество ядер процессора",
+        subtitle = "Ядер на устройстве: $availableCores (оптимально: $recommended)",
         value = "$threads"
     ) {
         Column {
@@ -301,11 +334,22 @@ private fun ThreadsSetting(
             ) {
                 Text(
                     text = "${EngineSettings.MIN_THREADS}",
-                    style = MaterialTheme.typography.labelSmall
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = "${EngineSettings.MAX_THREADS}",
-                    style = MaterialTheme.typography.labelSmall
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (threads > availableCores) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Выбрано больше потоков, чем ядер CPU ($availableCores) — это может замедлить анализ.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error
                 )
             }
         }
@@ -321,13 +365,13 @@ private fun HashSetting(
 
     SettingCard(
         icon = Icons.Default.Storage,
-        title = "Размер хеша",
-        subtitle = "Память для кэширования",
-        value = "$hashSizeMb MB"
+        title = "Размер хеш-таблицы",
+        subtitle = "Оперативная память для кэширования позиций",
+        value = "$hashSizeMb МБ"
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             hashOptions.forEach { size ->
                 FilterChip(
@@ -343,7 +387,7 @@ private fun HashSetting(
 
 @Composable
 private fun SettingCard(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     title: String,
     subtitle: String,
     value: String,
@@ -381,49 +425,60 @@ private fun SettingCard(
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
+            Spacer(modifier = Modifier.height(14.dp))
             content()
         }
     }
 }
 
 @Composable
-private fun SettingsInfo(settings: EngineSettings) {
+private fun SettingsInfo(
+    settings: EngineSettings,
+    availableCores: Int
+) {
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
         )
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.Info,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.secondary,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Информация",
+                    text = "Оценка скорости",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            val estimatedTime = settings.estimatedTimePerMove()
-
-            Text(text = "• Профиль: ${settings.getProfileName()}")
-            Text(text = "• Время на ход: ~${String.format(java.util.Locale.US, "%.1f", estimatedTime)} сек")
-
-            Spacer(modifier = Modifier.height(8.dp))
+            val estimatedPerMove = settings.estimatedTimePerMove()
+            val fullGameSec = (estimatedPerMove * 70 / settings.threads.coerceIn(1, availableCores).coerceAtMost(4))
+                .roundToInt()
+                .coerceAtLeast(8)
 
             Text(
-                text = "💡 Больше глубина = точнее анализ, но дольше",
+                text = "• Профиль: ${settings.getProfileName()} (~${String.format(Locale.US, "%.1f", estimatedPerMove)} сек/ход)",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                text = "• Партия из 35 ходов: примерно $fullGameSec сек",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                text = "Глубина 15–18 оптимально сочетает скорость и точность тактического разбора на смартфоне.",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -433,8 +488,7 @@ private fun SettingsInfo(settings: EngineSettings) {
 private fun BottomButtons(
     hasChanges: Boolean,
     onSave: () -> Unit,
-    onReset: () -> Unit,
-    onCancel: () -> Unit
+    onReset: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -442,14 +496,18 @@ private fun BottomButtons(
     ) {
         OutlinedButton(
             onClick = onReset,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier
+                .weight(1f)
+                .height(48.dp)
         ) {
-            Text("Сброс")
+            Text("По умолчанию")
         }
 
         Button(
             onClick = onSave,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .height(48.dp),
             enabled = hasChanges
         ) {
             Text("Сохранить")

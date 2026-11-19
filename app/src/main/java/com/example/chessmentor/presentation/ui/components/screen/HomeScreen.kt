@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -18,18 +20,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chessmentor.di.AppContainer
+import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.presentation.ui.components.BoardThemes
 import com.example.chessmentor.presentation.ui.components.ChessBoard
+import com.example.chessmentor.presentation.ui.components.EngineStatusBanner
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import com.github.bhlangonijr.chesslib.Board
 
@@ -42,6 +50,9 @@ fun HomeScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToTraining: () -> Unit,
     onNavigateToDailyPuzzle: () -> Unit = onNavigateToTraining,
+    onNavigateToSmartSession: () -> Unit = onNavigateToTraining,
+    onOpenEngineSettings: (() -> Unit)? = null,
+    onOpenGame: (Game) -> Unit = {},
     message: String,
     isLoading: Boolean,
     onMessageDismiss: () -> Unit,
@@ -90,6 +101,9 @@ fun HomeScreen(
             container = container,
             onLogout = onLogout,
             onNavigateToDailyPuzzle = onNavigateToDailyPuzzle,
+            onNavigateToSmartSession = onNavigateToSmartSession,
+            onOpenEngineSettings = onOpenEngineSettings,
+            onOpenGame = onOpenGame,
             onNavigateToSettings = onNavigateToSettings
         )
     }
@@ -359,6 +373,9 @@ private fun LoginForm(
     onPasswordChange: (String) -> Unit,
     onLogin: (String, String) -> Unit
 ) {
+    var showPassword by remember { mutableStateOf(false) }
+    val canSubmit = !isLoading && email.isNotBlank() && password.isNotBlank()
+
     Text(
         "С возвращением!",
         style = MaterialTheme.typography.headlineSmall,
@@ -370,6 +387,11 @@ private fun LoginForm(
         onValueChange = onEmailChange,
         label = { Text("Email") },
         leadingIcon = { Icon(Icons.Default.Email, null) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Email,
+            imeAction = ImeAction.Next
+        ),
         modifier = Modifier.fillMaxWidth(),
         enabled = !isLoading
     )
@@ -379,20 +401,46 @@ private fun LoginForm(
         onValueChange = onPasswordChange,
         label = { Text("Пароль") },
         leadingIcon = { Icon(Icons.Default.Lock, null) },
-        visualTransformation = PasswordVisualTransformation(),
+        trailingIcon = {
+            IconButton(onClick = { showPassword = !showPassword }) {
+                Icon(
+                    imageVector = if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    contentDescription = if (showPassword) "Скрыть пароль" else "Показать пароль"
+                )
+            }
+        },
+        singleLine = true,
+        visualTransformation = if (showPassword) {
+            VisualTransformation.None
+        } else {
+            PasswordVisualTransformation()
+        },
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Password,
+            imeAction = ImeAction.Done
+        ),
+        keyboardActions = KeyboardActions(
+            onDone = {
+                if (canSubmit) onLogin(email.trim(), password)
+            }
+        ),
         modifier = Modifier.fillMaxWidth(),
         enabled = !isLoading
     )
 
     Button(
-        onClick = { onLogin(email, password) },
+        onClick = { onLogin(email.trim(), password) },
         modifier = Modifier
             .fillMaxWidth()
             .height(50.dp),
-        enabled = !isLoading && email.isNotBlank() && password.isNotBlank()
+        enabled = canSubmit
     ) {
         if (isLoading) {
-            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+            CircularProgressIndicator(
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(22.dp),
+                strokeWidth = 2.5.dp
+            )
         } else {
             Text("Войти", fontSize = 16.sp)
         }
@@ -412,6 +460,14 @@ private fun RegisterForm(
     onRatingChange: (String) -> Unit,
     onRegister: (String, String, String, Int) -> Unit
 ) {
+    var showPassword by remember { mutableStateOf(false) }
+    val trimmedNick = nickname.trim()
+    val trimmedEmail = email.trim()
+    val isEmailValid = trimmedEmail.contains("@") &&
+        trimmedEmail.substringAfter("@").contains(".") &&
+        !trimmedEmail.contains(" ")
+    val isFormValid = trimmedNick.length in 3..50 && isEmailValid && password.length >= 6
+
     Text(
         "Создать аккаунт",
         style = MaterialTheme.typography.headlineSmall,
@@ -420,9 +476,17 @@ private fun RegisterForm(
 
     OutlinedTextField(
         value = nickname,
-        onValueChange = onNicknameChange,
-        label = { Text("Никнейм") },
+        onValueChange = { if (it.length <= 50) onNicknameChange(it) },
+        label = { Text("Никнейм (или ник на Lichess / Chess.com)") },
         leadingIcon = { Icon(Icons.Default.Person, null) },
+        singleLine = true,
+        isError = nickname.isNotEmpty() && trimmedNick.length < 3,
+        supportingText = if (nickname.isNotEmpty() && trimmedNick.length < 3) {
+            { Text("Минимум 3 символа") }
+        } else {
+            null
+        },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
         modifier = Modifier.fillMaxWidth(),
         enabled = !isLoading
     )
@@ -432,6 +496,12 @@ private fun RegisterForm(
         onValueChange = onEmailChange,
         label = { Text("Email") },
         leadingIcon = { Icon(Icons.Default.Email, null) },
+        singleLine = true,
+        isError = trimmedEmail.isNotEmpty() && !isEmailValid,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Email,
+            imeAction = ImeAction.Next
+        ),
         modifier = Modifier.fillMaxWidth(),
         enabled = !isLoading
     )
@@ -439,9 +509,27 @@ private fun RegisterForm(
     OutlinedTextField(
         value = password,
         onValueChange = onPasswordChange,
-        label = { Text("Пароль") },
+        label = { Text("Пароль (не менее 6 символов)") },
         leadingIcon = { Icon(Icons.Default.Lock, null) },
-        visualTransformation = PasswordVisualTransformation(),
+        trailingIcon = {
+            IconButton(onClick = { showPassword = !showPassword }) {
+                Icon(
+                    imageVector = if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    contentDescription = if (showPassword) "Скрыть пароль" else "Показать пароль"
+                )
+            }
+        },
+        singleLine = true,
+        isError = password.isNotEmpty() && password.length < 6,
+        visualTransformation = if (showPassword) {
+            VisualTransformation.None
+        } else {
+            PasswordVisualTransformation()
+        },
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Password,
+            imeAction = ImeAction.Next
+        ),
         modifier = Modifier.fillMaxWidth(),
         enabled = !isLoading
     )
@@ -453,21 +541,46 @@ private fun RegisterForm(
                 onRatingChange(value)
             }
         },
-        label = { Text("Рейтинг (0–3500)") },
+        label = { Text("Примерный рейтинг (0–3500)") },
         leadingIcon = { Icon(Icons.Default.Star, null) },
         singleLine = true,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Number,
+            imeAction = ImeAction.Done
+        ),
+        keyboardActions = KeyboardActions(
+            onDone = {
+                if (!isLoading && isFormValid) {
+                    val parsedRating = (rating.toIntOrNull() ?: 1200).coerceIn(0, 3500)
+                    onRegister(trimmedNick, trimmedEmail, password, parsedRating)
+                }
+            }
+        ),
         modifier = Modifier.fillMaxWidth(),
         enabled = !isLoading
     )
 
-    val isFormValid = nickname.trim().length >= 3 &&
-        email.contains("@") &&
-        password.length >= 6
+    // Быстрый выбор стартового уровня
+    val presets = remember { listOf("800", "1200", "1500", "1800") }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        presets.forEach { preset ->
+            FilterChip(
+                selected = rating == preset,
+                onClick = { onRatingChange(preset) },
+                label = { Text(preset, fontSize = 12.sp) },
+                enabled = !isLoading,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
 
     Button(
         onClick = {
             val parsedRating = (rating.toIntOrNull() ?: 1200).coerceIn(0, 3500)
-            onRegister(nickname.trim(), email.trim(), password, parsedRating)
+            onRegister(trimmedNick, trimmedEmail, password, parsedRating)
         },
         modifier = Modifier
             .fillMaxWidth()
@@ -475,7 +588,11 @@ private fun RegisterForm(
         enabled = !isLoading && isFormValid
     ) {
         if (isLoading) {
-            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+            CircularProgressIndicator(
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(22.dp),
+                strokeWidth = 2.5.dp
+            )
         } else {
             Text("Зарегистрироваться", fontSize = 16.sp)
         }
@@ -493,11 +610,20 @@ fun DashboardContent(
     @Suppress("UNUSED_PARAMETER")
     onLogout: () -> Unit,
     onNavigateToDailyPuzzle: () -> Unit,
+    onNavigateToSmartSession: () -> Unit = onNavigateToDailyPuzzle,
+    onOpenEngineSettings: (() -> Unit)? = null,
+    onOpenGame: (Game) -> Unit = {},
     onNavigateToSettings: () -> Unit
 ) {
     val epochDay = remember { CuratedExerciseBank.currentEpochDay() }
     val dailyPuzzle = remember(epochDay) { CuratedExerciseBank.getDailyPuzzle(epochDay) }
     var isDailySolved by remember(user.id, epochDay) { mutableStateOf(false) }
+
+    val engineStatus by if (container != null) {
+        container.chessEngine.status.collectAsState()
+    } else {
+        remember { mutableStateOf<EngineStatus>(EngineStatus.Idle) }
+    }
 
     LaunchedEffect(user.id, epochDay) {
         gameViewModel.loadUserData()
@@ -530,12 +656,26 @@ fun DashboardContent(
             )
         }
 
+        // Живой баннер загрузки/проверки или ошибки NNUE (автоматически скрывается в состоянии Ready)
+        if (engineStatus !is EngineStatus.Idle && engineStatus !is EngineStatus.Ready) {
+            item {
+                EngineStatusBanner(
+                    status = engineStatus,
+                    onRetry = { gameViewModel.retryEngineInit(forceRedownload = false) },
+                    onCancel = { gameViewModel.cancelEngineInit() },
+                    onOpenSettings = onOpenEngineSettings,
+                    showWhenReady = false
+                )
+            }
+        }
+
         item {
             DailyPuzzleWidget(
                 puzzle = dailyPuzzle,
                 isSolved = isDailySolved,
                 preferredTheme = user.preferredTheme,
-                onClick = onNavigateToDailyPuzzle
+                onClick = onNavigateToDailyPuzzle,
+                onStartSmartSession = onNavigateToSmartSession
             )
         }
 
@@ -553,8 +693,14 @@ fun DashboardContent(
                 EmptyGamesCard()
             }
         } else {
-            items(recentGames) { game ->
-                MiniGameCard(game)
+            items(
+                items = recentGames,
+                key = { g -> g.id ?: g.hashCode() }
+            ) { game ->
+                MiniGameCard(
+                    game = game,
+                    onClick = { onOpenGame(game) }
+                )
             }
         }
 
@@ -629,7 +775,8 @@ fun DailyPuzzleWidget(
     },
     isSolved: Boolean = false,
     preferredTheme: String? = null,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onStartSmartSession: (() -> Unit)? = null
 ) {
     val board = remember(puzzle.fen) {
         Board().apply { loadFromFen(puzzle.fen) }
@@ -712,21 +859,31 @@ fun DailyPuzzleWidget(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = puzzle.title,
+                        text = if (isSolved) puzzle.title else sidePrompt,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = puzzle.subtitle,
+                        text = if (isSolved) {
+                            puzzle.explanation ?: puzzle.subtitle
+                        } else {
+                            "Оцените позицию и найдите сильнейшее продолжение без подсказки мотива"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "$sidePrompt • ${TrainingLabels.themeDisplayName(puzzle.theme)}",
+                        text = if (isSolved) {
+                            "$sidePrompt • ${TrainingLabels.themeDisplayName(puzzle.theme)}"
+                        } else {
+                            val elo = com.example.chessmentor.domain.training.TrainingRatingCalculator
+                                .difficultyToElo(puzzle.difficultyRating)
+                            "Сложность: $difficultyLabel • ~$elo Эло"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Medium
@@ -738,6 +895,15 @@ fun DailyPuzzleWidget(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Text(if (isSolved) "Повторить" else "Решить сейчас")
+                    }
+                    if (onStartSmartSession != null) {
+                        OutlinedButton(
+                            onClick = onStartSmartSession,
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text("Сессия 10 задач", fontSize = 12.sp)
+                        }
                     }
                 }
             }
@@ -766,41 +932,83 @@ private fun EmptyGamesCard() {
 }
 
 @Composable
-fun MiniGameCard(game: Game) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+fun MiniGameCard(
+    game: Game,
+    onClick: () -> Unit = {}
+) {
+    val info = remember(game.id, game.pgnData, game.playerColor, game.timeControl) {
+        PgnParser.extractGameCardInfo(game)
+    }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
                 Box(
                     modifier = Modifier
-                        .size(12.dp)
+                        .size(14.dp)
                         .background(
-                            if (game.playerColor == ChessColor.WHITE) Color.White else Color.Black
+                            color = if (game.playerColor == ChessColor.WHITE) Color.White else Color.Black,
+                            shape = RoundedCornerShape(3.dp)
                         )
-                        .border(1.dp, Color.Gray)
+                        .border(1.dp, Color.Gray, RoundedCornerShape(3.dp))
                 )
                 Spacer(Modifier.width(12.dp))
-                Column {
-                    Text("Партия #${game.id}", fontWeight = FontWeight.Bold)
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        game.timeControl ?: "Без контроля",
+                        text = info.title,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val metaLine = buildList {
+                        if (info.outcome != PgnParser.PlayerOutcome.UNKNOWN) {
+                            add(info.outcome.displayName)
+                        }
+                        add(info.timeControlLabel)
+                        info.eco?.let { add(it) }
+                        if (info.dateLabel.isNotBlank()) add(info.dateLabel)
+                    }.joinToString(" · ")
+                    Text(
+                        text = metaLine,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.Gray
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
+            Spacer(Modifier.width(8.dp))
+
             if (game.isAnalyzed()) {
+                val acc = game.accuracy ?: 0.0
                 Text(
-                    "${game.accuracy?.toInt() ?: 0}%",
+                    text = String.format(java.util.Locale.US, "%.0f%%", acc),
                     fontWeight = FontWeight.Bold,
-                    color = if ((game.accuracy ?: 0.0) > 80) Color(0xFF4CAF50) else Color(0xFFFFA726)
+                    color = when {
+                        acc >= 80.0 -> Color(0xFF4CAF50)
+                        acc >= 65.0 -> Color(0xFFFFA726)
+                        else -> Color(0xFFE53935)
+                    }
                 )
             } else {
-                Text("В очереди", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Text(
+                    text = "В очереди",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

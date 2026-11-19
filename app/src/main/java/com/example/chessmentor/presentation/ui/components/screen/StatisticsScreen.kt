@@ -288,12 +288,12 @@ private fun TrainingProgressCard(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     TrainingMetricItem(
-                        label = "Точность",
-                        value = "${training.solveAccuracyPercent}%"
+                        label = "С 1-й попытки",
+                        value = "${training.firstTryAccuracyPercent}%"
                     )
                     TrainingMetricItem(
-                        label = "Решено",
-                        value = "${training.solvedAttempts}/${training.totalAttempts}"
+                        label = "Закреплено",
+                        value = "${training.masteredExercisesCount}"
                     )
                     TrainingMetricItem(
                         label = "Серия",
@@ -301,19 +301,28 @@ private fun TrainingProgressCard(
                     )
                 }
 
-                if (training.averageSolveTimeSeconds > 0 || training.unresolvedFailedCount > 0 || training.personalMistakeExercises > 0) {
-                    val details = buildList {
-                        if (training.averageSolveTimeSeconds > 0) {
-                            add("Ср. время: ${training.averageSolveTimeSeconds} с")
-                        }
-                        if (training.personalMistakeExercises > 0) {
-                            add("Из партий: ${training.personalMistakeExercises}")
-                        }
-                        if (training.unresolvedFailedCount > 0) {
-                            add("К повторению: ${training.unresolvedFailedCount}")
-                        }
-                    }.joinToString(" • ")
+                val details = buildList {
+                    if (training.dueForReviewCount > 0) {
+                        add("К повтору: ${training.dueForReviewCount}")
+                    }
+                    if (training.inLearningCount > 0) {
+                        add("В изучении: ${training.inLearningCount}")
+                    }
+                    if (training.averageSolveTimeSeconds > 0) {
+                        add("Ср. время: ${training.averageSolveTimeSeconds} с")
+                    }
+                    if (training.impulsiveMistakeCount > 0) {
+                        add("Поспешных: ${training.impulsiveMistakeCount} (${training.impulsiveMistakeRatePercent}%)")
+                    }
+                    if (training.personalMistakeExercises > 0) {
+                        add("Из партий: ${training.personalMistakeExercises}")
+                    }
+                    if (training.isRatingProvisional) {
+                        add("Калибровка рейтинга")
+                    }
+                }.joinToString(" • ")
 
+                if (details.isNotEmpty()) {
                     Text(
                         text = details,
                         style = MaterialTheme.typography.labelMedium,
@@ -427,7 +436,7 @@ private fun PatternMasteryRow(
             shape = RoundedCornerShape(6.dp)
         ) {
             Text(
-                text = "${mastery.accuracyPercent}% (${mastery.solvedAttempts}/${mastery.totalAttempts})",
+                text = "${mastery.masteryPercent}% • 1-я: ${mastery.firstTryAccuracyPercent}%",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = if (isWeak) {

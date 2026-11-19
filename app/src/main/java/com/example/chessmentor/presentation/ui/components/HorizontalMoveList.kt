@@ -2,14 +2,18 @@
 package com.example.chessmentor.presentation.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -17,14 +21,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.MistakeType
+import com.example.chessmentor.domain.entity.MoveQuality
 
 /**
- * Горизонтальный скроллящийся список ходов с подсветкой ошибок
- *
- * Как в Chess.com Mobile — внизу экрана
+ * Горизонтальная лента ходов разбора партии на базе `LazyRow`:
+ * - точная автопрокрутка к текущему ходу на партиях любой длины;
+ * - подсветка как ошибок (`??`, `?`, `?!`), так и блестящих/отличных ходов (`!!`, `!`)
+ *   обеих сторон;
+ * - корректная нумерация для партий со стартового FEN (включая старт с хода чёрных);
+ * - адаптивные цвета для светлой и тёмной темы.
  */
 @Composable
 fun HorizontalMoveList(
@@ -32,62 +41,92 @@ fun HorizontalMoveList(
     currentMoveIndex: Int,
     mistakes: List<Mistake>,
     onMoveClick: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    analyzedMoves: List<AnalyzedMove> = emptyList(),
+    startMoveNumber: Int = 1,
+    firstMoveIsWhite: Boolean = true
 ) {
-    val scrollState = rememberScrollState()
+    val listState = rememberLazyListState()
 
-    LaunchedEffect(currentMoveIndex) {
-        if (currentMoveIndex >= 0 && moves.isNotEmpty()) {
-            val scrollPosition = ((currentMoveIndex - 2) * 60).coerceAtLeast(0)  // Уменьшили с 70 до 60
-            scrollState.animateScrollTo(scrollPosition)
+    val qualityByPly = remember(analyzedMoves, mistakes, moves.size, startMoveNumber, firstMoveIsWhite) {
+        val map = HashMap<Int, MoveQuality>(analyzedMoves.size + mistakes.size)
+        for (am in analyzedMoves) {
+            map[am.moveIndex] = am.quality
         }
+        if (map.isEmpty() && mistakes.isNotEmpty()) {
+            for (idx in moves.indices) {
+                val isWhite = if (firstMoveIsWhite) idx % 2 == 0 else idx % 2 != 0
+                val moveNo = startMoveNumber + ((idx + if (firstMoveIsWhite) 0 else 1) / 2)
+                val color = if (isWhite) ChessColor.WHITE else ChessColor.BLACK
+                val m = mistakes.find { it.moveNumber == moveNo && it.color == color }
+                if (m != null) {
+                    map[idx] = when (m.mistakeType) {
+                        MistakeType.BLUNDER -> MoveQuality.BLUNDER
+                        MistakeType.MISTAKE -> MoveQuality.MISTAKE
+                        MistakeType.INACCURACY -> MoveQuality.INACCURACY
+                    }
+                }
+            }
+        }
+        map
     }
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(scrollState)
-            .padding(horizontal = 12.dp, vertical = 4.dp),  // Уменьшили с 8dp до 4dp
+    // Элемент 0 — чип стартовой позиции, элемент (idx + 1) — полуход idx
+    LaunchedEffect(currentMoveIndex, moves.size) {
+        val targetListIndex = (currentMoveIndex + 1).coerceIn(0, moves.size)
+        val scrollTarget = (targetListIndex - 2).coerceAtLeast(0)
+        runCatching { listState.animateScrollToItem(scrollTarget) }
+    }
+
+    LazyRow(
+        state = listState,
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Начальная позиция
-        StartPositionChip(
-            isSelected = currentMoveIndex == -1,
-            onClick = { onMoveClick(-1) }
-        )
+        item(key = "start_pos") {
+            StartPositionChip(
+                isSelected = currentMoveIndex == -1,
+                onClick = { onMoveClick(-1) }
+            )
+        }
 
-        Spacer(modifier = Modifier.width(6.dp))  // Уменьшили с 8dp до 6dp
-
-        moves.forEachIndexed { index, san ->
-            val moveNumber = (index / 2) + 1
-            val isWhiteMove = index % 2 == 0
+        itemsIndexed(
+            items = moves,
+            key = { index, _ -> index }
+        ) { index, san ->
+            val isWhiteMove = if (firstMoveIsWhite) index % 2 == 0 else index % 2 != 0
+            val moveNumber = startMoveNumber + ((index + if (firstMoveIsWhite) 0 else 1) / 2)
             val isSelected = index == currentMoveIndex
+            val quality = qualityByPly[index]
 
-            val mistake = mistakes.find {
-                it.moveNumber == moveNumber &&
-                        it.color == (if (isWhiteMove) ChessColor.WHITE else ChessColor.BLACK)
-            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isWhiteMove) {
+                    Text(
+                        text = "$moveNumber.",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 2.dp, end = 2.dp)
+                    )
+                } else if (index == 0) {
+                    Text(
+                        text = "$moveNumber...",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 2.dp)
+                    )
+                }
 
-            // Номер хода
-            if (isWhiteMove) {
-                Text(
-                    text = "$moveNumber.",
-                    fontSize = 12.sp,  // Уменьшили с 13sp до 12sp
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(end = 2.dp)
+                MoveQualityChip(
+                    san = san,
+                    isSelected = isSelected,
+                    quality = quality,
+                    onClick = { onMoveClick(index) }
                 )
             }
-
-            // Ход
-            MoveChip(
-                san = san,
-                isSelected = isSelected,
-                mistakeType = mistake?.mistakeType,
-                onClick = { onMoveClick(index) }
-            )
-
-            Spacer(modifier = Modifier.width(4.dp))  // Было 6dp → стало 4dp
         }
     }
 }
@@ -102,7 +141,6 @@ private fun StartPositionChip(
     } else {
         MaterialTheme.colorScheme.surfaceVariant
     }
-
     val textColor = if (isSelected) {
         MaterialTheme.colorScheme.onPrimary
     } else {
@@ -114,11 +152,11 @@ private fun StartPositionChip(
             .clip(RoundedCornerShape(6.dp))
             .background(backgroundColor)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp)  // Уменьшили с 10dp×6dp до 8dp×4dp
+            .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
         Text(
             text = "▷",
-            fontSize = 13.sp,  // Уменьшили с 14sp до 13sp
+            fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             color = textColor
         )
@@ -126,49 +164,64 @@ private fun StartPositionChip(
 }
 
 @Composable
-private fun MoveChip(
+private fun MoveQualityChip(
     san: String,
     isSelected: Boolean,
-    mistakeType: MistakeType?,
+    quality: MoveQuality?,
     onClick: () -> Unit
 ) {
+    val badgeSymbol = when (quality) {
+        MoveQuality.BRILLIANT -> "!!"
+        MoveQuality.GREAT_MOVE -> "!"
+        MoveQuality.BLUNDER -> "??"
+        MoveQuality.MISTAKE, MoveQuality.MISSED_WIN -> "?"
+        MoveQuality.INACCURACY -> "?!"
+        else -> ""
+    }
+
+    val accent = when (quality) {
+        MoveQuality.BRILLIANT,
+        MoveQuality.GREAT_MOVE,
+        MoveQuality.BLUNDER,
+        MoveQuality.MISSED_WIN,
+        MoveQuality.MISTAKE,
+        MoveQuality.INACCURACY -> quality.getColor()
+        else -> null
+    }
+
     val backgroundColor = when {
-        isSelected && mistakeType == MistakeType.BLUNDER -> Color(0xFFE53935)
-        isSelected && mistakeType == MistakeType.MISTAKE -> Color(0xFFFF9800)
-        isSelected && mistakeType == MistakeType.INACCURACY -> Color(0xFFFFC107)
+        isSelected && accent != null -> accent
         isSelected -> MaterialTheme.colorScheme.primary
-        mistakeType == MistakeType.BLUNDER -> Color(0xFFFFCDD2)
-        mistakeType == MistakeType.MISTAKE -> Color(0xFFFFE0B2)
-        mistakeType == MistakeType.INACCURACY -> Color(0xFFFFF9C4)
+        accent != null -> accent.copy(alpha = 0.16f)
         else -> Color.Transparent
     }
 
     val textColor = when {
-        isSelected -> Color.White
-        mistakeType == MistakeType.BLUNDER -> Color(0xFFC62828)
-        mistakeType == MistakeType.MISTAKE -> Color(0xFFE65100)
-        mistakeType == MistakeType.INACCURACY -> Color(0xFFF9A825)
+        isSelected && accent != null -> Color.White
+        isSelected -> MaterialTheme.colorScheme.onPrimary
+        accent != null -> accent
         else -> MaterialTheme.colorScheme.onSurface
     }
 
-    val qualitySymbol = when (mistakeType) {
-        MistakeType.BLUNDER -> "??"
-        MistakeType.MISTAKE -> "?"
-        MistakeType.INACCURACY -> "?!"
-        else -> ""
-    }
-
+    val shape = RoundedCornerShape(6.dp)
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(shape)
             .background(backgroundColor)
+            .then(
+                if (!isSelected && accent != null) {
+                    Modifier.border(1.dp, accent.copy(alpha = 0.35f), shape)
+                } else {
+                    Modifier
+                }
+            )
             .clickable(onClick = onClick)
-            .padding(horizontal = 7.dp, vertical = 4.dp)  // Уменьшили с 8dp×6dp до 7dp×4dp
+            .padding(horizontal = 7.dp, vertical = 4.dp)
     ) {
         Text(
-            text = "$san$qualitySymbol",
-            fontSize = 13.sp,  // Уменьшили с 14sp до 13sp
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            text = "$san$badgeSymbol",
+            fontSize = 13.sp,
+            fontWeight = if (isSelected || accent != null) FontWeight.Bold else FontWeight.Medium,
             color = textColor
         )
     }

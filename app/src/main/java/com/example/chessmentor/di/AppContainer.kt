@@ -5,11 +5,30 @@ import android.content.Context
 import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.data.engine.StockfishEngine
 import com.example.chessmentor.data.local.AppDatabase
+import com.example.chessmentor.data.local.DatabaseMaintenance
 import com.example.chessmentor.data.repository.SharedPrefsEngineSettingsRepository
-import com.example.chessmentor.data.repository.room.*
-import com.example.chessmentor.domain.repository.*
-import com.example.chessmentor.domain.usecase.*
+import com.example.chessmentor.data.repository.SharedPrefsSessionRepository
+import com.example.chessmentor.data.repository.room.RoomAnalyzedMoveRepository
+import com.example.chessmentor.data.repository.room.RoomExerciseRepository
+import com.example.chessmentor.data.repository.room.RoomGameRepository
+import com.example.chessmentor.data.repository.room.RoomMistakeRepository
+import com.example.chessmentor.data.repository.room.RoomUserRepository
 import com.example.chessmentor.domain.analysis.SemanticMistakeAnalyzer
+import com.example.chessmentor.domain.repository.AnalyzedMoveRepository
+import com.example.chessmentor.domain.repository.EngineSettingsRepository
+import com.example.chessmentor.domain.repository.ExerciseRepository
+import com.example.chessmentor.domain.repository.GameRepository
+import com.example.chessmentor.domain.repository.MistakeRepository
+import com.example.chessmentor.domain.repository.SessionRepository
+import com.example.chessmentor.domain.repository.UserRepository
+import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
+import com.example.chessmentor.domain.usecase.ChangePasswordUseCase
+import com.example.chessmentor.domain.usecase.GenerateExercisesFromMistakesUseCase
+import com.example.chessmentor.domain.usecase.GetTrainingExerciseUseCase
+import com.example.chessmentor.domain.usecase.GetUserStatisticsUseCase
+import com.example.chessmentor.domain.usecase.LoginUserUseCase
+import com.example.chessmentor.domain.usecase.RegisterUserUseCase
+import com.example.chessmentor.domain.usecase.UploadGameUseCase
 
 class AppContainer private constructor(private val context: Context) {
 
@@ -29,14 +48,22 @@ class AppContainer private constructor(private val context: Context) {
         AppDatabase.getInstance(context)
     }
 
+    // Пользовательская сессия и общие настройки приложения
+    val sessionRepository: SessionRepository by lazy {
+        SharedPrefsSessionRepository(context)
+    }
+
     // Настройки движка
     val engineSettingsRepository: EngineSettingsRepository by lazy {
         SharedPrefsEngineSettingsRepository(context)
     }
 
-    // Движок - локальный Stockfish
+    // Движок — локальный Stockfish с реактивным статусом загрузки NNUE
     val chessEngine: ChessEngine by lazy {
-        StockfishEngine(context)
+        StockfishEngine(
+            context = context,
+            engineSettingsRepository = engineSettingsRepository
+        )
     }
 
     // DAO
@@ -46,7 +73,15 @@ class AppContainer private constructor(private val context: Context) {
     private val exerciseDao by lazy { database.exerciseDao() }
     private val analyzedMoveDao by lazy { database.analyzedMoveDao() }
 
-    // ✅ ИСПРАВЛЕНО: Передаём движок в анализатор
+    // Фоновое обслуживание и самовосстановление согласованности БД
+    val databaseMaintenance: DatabaseMaintenance by lazy {
+        DatabaseMaintenance(
+            gameDao = gameDao,
+            exerciseDao = exerciseDao
+        )
+    }
+
+    // Семантический анализатор ошибок
     val semanticMistakeAnalyzer by lazy {
         SemanticMistakeAnalyzer(chessEngine)
     }
@@ -79,6 +114,10 @@ class AppContainer private constructor(private val context: Context) {
 
     val loginUserUseCase by lazy {
         LoginUserUseCase(userRepository)
+    }
+
+    val changePasswordUseCase by lazy {
+        ChangePasswordUseCase(userRepository)
     }
 
     val uploadGameUseCase by lazy {

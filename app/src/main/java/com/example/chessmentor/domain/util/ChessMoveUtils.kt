@@ -15,10 +15,11 @@ import com.github.bhlangonijr.chesslib.move.MoveList
 object ChessMoveUtils {
 
     private val UCI_REGEX = Regex("^[a-h][1-8][a-h][1-8][qrbn]?$", RegexOption.IGNORE_CASE)
-    private val FEN_TAG_REGEX = Regex("""\[\s*FEN\s+"([^"]+)"\s*]""", RegexOption.IGNORE_CASE)
-    private val TAG_REGEX = Regex("""\[[^\]]*]""")
+    private val FEN_TAG_REGEX = Regex("""\[\s*FEN\s+"([^"]+)"\s*\]""", RegexOption.IGNORE_CASE)
+    private val TAG_REGEX = Regex("""\[(?:\\.|[^"\]\\]|"(?:\\.|[^"\\])*")*\]""")
     private val NAG_REGEX = Regex("""\$\d+""")
-    private val RESULT_END_REGEX = Regex("""(1-0|0-1|1/2-1/2|\*)\s*$""")
+    private val MOVE_SUFFIX_NAG_REGEX = Regex("""(?<=[a-h1-8OQRBN+#])[!?]+""")
+    private val RESULT_END_REGEX = Regex("""(1-0|0-1|1/2-1/2|½-½|\*)\s*$""")
     private val WHITESPACE_REGEX = Regex("""\s+""")
 
     data class NormalizedPgn(
@@ -179,11 +180,21 @@ object ChessMoveUtils {
         val startFen = FEN_TAG_REGEX.find(trimmed)?.groupValues?.getOrNull(1)?.trim()
             ?.takeIf { it.isNotEmpty() }
 
-        val withoutTags = trimmed.replace(TAG_REGEX, " ")
-        val withoutCommentsAndVariations = stripCommentsAndVariations(withoutTags)
+        val withoutTags = stripCommentsAndVariations(
+            trimmed.removePrefix("\uFEFF")
+        ).replace(TAG_REGEX, " ")
 
-        val movesOnly = withoutCommentsAndVariations
+        val movesOnly = withoutTags
             .replace(NAG_REGEX, " ")
+            .replace("0-0-0", "O-O-O")
+            .replace("0-0", "O-O")
+            .replace('♔', 'K').replace('♚', 'K')
+            .replace('♕', 'Q').replace('♛', 'Q')
+            .replace('♖', 'R').replace('♜', 'R')
+            .replace('♗', 'B').replace('♝', 'B')
+            .replace('♘', 'N').replace('♞', 'N')
+            .replace("e.p.", "")
+            .replace(MOVE_SUFFIX_NAG_REGEX, "")
             .replace(RESULT_END_REGEX, "")
             .replace(WHITESPACE_REGEX, " ")
             .trim()
@@ -225,6 +236,8 @@ object ChessMoveUtils {
         val out = StringBuilder(input.length)
         var inBraceComment = false
         var inLineComment = false
+        var inQuotes = false
+        var escapeNext = false
         var parenDepth = 0
 
         for (ch in input) {
@@ -244,7 +257,23 @@ object ChessMoveUtils {
                 continue
             }
 
+            if (inQuotes) {
+                out.append(ch)
+                if (escapeNext) {
+                    escapeNext = false
+                } else if (ch == '\\') {
+                    escapeNext = true
+                } else if (ch == '"') {
+                    inQuotes = false
+                }
+                continue
+            }
+
             when (ch) {
+                '"' -> {
+                    inQuotes = true
+                    out.append(ch)
+                }
                 '{' -> {
                     inBraceComment = true
                     out.append(' ')

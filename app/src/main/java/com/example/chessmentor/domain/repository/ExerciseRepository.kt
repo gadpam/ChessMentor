@@ -63,6 +63,9 @@ interface ExerciseRepository {
 
     suspend fun deleteGlobalDuplicates()
 
+    /** Удалить все персональные упражнения, сгенерированные из партии [gameId]. */
+    suspend fun deleteBySourceGameId(gameId: Long) = Unit
+
     suspend fun countExercises(): Int
 
     suspend fun countGlobalExercises(): Int

@@ -29,14 +29,22 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.FirstPage
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LastPage
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Visibility
@@ -53,6 +61,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -81,6 +90,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.training.SessionSummary
 import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.util.ChessMoveUtils
@@ -108,6 +118,7 @@ fun TrainingScreen(
     initialModeKey: String? = null,
     onModeConsumed: () -> Unit = {},
     onNavigateToUpload: () -> Unit = {},
+    onReturnToGame: (() -> Unit)? = null,
     onUserUpdated: (User) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -230,7 +241,9 @@ fun TrainingScreen(
                 )
                 ModeSelectorRow(
                     selectedMode = uiState.mode,
-                    enabled = !uiState.isLoading && !uiState.isAnimatingPunishment,
+                    dueReviewCount = uiState.dueReviewCount,
+                    enabled = !uiState.isLoading && !uiState.isAnimatingIntro && !uiState.isAnimatingPunishment,
+                    onReturnToGame = onReturnToGame,
                     onSelectMode = { mode ->
                         selectedSquare = null
                         pendingPromotion = null
@@ -260,11 +273,41 @@ fun TrainingScreen(
                         selectedSquare = null
                         pendingPromotion = null
                         viewModel.onSkipExercise()
+                    },
+                    onReviewFirst = {
+                        selectedSquare = null
+                        viewModel.onReviewFirst()
+                    },
+                    onReviewPrev = {
+                        selectedSquare = null
+                        viewModel.onReviewPrev()
+                    },
+                    onReviewNext = {
+                        selectedSquare = null
+                        viewModel.onReviewNext()
+                    },
+                    onReviewLast = {
+                        selectedSquare = null
+                        viewModel.onReviewLast()
+                    },
+                    onToggleFreeAnalysis = {
+                        selectedSquare = null
+                        pendingPromotion = null
+                        viewModel.onToggleFreeAnalysis()
+                    },
+                    onUndoAnalysis = {
+                        selectedSquare = null
+                        viewModel.onUndoAnalysisMove()
+                    },
+                    onPlayEngineBest = {
+                        selectedSquare = null
+                        viewModel.onPlayEngineBestInAnalysis()
                     }
                 )
             }
         }
     ) { innerPadding ->
+        val activeSummary = uiState.sessionSummary
         when {
             uiState.isLoading -> {
                 Box(
@@ -289,6 +332,20 @@ fun TrainingScreen(
                 }
             }
 
+            activeSummary != null -> {
+                SessionSummaryCard(
+                    summary = activeSummary,
+                    onRestartSession = { viewModel.restartSmartSession() },
+                    onSwitchToFreeTraining = { viewModel.selectMode(TrainingMode.All) },
+                    onPracticeWeakPatterns = { viewModel.selectMode(TrainingMode.WeakPatterns) },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                )
+            }
+
             !uiState.hasActiveExercise -> {
                 EmptyTrainingState(
                     modifier = Modifier
@@ -297,6 +354,8 @@ fun TrainingScreen(
                         .padding(24.dp),
                     message = uiState.feedbackMessage ?: "Нет доступных задач в выбранном режиме.",
                     showUploadButton = uiState.hasNoUserMistakes,
+                    showReturnToGameButton = uiState.mode is TrainingMode.FromGame && onReturnToGame != null,
+                    onReturnToGame = { onReturnToGame?.invoke() },
                     onNavigateToUpload = onNavigateToUpload,
                     onSwitchToAllMode = { viewModel.selectMode(TrainingMode.All) }
                 )
@@ -310,6 +369,11 @@ fun TrainingScreen(
                         .padding(horizontal = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // Прогресс структурированной сессии (10 задач)
+                    if (uiState.mode is TrainingMode.SmartSession && uiState.sessionStepNumber > 0) {
+                        SmartSessionProgressBar(uiState = uiState)
+                    }
+
                     // Компактная информационная строка текущей задачи
                     ExerciseMetaStrip(uiState = uiState)
 
@@ -321,10 +385,17 @@ fun TrainingScreen(
                             .graphicsLayer { translationX = shakeOffset.value },
                         contentAlignment = Alignment.Center
                     ) {
-                        val canInteract = !uiState.isSolved &&
+                        val isFreeAnalysis = uiState.isFreeAnalysisMode &&
+                            (uiState.isSolved || uiState.isSolutionRevealed) &&
+                            !uiState.isAnimatingIntro &&
+                            !uiState.isAnimatingPunishment
+                        val canSolveMove = !uiState.isSolved &&
                             !uiState.isSolutionRevealed &&
                             !uiState.isInputLocked &&
+                            !uiState.isAnimatingIntro &&
                             !uiState.isAnimatingPunishment
+                        val canInteract = canSolveMove || isFreeAnalysis
+                        val movableSide = if (isFreeAnalysis) uiState.board.sideToMove else uiState.playerSide
 
                         ChessBoard(
                             board = uiState.board,
@@ -343,18 +414,17 @@ fun TrainingScreen(
 
                                 when {
                                     from == null -> {
-                                        if (clickedPiece != Piece.NONE && clickedPiece.pieceSide == uiState.playerSide) {
+                                        if (clickedPiece != Piece.NONE && clickedPiece.pieceSide == movableSide) {
                                             selectedSquare = square
                                         }
                                     }
                                     square == from -> {
                                         selectedSquare = null
                                     }
-                                    clickedPiece != Piece.NONE && clickedPiece.pieceSide == uiState.playerSide -> {
+                                    clickedPiece != Piece.NONE && clickedPiece.pieceSide == movableSide -> {
                                         selectedSquare = square
                                     }
                                     square !in legalMoveSquares && square !in legalCaptureSquares -> {
-                                        // Тап по недоступному полю просто снимает выделение
                                         selectedSquare = null
                                     }
                                     ChessMoveUtils.isPawnPromotion(uiState.board, from, square) -> {
@@ -362,7 +432,7 @@ fun TrainingScreen(
                                         selectedSquare = null
                                     }
                                     else -> {
-                                        val move = ChessMoveUtils.createMove(from, square, uiState.playerSide)
+                                        val move = ChessMoveUtils.createMove(from, square, movableSide)
                                         selectedSquare = null
                                         viewModel.onMoveMade(move)
                                     }
@@ -392,14 +462,15 @@ fun TrainingScreen(
     }
 
     pendingPromotion?.let { (from, to) ->
+        val promoSide = if (uiState.isFreeAnalysisMode) uiState.board.sideToMove else uiState.playerSide
         PromotionPickerDialog(
-            side = uiState.playerSide,
+            side = promoSide,
             onPieceSelected = { pieceType ->
                 pendingPromotion = null
                 val promotionMove = ChessMoveUtils.createMove(
                     from = from,
                     to = to,
-                    side = uiState.playerSide,
+                    side = promoSide,
                     promotion = pieceType
                 )
                 viewModel.onMoveMade(promotionMove)
@@ -412,7 +483,9 @@ fun TrainingScreen(
 @Composable
 private fun ModeSelectorRow(
     selectedMode: TrainingMode,
+    dueReviewCount: Int,
     enabled: Boolean,
+    onReturnToGame: (() -> Unit)? = null,
     onSelectMode: (TrainingMode) -> Unit
 ) {
     var themeMenuExpanded by remember { mutableStateOf(false) }
@@ -423,6 +496,32 @@ private fun ModeSelectorRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (selectedMode is TrainingMode.FromGame) {
+            if (onReturnToGame != null) {
+                item {
+                    AssistChip(
+                        onClick = onReturnToGame,
+                        label = { Text("← К партии") }
+                    )
+                }
+            }
+            item {
+                FilterChip(
+                    selected = true,
+                    onClick = { onSelectMode(selectedMode.copy(focusMoveNumber = null)) },
+                    enabled = enabled,
+                    label = { Text("🎯 ${selectedMode.displayName}") }
+                )
+            }
+        }
+        item {
+            FilterChip(
+                selected = selectedMode is TrainingMode.SmartSession,
+                onClick = { onSelectMode(TrainingMode.SmartSession) },
+                enabled = enabled,
+                label = { Text("Сессия 10") }
+            )
+        }
         item {
             FilterChip(
                 selected = selectedMode is TrainingMode.All,
@@ -441,6 +540,30 @@ private fun ModeSelectorRow(
         }
         item {
             FilterChip(
+                selected = selectedMode is TrainingMode.PatternVision,
+                onClick = { onSelectMode(TrainingMode.PatternVision) },
+                enabled = enabled,
+                label = { Text("Зоркость") }
+            )
+        }
+        item {
+            FilterChip(
+                selected = selectedMode is TrainingMode.DeepCalculation,
+                onClick = { onSelectMode(TrainingMode.DeepCalculation) },
+                enabled = enabled,
+                label = { Text("Расчёт") }
+            )
+        }
+        item {
+            FilterChip(
+                selected = selectedMode is TrainingMode.Defense,
+                onClick = { onSelectMode(TrainingMode.Defense) },
+                enabled = enabled,
+                label = { Text("Защита") }
+            )
+        }
+        item {
+            FilterChip(
                 selected = selectedMode is TrainingMode.MyMistakes,
                 onClick = { onSelectMode(TrainingMode.MyMistakes) },
                 enabled = enabled,
@@ -448,11 +571,16 @@ private fun ModeSelectorRow(
             )
         }
         item {
+            val reviewLabel = if (dueReviewCount > 0) {
+                "Повтор ($dueReviewCount)"
+            } else {
+                "Слабые темы"
+            }
             FilterChip(
                 selected = selectedMode is TrainingMode.WeakPatterns,
                 onClick = { onSelectMode(TrainingMode.WeakPatterns) },
                 enabled = enabled,
-                label = { Text("Слабые темы") }
+                label = { Text(reviewLabel) }
             )
         }
         item {
@@ -508,6 +636,206 @@ private fun ModeSelectorRow(
 }
 
 @Composable
+private fun SmartSessionProgressBar(uiState: TrainingUiState) {
+    val total = uiState.sessionTotalSteps.coerceAtLeast(1)
+    val step = uiState.sessionStepNumber.coerceIn(1, total)
+    val completed = if (uiState.isSolved || uiState.isSolutionRevealed) step else (step - 1)
+    val progress = (completed.toFloat() / total.toFloat()).coerceIn(0.05f, 1f)
+    val phaseText = uiState.sessionPhase?.let { phase ->
+        if (uiState.isSolved || uiState.isSolutionRevealed) phase.displayName else phase.preSolveLabel
+    } ?: "Тренировка"
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 2.dp, bottom = 2.dp, start = 2.dp, end = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Задача $step из $total • $phaseText",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = "Чисто: ${uiState.sessionStats.cleanFirstTrySolved}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp))
+        )
+    }
+}
+
+@Composable
+private fun SessionSummaryCard(
+    summary: SessionSummary,
+    onRestartSession: () -> Unit,
+    onSwitchToFreeTraining: () -> Unit,
+    onPracticeWeakPatterns: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val eloSign = if (summary.netRatingDelta >= 0) "+${summary.netRatingDelta}" else "${summary.netRatingDelta}"
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Default.EmojiEvents,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(40.dp)
+                )
+                Text(
+                    text = summary.headline,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "Сессия из ${summary.totalExercises} задач завершена",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    SummaryStatPill(
+                        label = "С 1-й попытки",
+                        value = "${summary.cleanFirstTryCount}/${summary.totalExercises} (${summary.firstTryAccuracyPercent}%)"
+                    )
+                    SummaryStatPill(
+                        label = "Рейтинг",
+                        value = "$eloSign Эло"
+                    )
+                    SummaryStatPill(
+                        label = "Ср. время",
+                        value = "${summary.averageTimeSeconds} с"
+                    )
+                }
+
+                if (summary.impulsiveMistakeCount > 0) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "⚡ Поспешных первых ходов: ${summary.impulsiveMistakeCount}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+
+                if (summary.missedPatternNames.isNotEmpty()) {
+                    Text(
+                        text = "Темы для повторения: ${summary.missedPatternNames.joinToString(", ")}",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = summary.coachTakeaway,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+        }
+
+        Button(
+            onClick = onRestartSession,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("Новая сессия (10 задач)", fontWeight = FontWeight.Bold)
+        }
+
+        if (summary.missedPatternNames.isNotEmpty()) {
+            OutlinedButton(
+                onClick = onPracticeWeakPatterns,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Закрепить слабые темы")
+            }
+        }
+
+        TextButton(
+            onClick = onSwitchToFreeTraining,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Перейти в свободную тренировку")
+        }
+    }
+}
+
+@Composable
+private fun SummaryStatPill(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
 private fun ExerciseMetaStrip(uiState: TrainingUiState) {
     Row(
         modifier = Modifier
@@ -529,13 +857,42 @@ private fun ExerciseMetaStrip(uiState: TrainingUiState) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (uiState.totalPlayerSteps > 1 && !uiState.isSolved && !uiState.isSolutionRevealed) {
+            uiState.reviewBox?.let { box ->
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = "Ур. $box/5",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            // Не спойлерим общее число ходов до решения: плашка появляется только при продолжении
+            if (uiState.isFreeAnalysisMode) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = uiState.analysisEvalText ?: "Анализ",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            } else if (uiState.currentStepNumber > 1 && !uiState.isSolved && !uiState.isSolutionRevealed) {
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     shape = RoundedCornerShape(6.dp)
                 ) {
                     Text(
-                        text = "Ход ${uiState.currentStepNumber}/${uiState.totalPlayerSteps}",
+                        text = "Продолжение",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                         fontWeight = FontWeight.Medium,
@@ -565,6 +922,8 @@ private fun EmptyTrainingState(
     modifier: Modifier,
     message: String,
     showUploadButton: Boolean,
+    showReturnToGameButton: Boolean = false,
+    onReturnToGame: () -> Unit = {},
     onNavigateToUpload: () -> Unit,
     onSwitchToAllMode: () -> Unit
 ) {
@@ -574,7 +933,7 @@ private fun EmptyTrainingState(
         verticalArrangement = Arrangement.Center
     ) {
         Icon(
-            imageVector = Icons.Default.Info,
+            imageVector = if (showReturnToGameButton) Icons.Default.CheckCircle else Icons.Default.Info,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(48.dp)
@@ -587,6 +946,15 @@ private fun EmptyTrainingState(
             color = MaterialTheme.colorScheme.onSurface
         )
         Spacer(modifier = Modifier.height(20.dp))
+        if (showReturnToGameButton) {
+            Button(
+                onClick = onReturnToGame,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("← Вернуться к разбору партии")
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
         if (showUploadButton) {
             Button(
                 onClick = onNavigateToUpload,
@@ -684,27 +1052,42 @@ private fun PromotionPickerDialog(
 private data class FeedbackSnapshot(
     val text: String?,
     val motif: String?,
+    val explanation: String?,
+    val sanLine: String?,
     val isSolved: Boolean,
     val isRevealed: Boolean,
-    val isError: Boolean
+    val isError: Boolean,
+    val isFreeAnalysis: Boolean
 )
 
 @Composable
 private fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
     val analysis = uiState.currentMistakeAnalysis
-    val isErrorNow = !uiState.isSolved && !uiState.isSolutionRevealed &&
+    val isFinished = uiState.isSolved || uiState.isSolutionRevealed
+    val isErrorNow = !isFinished &&
         (analysis != null || (uiState.lastRatingDelta != null && uiState.lastRatingDelta < 0))
     val motifNow = when {
-        uiState.isSolved || uiState.isSolutionRevealed -> uiState.patternDisplayName
+        isFinished -> uiState.patternDisplayName
         isErrorNow -> analysis?.tacticalMotif?.russianName
         else -> null
     }
+    val mainText = if (uiState.isFreeAnalysisMode && isFinished) {
+        val sideToMoveWord = if (uiState.board.sideToMove == Side.WHITE) "белых" else "чёрных"
+        val evalPart = uiState.analysisEvalText?.let { "Оценка Stockfish: $it" } ?: "Свободный анализ"
+        val bestPart = uiState.analysisBestMoveSan?.let { " • Лучший ответ: $it" }.orEmpty()
+        "$evalPart$bestPart\nДвигайте фигуры за $sideToMoveWord, чтобы проверить любой вариант"
+    } else {
+        uiState.feedbackMessage ?: uiState.exerciseSubtitle ?: if (isErrorNow) "Неверный ход" else null
+    }
     val snapshot = FeedbackSnapshot(
-        text = uiState.feedbackMessage ?: uiState.exerciseSubtitle ?: if (isErrorNow) "Неверный ход" else null,
+        text = mainText,
         motif = motifNow,
-        isSolved = uiState.isSolved,
-        isRevealed = uiState.isSolutionRevealed,
-        isError = isErrorNow
+        explanation = if (isFinished && !uiState.isFreeAnalysisMode) uiState.postSolveExplanation else null,
+        sanLine = if (uiState.isSolved && !uiState.isFreeAnalysisMode) uiState.solutionSanLine else null,
+        isSolved = uiState.isSolved && !uiState.isFreeAnalysisMode,
+        isRevealed = uiState.isSolutionRevealed && !uiState.isFreeAnalysisMode,
+        isError = isErrorNow,
+        isFreeAnalysis = uiState.isFreeAnalysisMode && isFinished
     )
 
     AnimatedContent(
@@ -717,6 +1100,11 @@ private fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
         if (state.text != null) {
             // Семантические цвета Material 3 — корректно читаются и в светлой, и в тёмной теме
             val (containerColor, contentColor, icon) = when {
+                state.isFreeAnalysis -> Triple(
+                    MaterialTheme.colorScheme.secondaryContainer,
+                    MaterialTheme.colorScheme.onSecondaryContainer,
+                    Icons.Default.Analytics
+                )
                 state.isSolved -> Triple(
                     MaterialTheme.colorScheme.primaryContainer,
                     MaterialTheme.colorScheme.onPrimaryContainer,
@@ -773,27 +1161,44 @@ private fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
                         )
                     }
 
-                    if (!state.motif.isNullOrBlank()) {
+                    if (!state.motif.isNullOrBlank() || !state.explanation.isNullOrBlank() || !state.sanLine.isNullOrBlank()) {
                         HorizontalDivider(
                             modifier = Modifier.padding(horizontal = 12.dp),
                             color = contentColor.copy(alpha = 0.2f)
                         )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Lightbulb,
-                                contentDescription = null,
-                                modifier = Modifier.size(15.dp),
-                                tint = contentColor.copy(alpha = 0.85f)
-                            )
-                            Spacer(Modifier.width(6.dp))
+                        if (!state.motif.isNullOrBlank()) {
+                            val motifLine = if (!state.sanLine.isNullOrBlank()) {
+                                "Мотив: ${state.motif} • ${state.sanLine}"
+                            } else {
+                                "Мотив: ${state.motif}"
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lightbulb,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                    tint = contentColor.copy(alpha = 0.85f)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = motifLine,
+                                    color = contentColor.copy(alpha = 0.94f),
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 12.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                        if (!state.explanation.isNullOrBlank()) {
                             Text(
-                                text = "Мотив: ${state.motif}",
-                                color = contentColor.copy(alpha = 0.92f),
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 13.sp
+                                text = state.explanation,
+                                color = contentColor.copy(alpha = 0.88f),
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp,
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
@@ -917,10 +1322,17 @@ private fun BottomControlPanel(
     onHint: () -> Unit,
     onShowBetterMove: () -> Unit,
     onRevealSolution: () -> Unit,
-    onSkip: () -> Unit
+    onSkip: () -> Unit,
+    onReviewFirst: () -> Unit,
+    onReviewPrev: () -> Unit,
+    onReviewNext: () -> Unit,
+    onReviewLast: () -> Unit,
+    onToggleFreeAnalysis: () -> Unit,
+    onUndoAnalysis: () -> Unit,
+    onPlayEngineBest: () -> Unit
 ) {
     val isFinished = uiState.isSolved || uiState.isSolutionRevealed
-    val controlsEnabled = !uiState.isAnimatingPunishment && !uiState.isInputLocked
+    val controlsEnabled = !uiState.isAnimatingIntro && !uiState.isAnimatingPunishment && !uiState.isInputLocked
 
     Surface(
         shadowElevation = 8.dp,
@@ -934,20 +1346,146 @@ private fun BottomControlPanel(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (isFinished) {
+                // Пошаговый навигатор решения или управление свободным анализом со Stockfish
+                if (uiState.isFreeAnalysisMode) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = onUndoAnalysis,
+                            enabled = uiState.canUndoAnalysisMove,
+                            modifier = Modifier.height(38.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Отменить ход", modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Назад", fontSize = 12.sp)
+                        }
+                        OutlinedButton(
+                            onClick = onPlayEngineBest,
+                            enabled = uiState.analysisBestMoveUci != null && !uiState.isAnalyzingPosition,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(38.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = uiState.analysisBestMoveSan?.let { "Ход $it" } ?: "Ход движка",
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = onToggleFreeAnalysis,
+                            modifier = Modifier.height(38.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Вернуться к решению", modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("К линии", fontSize = 12.sp)
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (uiState.reviewSteps.size > 1) {
+                            val canBack = uiState.reviewStepIndex > 0
+                            val canForward = uiState.reviewStepIndex < uiState.reviewSteps.lastIndex
+                            val stepLabel = uiState.reviewSteps
+                                .getOrNull(uiState.reviewStepIndex)
+                                ?.moveLabel
+                                .orEmpty()
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(
+                                    onClick = onReviewFirst,
+                                    enabled = canBack,
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(Icons.Default.FirstPage, contentDescription = "В начало", modifier = Modifier.size(20.dp))
+                                }
+                                IconButton(
+                                    onClick = onReviewPrev,
+                                    enabled = canBack,
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Ход назад", modifier = Modifier.size(20.dp))
+                                }
+                                Text(
+                                    text = stepLabel,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                                IconButton(
+                                    onClick = onReviewNext,
+                                    enabled = canForward,
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Ход вперёд", modifier = Modifier.size(20.dp))
+                                }
+                                IconButton(
+                                    onClick = onReviewLast,
+                                    enabled = canForward,
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(Icons.Default.LastPage, contentDescription = "В конец", modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        } else {
+                            Spacer(Modifier.width(4.dp))
+                        }
+
+                        OutlinedButton(
+                            onClick = onToggleFreeAnalysis,
+                            modifier = Modifier.height(36.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Analytics, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Анализ", fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                val isFinalSessionPuzzle = uiState.mode is TrainingMode.SmartSession &&
+                    uiState.sessionStepNumber >= uiState.sessionTotalSteps
+
                 Button(
                     onClick = onNextExercise,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp),
+                        .height(48.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
-                        text = "Следующая задача",
+                        text = if (isFinalSessionPuzzle) "Подвести итоги сессии" else "Следующая задача",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.width(8.dp))
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
+                    Icon(
+                        imageVector = if (isFinalSessionPuzzle) {
+                            Icons.Default.EmojiEvents
+                        } else {
+                            Icons.AutoMirrored.Filled.ArrowForward
+                        },
+                        contentDescription = null
+                    )
                 }
             } else {
                 val showBetterButton = uiState.showBetterMoveHint && !uiState.betterMoveShown
@@ -1020,7 +1558,7 @@ private fun BottomControlPanel(
                     // Пропустить задачу
                     OutlinedButton(
                         onClick = onSkip,
-                        enabled = !uiState.isAnimatingPunishment,
+                        enabled = !uiState.isAnimatingIntro && !uiState.isAnimatingPunishment,
                         modifier = Modifier
                             .height(46.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp),
