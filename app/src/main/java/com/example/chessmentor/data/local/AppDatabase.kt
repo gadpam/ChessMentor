@@ -30,7 +30,7 @@ import com.example.chessmentor.domain.entity.User
         AnalyzedMove::class
     ],
     version = DatabaseMigrations.CURRENT_VERSION,
-    exportSchema = false
+    exportSchema = true
 )
 @TypeConverters(MyConverters::class)
 abstract class AppDatabase : RoomDatabase() {

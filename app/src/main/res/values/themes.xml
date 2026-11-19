@@ -39,7 +39,7 @@
         <item name="colorOutline">@color/md_theme_light_outline</item>
 
         <!-- For splash screen -->
-        <item name="android:windowSplashScreenBackground">@color/splash_background</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/splash_background</item>
     </style>
 
     <!-- Тема для светлого режима -->

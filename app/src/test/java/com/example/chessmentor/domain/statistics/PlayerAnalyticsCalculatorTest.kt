@@ -34,7 +34,7 @@ import java.time.ZoneOffset
 class PlayerAnalyticsCalculatorTest {
 
     private val dayMs = 86_400_000L
-    private val fixedNow = 1_794_873_600_000L // 2026-11-17 00:00:00 UTC
+    private val fixedNow = 1_794_916_800_000L // 2026-11-17 12:00:00 UTC
 
     @Test
     fun `color split computes WDL, chess score, accuracy, ACPL and best win Elo`() {
@@ -312,9 +312,10 @@ class PlayerAnalyticsCalculatorTest {
             id = 100L,
             fenPosition = "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3",
             solutionMoves = listOf("g8f6"),
-            theme = TacticalTheme.FORK,
-            tacticalPattern = TacticalPattern.KNIGHT_FORK,
-            difficultyRating = 50
+            tacticalPattern = TacticalPattern.FORK_KNIGHT,
+            patternClusterId = "FORK_KNIGHT_MEDIUM",
+            difficultyRating = 50,
+            theme = TacticalTheme.FORK
         )
         val attempts = listOf(
             ExerciseAttempt(

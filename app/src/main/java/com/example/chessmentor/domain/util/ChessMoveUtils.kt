@@ -43,6 +43,19 @@ object ChessMoveUtils {
     }
 
     /**
+     * Строгая FIDE-проверка легальности хода (включая геометрию фигуры, блокировки,
+     * рокировку через битое поле, взятие на проходе и превращение).
+     * В отличие от `Board.isMoveLegal`, не ограничивается проверкой шаха своему королю.
+     */
+    fun isStrictlyLegal(board: Board, move: Move): Boolean {
+        return try {
+            board.legalMoves().contains(move)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * Разбирает UCI-ход (включая превращение, например "e7e8q") с проверкой легальности.
      */
     fun parseUciMove(board: Board, uci: String): Move? {
@@ -50,7 +63,7 @@ object ChessMoveUtils {
         if (!isUciMove(trimmed)) return null
         return try {
             val move = Move(trimmed, board.sideToMove)
-            if (board.isMoveLegal(move, true)) move else null
+            if (isStrictlyLegal(board, move)) move else null
         } catch (e: Exception) {
             null
         }
@@ -118,7 +131,7 @@ object ChessMoveUtils {
 
             val moveList = MoveList(fen)
             moveList.addSanMove(trimmed, true, true)
-            moveList.firstOrNull()
+            moveList.firstOrNull()?.takeIf { isStrictlyLegal(board, it) }
         } catch (e: Exception) {
             null
         }
@@ -141,7 +154,7 @@ object ChessMoveUtils {
             (piece.pieceSide == Side.BLACK && to.rank.ordinal == 0)
         if (!isPromotionRank) return false
         val queenPromo = Move(from, to, Piece.make(piece.pieceSide, PieceType.QUEEN))
-        return board.isMoveLegal(queenPromo, true)
+        return isStrictlyLegal(board, queenPromo)
     }
 
     /**

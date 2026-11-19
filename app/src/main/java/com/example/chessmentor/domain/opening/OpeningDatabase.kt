@@ -733,46 +733,46 @@ object OpeningDatabase {
     }
 
     private fun indexOpeningMoves(opening: OpeningPosition) {
-        if (opening.moves.isEmpty()) return
-        runCatching {
-            val moveList = MoveList()
-            for (san in opening.moves) {
-                moveList.addSanMove(san, false, true)
-            }
-            val board = Board()
-            for ((idx, move) in moveList.withIndex()) {
-                if (!board.doMove(move)) break
-                val key = normalizeBookKey(board.fen)
-                if (idx == moveList.lastIndex) {
-                    val prev = exactBookOpenings[key]
-                    if (prev == null || opening.moveCount >= prev.moveCount) {
-                        exactBookOpenings[key] = opening
-                    }
-                } else {
-                    bookPrefixPositions.add(key)
+        val fens = replaySanLine(opening.moves) ?: return
+        for ((idx, fen) in fens.withIndex()) {
+            val key = normalizeBookKey(fen)
+            if (idx == fens.lastIndex) {
+                val prev = exactBookOpenings[key]
+                if (prev == null || opening.moveCount >= prev.moveCount) {
+                    exactBookOpenings[key] = opening
                 }
+            } else {
+                bookPrefixPositions.add(key)
             }
         }
     }
 
     private fun indexCanonicalLine(line: CanonicalBookLine) {
-        if (line.moves.isEmpty()) return
-        runCatching {
-            val moveList = MoveList()
-            for (san in line.moves) {
-                moveList.addSanMove(san, false, true)
-            }
-            val board = Board()
-            for ((idx, move) in moveList.withIndex()) {
-                if (!board.doMove(move)) break
-                val key = normalizeBookKey(board.fen)
-                if (idx == moveList.lastIndex) {
-                    canonicalLineOpenings.putIfAbsent(key, line.eco to line.name)
-                } else {
-                    bookPrefixPositions.add(key)
-                }
+        val fens = replaySanLine(line.moves) ?: return
+        for ((idx, fen) in fens.withIndex()) {
+            val key = normalizeBookKey(fen)
+            if (idx == fens.lastIndex) {
+                canonicalLineOpenings.putIfAbsent(key, line.eco to line.name)
+            } else {
+                bookPrefixPositions.add(key)
             }
         }
+    }
+
+    private fun replaySanLine(sanMoves: List<String>): List<String>? {
+        if (sanMoves.isEmpty()) return null
+        return runCatching {
+            val board = Board()
+            val fens = ArrayList<String>(sanMoves.size)
+            for (san in sanMoves) {
+                val moveList = MoveList(board.fen)
+                moveList.addSanMove(san, true, true)
+                val move = moveList.firstOrNull() ?: return null
+                if (!board.legalMoves().contains(move) || !board.doMove(move)) return null
+                fens.add(board.fen)
+            }
+            fens
+        }.getOrNull()
     }
 
     /**

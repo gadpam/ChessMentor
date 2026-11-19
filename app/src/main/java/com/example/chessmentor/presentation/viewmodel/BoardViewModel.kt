@@ -266,7 +266,7 @@ class BoardViewModel : ViewModel() {
                 val token = MOVE_NO_PREFIX.matchEntire(t)?.groupValues?.get(1)?.trim() ?: t
                 if (token.isEmpty() || token in setOf("1-0", "0-1", "1/2-1/2", "*")) continue
                 val m = ChessMoveUtils.sanOrUciToMove(token, sim.fen) ?: break
-                if (!sim.isMoveLegal(m, true) || !sim.doMove(m)) break
+                if (!ChessMoveUtils.isStrictlyLegal(sim, m) || !sim.doMove(m)) break
                 result.add(m)
             }
             result
@@ -717,7 +717,7 @@ class BoardViewModel : ViewModel() {
         if (engine != null) cachedEngine = engine
 
         val currentBoard = boardFromFen(board.value.fen)
-        if (!currentBoard.isMoveLegal(move, true)) return false
+        if (!ChessMoveUtils.isStrictlyLegal(currentBoard, move)) return false
 
         val moveUci = ChessMoveUtils.moveToUci(move)
 

@@ -9,6 +9,8 @@ import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnArchiveExporter
 import com.example.chessmentor.domain.session.AppThemeMode
 import com.example.chessmentor.domain.usecase.ChangePasswordUseCase
+import com.example.chessmentor.domain.usecase.ExportUserBackupUseCase
+import com.example.chessmentor.domain.usecase.ImportUserBackupUseCase
 import com.example.chessmentor.presentation.ui.components.BoardThemes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -39,7 +41,11 @@ class SettingsViewModel(
         private set
     var analyzedGamesCount = mutableIntStateOf(0)
         private set
+    var totalAttemptsCount = mutableIntStateOf(0)
+        private set
     var isExporting = mutableStateOf(false)
+        private set
+    var isImportingBackup = mutableStateOf(false)
         private set
 
     var message = mutableStateOf<String?>(null)
@@ -71,11 +77,14 @@ class SettingsViewModel(
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    container.gameRepository.findByUserId(userId)
+                    val games = container.gameRepository.findByUserId(userId)
+                    val attempts = container.exerciseRepository.getAttemptsByUserId(userId).size
+                    games to attempts
                 }
-            }.onSuccess { games ->
+            }.onSuccess { (games, attempts) ->
                 totalGamesCount.intValue = games.size
                 analyzedGamesCount.intValue = games.count { it.isAnalyzed() }
+                totalAttemptsCount.intValue = attempts
             }
         }
     }
@@ -193,6 +202,90 @@ class SettingsViewModel(
                 message.value = "❌ Не удалось подготовить архив: ${e.message}"
             } finally {
                 isExporting.value = false
+            }
+        }
+    }
+
+    fun prepareFullJsonBackup(onReady: (ExportUserBackupUseCase.ExportedBackup) -> Unit) {
+        val uid = currentUser.value?.id ?: return
+        if (isExporting.value || isImportingBackup.value) return
+
+        isExporting.value = true
+        viewModelScope.launch {
+            try {
+                val res = withContext(Dispatchers.IO) {
+                    container.exportUserBackupUseCase.execute(
+                        ExportUserBackupUseCase.Input(userId = uid)
+                    )
+                }
+                when (res) {
+                    is ExportUserBackupUseCase.Result.Success -> onReady(res.backup)
+                    is ExportUserBackupUseCase.Result.Error -> {
+                        message.value = "❌ ${res.message}"
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = "❌ Ошибка создания копии: ${e.message}"
+            } finally {
+                isExporting.value = false
+            }
+        }
+    }
+
+    fun restoreFromJsonBackup(
+        rawJson: String,
+        onUserUpdated: (User) -> Unit = {},
+        onDataRestored: () -> Unit = {}
+    ) {
+        val uid = currentUser.value?.id ?: return
+        if (isImportingBackup.value || isExporting.value) return
+
+        isImportingBackup.value = true
+        viewModelScope.launch {
+            try {
+                val res = withContext(Dispatchers.IO) {
+                    container.importUserBackupUseCase.execute(
+                        ImportUserBackupUseCase.Input(userId = uid, rawJson = rawJson)
+                    )
+                }
+                when (res) {
+                    is ImportUserBackupUseCase.Result.Success -> {
+                        val s = res.summary
+                        val updated = s.updatedUser
+                        currentUser.value = updated
+                        isSoundEnabled.value = updated.isSoundEnabled
+                        selectedThemeName.value = BoardThemes.getByName(updated.preferredTheme).name
+                        refreshLibraryStats(uid)
+                        onUserUpdated(updated)
+                        onDataRestored()
+
+                        message.value = if (s.totalChanges == 0) {
+                            "✅ Копия проверена: все данные уже присутствуют на устройстве (без дублей)"
+                        } else {
+                            buildString {
+                                append("✅ Восстановлено: ")
+                                val parts = buildList {
+                                    if (s.gamesImported > 0) add("партий ${s.gamesImported}")
+                                    if (s.gamesAnalysisUpgraded > 0) add("разборов ${s.gamesAnalysisUpgraded}")
+                                    if (s.exercisesImported > 0) add("задач ${s.exercisesImported}")
+                                    if (s.attemptsImported > 0) add("попыток ${s.attemptsImported}")
+                                }
+                                append(parts.joinToString(", "))
+                            }
+                        }
+                    }
+                    is ImportUserBackupUseCase.Result.Error -> {
+                        message.value = "❌ ${res.message}"
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = "❌ Ошибка восстановления: ${e.message}"
+            } finally {
+                isImportingBackup.value = false
             }
         }
     }

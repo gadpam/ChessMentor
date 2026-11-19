@@ -203,15 +203,19 @@ class StockfishEngine(
             mutex.withLock {
                 coroutineContext.ensureActive()
                 ensureReadyLocked()
-                val cancelHandle = coroutineContext[Job]?.invokeOnCancellation {
-                    nativeStop()
+                val cancelWatcher = Job(parent = coroutineContext[Job])
+                val cancelHandle = cancelWatcher.invokeOnCompletion { cause ->
+                    if (cause is CancellationException) {
+                        nativeStop()
+                    }
                 }
                 try {
                     val result = block()
                     coroutineContext.ensureActive()
                     result
                 } finally {
-                    cancelHandle?.dispose()
+                    cancelHandle.dispose()
+                    cancelWatcher.complete()
                 }
             }
         }

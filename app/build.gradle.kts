@@ -38,9 +38,30 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
+    }
+
+    sourceSets {
+        // Делает экспортированные JSON-схемы Room доступными для инструментальных тестов миграций
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = true
+        htmlReport = true
+        xmlReport = true
+        disable += setOf(
+            "GradleDependency",
+            "AndroidGradlePluginVersion",
+            "OldTargetApi"
+        )
     }
 
     compileOptions {
@@ -68,10 +89,16 @@ android {
     }
 }
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.incremental", "true")
+}
+
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
     implementation(libs.androidx.core.ktx)
+    implementation("androidx.core:core-splashscreen:1.0.1")
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
     implementation(libs.androidx.activity)

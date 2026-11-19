@@ -99,7 +99,7 @@ object PgnArchiveExporter {
                 appendLine("""[Date "$dateStr"]""")
                 appendLine("""[White "$white"]""")
                 appendLine("""[Black "$black"]""")
-                game.timeControl?.takeIf { it.isNotBlank() }?.let { tc ->
+                PgnParser.toCanonicalPgnTimeControl(game.timeControl)?.let { tc ->
                     appendLine("""[TimeControl "${escapePgnTagValue(tc)}"]""")
                 }
                 appendLine("""[Result "*"]""")

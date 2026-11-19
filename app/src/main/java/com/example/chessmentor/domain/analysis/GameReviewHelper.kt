@@ -177,7 +177,7 @@ object GameReviewHelper {
         }
 
         val attemptedMove = ChessMoveUtils.sanOrUciToMove(attemptedNotation, fenBefore)
-        if (attemptedMove == null || !board.isMoveLegal(attemptedMove, true)) {
+        if (attemptedMove == null || !ChessMoveUtils.isStrictlyLegal(board, attemptedMove)) {
             return RetryEvaluation(
                 verdict = RetryVerdict.ILLEGAL,
                 attemptedSan = attemptedNotation,
@@ -289,7 +289,7 @@ object GameReviewHelper {
             if (result.size >= maxPlies) break
             val fenBefore = board.fen
             val move = ChessMoveUtils.sanOrUciToMove(raw, fenBefore) ?: break
-            if (!board.isMoveLegal(move, true)) break
+            if (!ChessMoveUtils.isStrictlyLegal(board, move)) break
 
             val isWhite = board.sideToMove == Side.WHITE
             val moveNo = board.moveCounter.coerceAtLeast(1)

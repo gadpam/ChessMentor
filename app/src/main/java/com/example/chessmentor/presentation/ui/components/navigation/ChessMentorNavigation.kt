@@ -659,7 +659,8 @@ private fun NavigationHost(
                     container = container,
                     onLogout = onLogout,
                     onUserUpdated = onUserUpdated,
-                    onOpenEngineSettings = { onOpenEngineSettings("settings") }
+                    onOpenEngineSettings = { onOpenEngineSettings("settings") },
+                    onDataRestored = { gameViewModel.loadUserData() }
                 )
             } ?: LaunchedEffect(Unit) {
                 onScreenChange("home")

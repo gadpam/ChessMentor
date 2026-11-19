@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
@@ -55,6 +56,7 @@ import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnArchiveExporter
 import com.example.chessmentor.domain.session.AppThemeMode
+import com.example.chessmentor.domain.usecase.ExportUserBackupUseCase
 import com.example.chessmentor.presentation.ui.components.BoardTheme
 import com.example.chessmentor.presentation.ui.components.BoardThemes
 import com.example.chessmentor.presentation.viewmodel.ChessMentorViewModelFactory
@@ -70,7 +72,8 @@ fun SettingsScreen(
     container: AppContainer,
     onLogout: () -> Unit,
     onUserUpdated: (User) -> Unit = {},
-    onOpenEngineSettings: (() -> Unit)? = null
+    onOpenEngineSettings: (() -> Unit)? = null,
+    onDataRestored: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -90,7 +93,9 @@ fun SettingsScreen(
     val isSavingPassword by viewModel.isSavingPassword
     val totalGames by viewModel.totalGamesCount
     val analyzedGames by viewModel.analyzedGamesCount
+    val totalAttempts by viewModel.totalAttemptsCount
     val isExporting by viewModel.isExporting
+    val isImportingBackup by viewModel.isImportingBackup
     val message by viewModel.message
 
     val appThemeMode by container.sessionRepository.themeMode.collectAsState()
@@ -99,6 +104,80 @@ fun SettingsScreen(
 
     var showLogoutDialog by remember { mutableStateOf(false) }
     var pendingArchive by remember { mutableStateOf<PgnArchiveExporter.ExportArchive?>(null) }
+    var pendingJsonBackup by remember { mutableStateOf<ExportUserBackupUseCase.ExportedBackup?>(null) }
+
+    val jsonBackupExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        val backup = pendingJsonBackup
+        pendingJsonBackup = null
+        if (uri == null || backup == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val writeResult = withContext(Dispatchers.IO) {
+                runCatching {
+                    val stream = context.contentResolver.openOutputStream(uri)
+                        ?: error("Не удалось открыть файл для записи")
+                    stream.use { out ->
+                        out.write(backup.jsonContent.toByteArray(Charsets.UTF_8))
+                        out.flush()
+                    }
+                }
+            }
+            writeResult.fold(
+                onSuccess = {
+                    viewModel.message.value =
+                        "✅ Копия сохранена (партий: ${backup.gamesCount}, задач: ${backup.personalExercisesCount}, попыток: ${backup.attemptsCount})"
+                },
+                onFailure = { err ->
+                    viewModel.message.value =
+                        "❌ Ошибка записи копии: ${err.message ?: "неизвестная ошибка"}"
+                }
+            )
+        }
+    }
+
+    val jsonBackupImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val readResult = withContext(Dispatchers.IO) {
+                runCatching {
+                    val maxBytes = 16 * 1024 * 1024
+                    val stream = context.contentResolver.openInputStream(uri)
+                        ?: error("Не удалось открыть выбранный файл")
+                    stream.use { input ->
+                        val out = java.io.ByteArrayOutputStream()
+                        val buffer = ByteArray(8192)
+                        var total = 0
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            total += read
+                            if (total > maxBytes) {
+                                error("Файл превышает допустимый размер (16 МБ)")
+                            }
+                            out.write(buffer, 0, read)
+                        }
+                        out.toByteArray().toString(Charsets.UTF_8)
+                    }
+                }
+            }
+            readResult.fold(
+                onSuccess = { rawJson ->
+                    viewModel.restoreFromJsonBackup(
+                        rawJson = rawJson,
+                        onUserUpdated = onUserUpdated,
+                        onDataRestored = onDataRestored
+                    )
+                },
+                onFailure = { err ->
+                    viewModel.message.value =
+                        "❌ Ошибка чтения файла: ${err.message ?: "неизвестная ошибка"}"
+                }
+            )
+        }
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/x-chess-pgn")
@@ -241,13 +320,26 @@ fun SettingsScreen(
             )
         }
 
-        // Резервная копия PGN-библиотеки
+        // Полная резервная копия (JSON + SHA-256) и экспорт PGN
         item {
             DataBackupCard(
                 totalGames = totalGames,
                 analyzedGames = analyzedGames,
+                totalAttempts = totalAttempts,
                 isExporting = isExporting,
-                onExportClick = {
+                isImporting = isImportingBackup,
+                onExportJsonClick = {
+                    viewModel.prepareFullJsonBackup { backup ->
+                        pendingJsonBackup = backup
+                        jsonBackupExportLauncher.launch(backup.suggestedFileName)
+                    }
+                },
+                onImportJsonClick = {
+                    jsonBackupImportLauncher.launch(
+                        arrayOf("application/json", "text/plain", "*/*")
+                    )
+                },
+                onExportPgnClick = {
                     viewModel.preparePgnArchive { archive ->
                         pendingArchive = archive
                         exportLauncher.launch(archive.suggestedFileName)
@@ -747,9 +839,15 @@ private fun ChangePasswordCard(
 private fun DataBackupCard(
     totalGames: Int,
     analyzedGames: Int,
+    totalAttempts: Int,
     isExporting: Boolean,
-    onExportClick: () -> Unit
+    isImporting: Boolean,
+    onExportJsonClick: () -> Unit,
+    onImportJsonClick: () -> Unit,
+    onExportPgnClick: () -> Unit
 ) {
+    val isBusy = isExporting || isImporting
+
     Card {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -762,18 +860,51 @@ private fun DataBackupCard(
             }
 
             Text(
-                text = if (totalGames > 0) {
-                    "В вашей библиотеке $totalGames партий (проанализировано: $analyzedGames). Вы можете сохранить их все в единый файл .pgn."
-                } else {
-                    "Загруженные партии хранятся локально на устройстве и доступны для экспорта в стандартный формат .pgn."
-                },
+                text = "Партий: $totalGames (разобрано: $analyzedGames) · Попыток в тренажёре: $totalAttempts. " +
+                    "Полная JSON-копия сохраняет разборы Stockfish, персональные задачи и расписание интервальных повторений SM-2 (с проверкой SHA-256, без пароля).",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
+            FilledTonalButton(
+                onClick = onExportJsonClick,
+                enabled = !isBusy,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isExporting) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(if (isExporting) "Подготовка копии…" else "Полная резервная копия (.json)")
+            }
+
             OutlinedButton(
-                onClick = onExportClick,
-                enabled = totalGames > 0 && !isExporting,
+                onClick = onImportJsonClick,
+                enabled = !isBusy,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isImporting) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Upload,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(if (isImporting) "Восстановление…" else "Восстановить из копии (.json)")
+            }
+
+            OutlinedButton(
+                onClick = onExportPgnClick,
+                enabled = totalGames > 0 && !isBusy,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(
@@ -782,13 +913,7 @@ private fun DataBackupCard(
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    if (isExporting) {
-                        "Подготовка архива…"
-                    } else {
-                        "Экспортировать все партии (.pgn)"
-                    }
-                )
+                Text("Экспортировать все партии (.pgn)")
             }
         }
     }

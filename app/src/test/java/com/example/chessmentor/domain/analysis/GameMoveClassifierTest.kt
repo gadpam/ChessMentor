@@ -242,14 +242,14 @@ class GameMoveClassifierTest {
     fun openingDatabase_matchBookMoveAcceptsMainlinesAndTranspositionsAndRejectsWaywardQueen() {
         val board = Board()
         val italianLine = listOf("e4", "e5", "Nf3", "Nc6", "Bc4")
-        val ml = MoveList()
-        italianLine.forEach { ml.addSanMove(it, false, true) }
 
         var lastMatchName: String? = null
-        for (m in ml) {
-            assertTrue(board.doMove(m))
+        for (san in italianLine) {
+            val m = ChessMoveUtils.sanOrUciToMove(san, board.fen)
+            assertNotNull("Expected legal SAN '$san'", m)
+            assertTrue(board.doMove(m!!))
             val match = OpeningDatabase.matchBookMove(board.fen)
-            assertNotNull("Expected book match along Italian Game", match)
+            assertNotNull("Expected book match along Italian Game after $san", match)
             if (match?.openingName != null) {
                 lastMatchName = match.openingName
             }
@@ -258,20 +258,20 @@ class GameMoveClassifierTest {
 
         // Перестановка ходов 1. Nf3 Nc6 2. e4 e5 3. Bc4 приводит в ту же итальянскую табию
         val transposed = Board()
-        val transMoves = MoveList().apply {
-            listOf("Nf3", "Nc6", "e4", "e5", "Bc4").forEach { addSanMove(it, false, true) }
+        for (san in listOf("Nf3", "Nc6", "e4", "e5", "Bc4")) {
+            val m = requireNotNull(ChessMoveUtils.sanOrUciToMove(san, transposed.fen))
+            assertTrue(transposed.doMove(m))
         }
-        transMoves.forEach { assertTrue(transposed.doMove(it)) }
         val transMatch = OpeningDatabase.matchBookMove(transposed.fen)
         assertNotNull(transMatch)
         assertEquals("C50", transMatch?.eco)
 
         // Ранний выход ферзя 1. e4 e5 2. Qh5 НЕ должен считаться книжной теорией
         val wayward = Board()
-        val waywardMoves = MoveList().apply {
-            listOf("e4", "e5", "Qh5").forEach { addSanMove(it, false, true) }
+        for (san in listOf("e4", "e5", "Qh5")) {
+            val m = requireNotNull(ChessMoveUtils.sanOrUciToMove(san, wayward.fen))
+            assertTrue(wayward.doMove(m))
         }
-        waywardMoves.forEach { assertTrue(wayward.doMove(it)) }
         assertNull(OpeningDatabase.matchBookMove(wayward.fen))
     }
 

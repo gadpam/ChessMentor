@@ -108,10 +108,9 @@ class CuratedExerciseBankTest {
 
     @Test
     fun underpromotionPuzzle_promotesExplicitlyToKnight() {
-        val puzzle = CuratedExerciseBank.findTemplateById("underpromotion_knight_fork")
-        assertNotNull(puzzle)
+        val puzzle = requireNotNull(CuratedExerciseBank.findTemplateById("underpromotion_knight_fork"))
 
-        val board = Board().apply { loadFromFen(puzzle!!.fen) }
+        val board = Board().apply { loadFromFen(puzzle.fen) }
         val firstMove = ChessMoveUtils.parseUciMove(board, puzzle.solutionMoves.first())
         assertNotNull(firstMove)
         assertEquals(PieceType.KNIGHT, firstMove!!.promotion.pieceType)

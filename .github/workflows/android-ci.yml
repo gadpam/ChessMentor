@@ -1,0 +1,249 @@
+name: Android CI
+
+on:
+  push:
+    branches:
+      - master
+      - "arena/**"
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: "17"
+  NDK_VERSION: "26.1.10909125"
+  CMAKE_VERSION: "3.22.1"
+
+jobs:
+  test-and-lint:
+    name: Unit Tests, Room Schema & Android Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Ensure gradlew is executable
+        run: chmod +x ./gradlew
+
+      - name: Run JVM unit tests
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest --no-daemon 2>&1 | tee /tmp/gradle-test.log || {
+            STATUS=$?
+            python3 - /tmp/gradle-test.log "$GITHUB_WORKSPACE" <<'PY'
+          import glob, re, sys, xml.etree.ElementTree as ET
+          log = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+          ws = sys.argv[2].rstrip("/") + "/"
+          emitted = 0
+          for m in re.finditer(r"^e: file://([^:\n]+):(\d+):(\d+)\s+(.+)$", log, re.M):
+              rel = m.group(1).replace(ws, "")
+              print(f"::error file={rel},line={m.group(2)},col={m.group(3)},title=Kotlin::{m.group(4)}")
+              emitted += 1
+              if emitted >= 35: break
+          for m in re.finditer(r"^e: \[ksp\]\s+(.+)$", log, re.M):
+              print(f"::error title=KSP::{m.group(1)}")
+              emitted += 1
+          for xml_path in sorted(glob.glob("app/build/test-results/testDebugUnitTest/*.xml")):
+              root = ET.parse(xml_path).getroot()
+              for tc in root.findall("testcase"):
+                  for fail in list(tc.findall("failure")) + list(tc.findall("error")):
+                      first_lines = " | ".join((fail.text or fail.attrib.get("message", "")).splitlines()[:4])
+                      print(f"::error title=Test {tc.attrib.get('classname')}.{tc.attrib.get('name')}::{first_lines[:400]}")
+                      emitted += 1
+          if emitted == 0:
+              tail = " | ".join(l.strip() for l in log.splitlines()[-35:] if l.strip())
+              print(f"::error title=Gradle::{tail[:900]}")
+          PY
+            exit $STATUS
+          }
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          files = sorted(glob.glob("app/build/test-results/testDebugUnitTest/*.xml"))
+          tests = sum(int(ET.parse(f).getroot().attrib.get("tests", 0)) for f in files)
+          print(f"::notice title=UnitTests::Passed {tests} JVM unit tests across {len(files)} test classes (0 failures)")
+          PY
+
+      - name: Verify exported Room v5 schema
+        run: |
+          SCHEMA_FILE="app/schemas/com.example.chessmentor.data.local.AppDatabase/5.json"
+          test -f "$SCHEMA_FILE" || (echo "::error title=RoomSchema::Missing $SCHEMA_FILE" && exit 1)
+          python3 - "$SCHEMA_FILE" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          db = data["database"]
+          assert db["version"] == 5, f"Expected Room version 5, got {db['version']}"
+          tables = sorted(e["tableName"] for e in db["entities"])
+          expected = ["analyzed_moves", "exercise_attempts", "exercises", "games", "mistakes", "users"]
+          assert tables == expected, f"Unexpected Room tables: {tables}"
+          print(f"::notice title=RoomSchema::Verified v{db['version']} ({len(tables)} tables, identityHash={db['identityHash']})")
+          PY
+          git diff --exit-code -- app/schemas/ || {
+            echo "::error file=$SCHEMA_FILE,title=RoomSchemaDrift::Room schema changed without updating committed app/schemas/ (and migration if needed)."
+            exit 1
+          }
+
+      - name: Run Android Lint
+        run: |
+          set -o pipefail
+          ./gradlew lintDebug --no-daemon 2>&1 | tee /tmp/gradle-lint.log || {
+            STATUS=$?
+            python3 - "$GITHUB_WORKSPACE" /tmp/gradle-lint.log <<'PY'
+          import os, sys, xml.etree.ElementTree as ET
+          ws = sys.argv[1].rstrip("/") + "/"
+          xml_file = "app/build/reports/lint-results-debug.xml"
+          emitted = 0
+          if os.path.exists(xml_file):
+              for issue in ET.parse(xml_file).getroot().findall("issue"):
+                  if issue.attrib.get("severity") in ("Error", "Fatal"):
+                      loc = issue.find("location")
+                      f = (loc.attrib.get("file", "") if loc is not None else "").replace(ws, "")
+                      ln = loc.attrib.get("line", "1") if loc is not None else "1"
+                      msg = f"[{issue.attrib.get('id')}] {issue.attrib.get('message', '')}"
+                      if f:
+                          print(f"::error file={f},line={ln},title=AndroidLint::{msg[:400]}")
+                      else:
+                          print(f"::error title=AndroidLint::{msg[:400]}")
+                      emitted += 1
+                      if emitted >= 30: break
+          if emitted == 0:
+              log = open(sys.argv[2], encoding="utf-8", errors="replace").read()
+              tail = " | ".join(l.strip() for l in log.splitlines()[-30:] if l.strip())
+              print(f"::error title=LintGradle::{tail[:900]}")
+          PY
+            exit $STATUS
+          }
+
+      - name: Upload test, lint & Room schema artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-lint-and-room-schema
+          retention-days: 14
+          if-no-files-found: ignore
+          path: |
+            app/build/reports/tests/testDebugUnitTest/**
+            app/build/test-results/testDebugUnitTest/*.xml
+            app/build/reports/lint-results-debug.*
+            app/schemas/**
+
+  build-apks:
+    name: Build Debug & R8 Release APKs (Stockfish NDK)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Ensure Android SDK, NDK & CMake components
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;${NDK_VERSION}" \
+            "cmake;${CMAKE_VERSION}"
+
+      - name: Cache Stockfish CMake/NDK build outputs
+        uses: actions/cache@v4
+        with:
+          path: app/.cxx
+          key: ndk-${{ runner.os }}-${{ env.NDK_VERSION }}-${{ env.CMAKE_VERSION }}-${{ hashFiles('app/src/main/cpp/**', 'app/build.gradle.kts') }}
+          restore-keys: |
+            ndk-${{ runner.os }}-${{ env.NDK_VERSION }}-${{ env.CMAKE_VERSION }}-
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Ensure gradlew is executable
+        run: chmod +x ./gradlew
+
+      - name: Assemble Debug & R8-minified Release APKs
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug assembleRelease --no-daemon 2>&1 | tee /tmp/gradle-apk.log || {
+            STATUS=$?
+            python3 - /tmp/gradle-apk.log "$GITHUB_WORKSPACE" <<'PY'
+          import re, sys
+          log = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+          ws = sys.argv[2].rstrip("/") + "/"
+          emitted = 0
+          for m in re.finditer(r"^e: file://([^:\n]+):(\d+):(\d+)\s+(.+)$", log, re.M):
+              rel = m.group(1).replace(ws, "")
+              print(f"::error file={rel},line={m.group(2)},col={m.group(3)},title=Kotlin::{m.group(4)}")
+              emitted += 1
+              if emitted >= 25: break
+          for m in re.finditer(r"^([^\s:]+):(\d+):(\d+):\s+error:\s+(.+)$", log, re.M):
+              rel = m.group(1).replace(ws, "")
+              print(f"::error file={rel},line={m.group(2)},title=NDK::{m.group(4)}")
+              emitted += 1
+              if emitted >= 35: break
+          for m in re.finditer(r"(?:Missing class .+|ERROR:\s*R8:.+|e: \[ksp\] .+)", log):
+              print(f"::error title=Build::{m.group(0)[:400]}")
+              emitted += 1
+              if emitted >= 40: break
+          if emitted == 0:
+              tail = " | ".join(l.strip() for l in log.splitlines()[-35:] if l.strip())
+              print(f"::error title=AssembleGradle::{tail[:900]}")
+          PY
+            exit $STATUS
+          }
+
+      - name: Verify 16 KB ELF page alignment on libstockfish-lib.so (Android 15+)
+        run: |
+          READELF="${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          SO_FILES=$(find app/build/intermediates/merged_native_libs -name "libstockfish-lib.so")
+          test -n "$SO_FILES" || (echo "::error title=ELF16KB::No libstockfish-lib.so found" && exit 1)
+          for so in $SO_FILES; do
+            python3 - "$READELF" "$so" <<'PY'
+          import re, subprocess, sys
+          out = subprocess.check_output([sys.argv[1], "-l", sys.argv[2]], text=True)
+          aligns = [int(m.group(1), 16) for m in re.finditer(r"^\s*LOAD\b.*?(0x[0-9a-fA-F]+)\s*$", out, re.M)]
+          assert aligns, f"No LOAD segments in {sys.argv[2]}"
+          bad = [hex(a) for a in aligns if a < 0x4000]
+          assert not bad, f"{sys.argv[2]} has LOAD alignment < 16KB: {bad}"
+          print(f"Verified 16KB alignment on {sys.argv[2]}: {[hex(a) for a in aligns]}")
+          PY
+          done
+          python3 - <<'PY'
+          import glob, os
+          apks = sorted(glob.glob("app/build/outputs/apk/*/*.apk"))
+          parts = [f"{os.path.basename(p)}={os.path.getsize(p)/1_048_576:.2f} MB" for p in apks]
+          mapping_ok = os.path.isfile("app/build/outputs/mapping/release/mapping.txt")
+          print(f"::notice title=APKsAnd16KB::{', '.join(parts)} | R8 mapping={mapping_ok} | 16KB ELF verified (arm64-v8a, x86_64)")
+          PY
+
+      - name: Upload Debug APK, Release APK & R8 mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: chessmentor-apks
+          retention-days: 14
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/mapping/release/mapping.txt
