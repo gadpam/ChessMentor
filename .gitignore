@@ -130,3 +130,6 @@ fabric.properties
 # End of https://www.toptal.com/developers/gitignore/api/androidstudio
 # Native build outputs (CMake/NDK)
 .cxx/
+
+# Python CI helper tests
+__pycache__/
