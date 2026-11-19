@@ -261,3 +261,37 @@ jobs:
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/release/*.apk
             app/build/outputs/mapping/release/mapping.txt
+
+  signing-smoke:
+    name: Verify release signing with a disposable key
+    needs: build-apks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: chessmentor-apks
+          path: artifacts
+      - name: Prepare Android signing tools
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0"'
+      - name: Sign and verify a temporary copy (no release secrets)
+        env:
+          VERSION_NAME: ${{ inputs.version_name || '1.0' }}
+          VERSION_CODE: ${{ inputs.version_code || '1' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          STORE_PASSWORD=$(openssl rand -hex 24)
+          export STORE_PASSWORD KEY_PASSWORD="$STORE_PASSWORD" KEY_ALIAS=ci-smoke
+          keytool -genkeypair -noprompt -storetype JKS -keystore "$tmp/test.jks" \
+            -alias "$KEY_ALIAS" -storepass:env STORE_PASSWORD -keypass:env KEY_PASSWORD \
+            -keyalg RSA -keysize 2048 -validity 1 -dname 'CN=CI signing test'
+          KEYSTORE_B64=$(base64 -w0 "$tmp/test.jks") \
+            bash .github/scripts/sign-apk.sh artifacts/apk/release/app-release-unsigned.apk "$tmp/test.apk"

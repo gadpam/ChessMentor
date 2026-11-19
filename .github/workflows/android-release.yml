@@ -41,6 +41,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: chessmentor-apks
@@ -55,22 +58,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           VERSION_CODE: ${{ needs.version.outputs.code }}
           VERSION_NAME: ${{ needs.version.outputs.name }}
-        run: |
-          set -euo pipefail
-          umask 077
-          tools="$ANDROID_HOME/build-tools/35.0.0"
-          tmp=$(mktemp -d)
-          trap 'rm -rf "$tmp"' EXIT
-          printf '%s' "${KEYSTORE_B64:?missing keystore}" | base64 --decode > "$tmp/signing.jks"
-          apk="ChessMentor-$GITHUB_REF_NAME.apk"
-          "$tools/zipalign" -P 16 -f 4 artifacts/apk/release/app-release-unsigned.apk "$tmp/aligned.apk"
-          "$tools/apksigner" sign --ks "$tmp/signing.jks" --ks-key-alias "${KEY_ALIAS:?missing alias}" \
-            --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD --out "$apk" "$tmp/aligned.apk"
-          "$tools/apksigner" verify --verbose --print-certs "$apk"
-          "$tools/zipalign" -c -P 16 4 "$apk"
-          "$tools/aapt" dump badging "$apk" > "$tmp/badging"
-          grep -F "package: name='com.example.chessmentor' versionCode='$VERSION_CODE' versionName='$VERSION_NAME'" "$tmp/badging"
-          sha256sum "$apk" > "$apk.sha256"
+        run: bash .github/scripts/sign-apk.sh artifacts/apk/release/app-release-unsigned.apk "ChessMentor-$GITHUB_REF_NAME.apk"
       - name: Create draft (never publish or overwrite an existing release)
         env:
           GH_TOKEN: ${{ github.token }}
