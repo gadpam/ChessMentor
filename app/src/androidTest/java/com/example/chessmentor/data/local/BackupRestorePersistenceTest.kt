@@ -26,7 +26,10 @@ import org.junit.runner.RunWith
 class BackupRestorePersistenceTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val filename = "restore-test-${UUID.randomUUID()}.db"
-    private fun openDatabase() = Room.databaseBuilder(context, AppDatabase::class.java, filename).build()
+    private suspend fun <T> withDatabase(block: suspend (AppDatabase) -> T): T {
+        val db = Room.databaseBuilder(context, AppDatabase::class.java, filename).build()
+        return try { block(db) } finally { db.close() }
+    }
 
     @After fun deleteTestDatabase() { context.deleteDatabase(filename) }
 
@@ -53,14 +56,14 @@ class BackupRestorePersistenceTest {
                 timeSpentSeconds = 7, movesMade = solution, attemptedAt = 3000))
         ))
 
-        val userId = openDatabase().use { db ->
+        val userId = withDatabase { db ->
             val id = db.userDao().insert(User(nickname = "Local", email = "local@example.com", passwordHash = "local-hash"))
             val result = importer(db).execute(ImportUserBackupUseCase.Input(id, raw))
             assertTrue(result.toString(), result is ImportUserBackupUseCase.Result.Success)
             id
         }
 
-        openDatabase().use { db ->
+        withDatabase { db ->
             val user = requireNotNull(db.userDao().findById(userId))
             assertEquals(1675, user.rating)
             assertEquals("local-hash", user.passwordHash)
