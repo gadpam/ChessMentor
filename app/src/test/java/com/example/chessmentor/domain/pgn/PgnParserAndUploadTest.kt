@@ -129,7 +129,7 @@ class PgnParserAndUploadTest {
 
     @Test
     fun parseAndValidate_rejectsIllegalMovesAndExoticVariants() {
-        val illegalPgn = "1. e4 e5 2. Bb5 a6"
+        val illegalPgn = "1. d4 d5 2. Bb5 a6"
         val illegalRes = PgnParser.parseAndValidate(illegalPgn)
         assertTrue(illegalRes is PgnParser.ParseResult.Failure)
         val msg = (illegalRes as PgnParser.ParseResult.Failure).errorMessage

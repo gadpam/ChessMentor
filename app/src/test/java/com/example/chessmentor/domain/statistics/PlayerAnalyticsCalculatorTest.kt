@@ -34,7 +34,7 @@ import java.time.ZoneOffset
 class PlayerAnalyticsCalculatorTest {
 
     private val dayMs = 86_400_000L
-    private val fixedNow = 1_794_873_600_000L // 2026-11-17 00:00:00 UTC
+    private val fixedNow = 1_794_916_800_000L // 2026-11-17 12:00:00 UTC
 
     @Test
     fun `color split computes WDL, chess score, accuracy, ACPL and best win Elo`() {

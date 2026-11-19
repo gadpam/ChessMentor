@@ -1107,7 +1107,7 @@ class TrainingViewModel(
         }
         if (state.board.sideToMove != state.playerSide) return
 
-        if (!state.board.isMoveLegal(move, true)) {
+        if (!ChessMoveUtils.isStrictlyLegal(state.board, move)) {
             triggerShakeEffect()
             emitSound(TrainingSoundEvent.ERROR)
             _uiState.value = _uiState.value.copy(feedbackMessage = "Невозможный ход")
@@ -2137,7 +2137,7 @@ class TrainingViewModel(
     private fun handleFreeAnalysisMove(move: Move) {
         val state = _uiState.value
         val board = Board().apply { loadFromFen(state.board.fen) }
-        if (!board.isMoveLegal(move, true)) return
+        if (!ChessMoveUtils.isStrictlyLegal(board, move)) return
 
         val wasCapture = isCaptureMove(board, move)
         if (!board.doMove(move)) return

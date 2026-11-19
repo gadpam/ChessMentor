@@ -501,7 +501,7 @@ object PgnParser {
             val ml = MoveList(fenBefore)
             ml.addSanMove(sanOrUci, true, true)
             val m = ml.firstOrNull() ?: return null
-            if (board.isMoveLegal(m, true)) m else null
+            if (ChessMoveUtils.isStrictlyLegal(board, m)) m else null
         } catch (_: Exception) {
             null
         }
@@ -805,6 +805,34 @@ object PgnParser {
         }
 
         return TimeControlInfo(raw = raw, shortLabel = raw, category = TimeControlCategory.UNKNOWN)
+    }
+
+    /**
+     * Нормализует сохранённый контроль времени к каноническому формату PGN (в секундах):
+     * `"3+2"` → `"180+2"`, `"10+0"` → `"600+0"`, `"180+2"` → `"180+2"`, `"1/86400"` → `"1/86400"`.
+     */
+    fun toCanonicalPgnTimeControl(rawInput: String?): String? {
+        val raw = rawInput?.trim().orEmpty()
+        if (raw.isEmpty() || raw == "-" || raw == "?" || raw == "*") return null
+
+        SECONDS_TC_REGEX.matchEntire(raw)?.let { m ->
+            val first = m.groupValues[1].toIntOrNull() ?: return raw
+            val inc = m.groupValues[2].takeIf { it.isNotEmpty() }?.toIntOrNull() ?: 0
+            val hasPlus = '+' in raw
+            val treatAsSeconds = when {
+                first in setOf(60, 90, 120) && inc >= 10 -> false
+                first >= 180 && (first % 15 == 0) -> true
+                first in setOf(60, 90, 120) && inc <= 2 -> true
+                !hasPlus && first >= 60 -> true
+                first in setOf(15, 30, 45) && inc <= 2 -> true
+                first == 0 && inc > 0 -> true
+                else -> false
+            }
+            val baseSeconds = if (treatAsSeconds) first else first * 60
+            return if (hasPlus || inc > 0) "$baseSeconds+$inc" else "$baseSeconds"
+        }
+
+        return raw
     }
 
     private fun formatMinutesAndIncrement(baseSeconds: Int, incSeconds: Int): String {
