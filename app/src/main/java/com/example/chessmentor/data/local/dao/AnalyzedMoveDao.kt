@@ -17,6 +17,9 @@ interface AnalyzedMoveDao {
     @Query("SELECT * FROM analyzed_moves WHERE gameId = :gameId ORDER BY moveIndex ASC")
     suspend fun findByGameId(gameId: Long): List<AnalyzedMove>
 
+    @Query("SELECT * FROM analyzed_moves WHERE gameId IN (:gameIds) ORDER BY gameId ASC, moveIndex ASC")
+    suspend fun findByGameIds(gameIds: List<Long>): List<AnalyzedMove>
+
     @Query("SELECT * FROM analyzed_moves WHERE gameId = :gameId AND quality IN (:qualities) ORDER BY moveIndex ASC")
     suspend fun findByGameIdAndQualities(gameId: Long, qualities: List<MoveQuality>): List<AnalyzedMove>
 

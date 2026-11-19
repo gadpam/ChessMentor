@@ -23,6 +23,13 @@ class RoomAnalyzedMoveRepository(
         return dao.findByGameId(gameId)
     }
 
+    override suspend fun findByGameIds(gameIds: List<Long>): List<AnalyzedMove> {
+        if (gameIds.isEmpty()) return emptyList()
+        return gameIds.distinct().chunked(500).flatMap { chunk ->
+            dao.findByGameIds(chunk)
+        }
+    }
+
     override suspend fun findMistakesByGameId(gameId: Long): List<AnalyzedMove> {
         return dao.findByGameIdAndQualities(
             gameId,

@@ -1,222 +1,602 @@
-// presentation/ui/screen/StatisticsScreen.kt
 package com.example.chessmentor.presentation.ui.components.screen
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FitnessCenter
-import androidx.compose.material.icons.filled.InsertChart
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.SportsEsports
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.TrackChanges
-import androidx.compose.material.icons.filled.TrendingUp
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.di.AppContainer
-import com.example.chessmentor.domain.entity.MistakeType
-import com.example.chessmentor.domain.entity.ProblemTheme
+import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.pgn.PgnParser
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.AccuracyTrendPoint
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.ActionableProblemTheme
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.CoachingAction
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.ColorPerformance
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.DailyActivityPoint
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.EcoFamilyStat
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.MoveQualityDistribution
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.OpeningLineStat
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.OpeningRepertoireSummary
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.PhaseOverview
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.PhasePerformance
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.RatingTrendPoint
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.StatsPeriod
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.TimeControlPerformance
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.TimeTroubleReport
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.TrendDirection
 import com.example.chessmentor.domain.training.PatternMastery
+import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.usecase.GetUserStatisticsUseCase
 import com.example.chessmentor.presentation.viewmodel.ChessMentorViewModelFactory
+import com.example.chessmentor.presentation.viewmodel.StatisticsSection
 import com.example.chessmentor.presentation.viewmodel.StatisticsViewModel
+import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.roundToInt
+
+private val WinGreen = Color(0xFF2E7D32)
+private val DrawGray = Color(0xFF78909C)
+private val LossRed = Color(0xFFC62828)
+private val WarnAmber = Color(0xFFEF6C00)
+private val BrilliantTeal = Color(0xFF00897B)
+private val GreatBlue = Color(0xFF1E88E5)
+private val BookBrown = Color(0xFF8D6E63)
 
 @Composable
 fun StatisticsScreen(
     paddingValues: PaddingValues,
     user: User,
     container: AppContainer,
-    onPracticeWeakPatterns: (() -> Unit)? = null
+    onPracticeWeakPatterns: (() -> Unit)? = null,
+    onStartTraining: ((TrainingMode) -> Unit)? = null,
+    onOpenGamesLibrary: ((query: String, color: ChessColor?) -> Unit)? = null,
+    onOpenGameById: ((Long) -> Unit)? = null,
+    onNavigateToUpload: (() -> Unit)? = null
 ) {
     val factory = remember(container) { ChessMentorViewModelFactory(container) }
-    val viewModel: StatisticsViewModel = viewModel(factory = factory)
+    val statisticsViewModel: StatisticsViewModel = viewModel(factory = factory)
+    val statistics by statisticsViewModel.statistics
+    val selectedSection by statisticsViewModel.selectedSection
+    val selectedPeriod by statisticsViewModel.selectedPeriod
+    val repertoireColor by statisticsViewModel.selectedRepertoireColor
+    val isLoading by statisticsViewModel.isLoading
+    val error by statisticsViewModel.errorMessage
 
-    LaunchedEffect(user.id, user.rating) {
-        viewModel.loadStatistics(user)
+    val launchTraining: ((TrainingMode) -> Unit)? = when {
+        onStartTraining != null -> onStartTraining
+        onPracticeWeakPatterns != null -> { _ -> onPracticeWeakPatterns() }
+        else -> null
     }
 
-    val stats by viewModel.statistics
-    val isLoading by viewModel.isLoading
-    val errorMessage by viewModel.errorMessage
+    LaunchedEffect(user.id, user.rating) {
+        statisticsViewModel.loadStatistics(user, statisticsViewModel.selectedPeriod.value)
+    }
+
+    val currentStats = statistics
+    if (isLoading && currentStats == null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CircularProgressIndicator(strokeWidth = 3.dp)
+                Text(
+                    text = "Собираем аналитику и репертуар…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        return
+    }
+
+    if (error != null && currentStats == null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = error.orEmpty(),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        textAlign = TextAlign.Center
+                    )
+                    FilledTonalButton(onClick = { statisticsViewModel.refresh() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Повторить")
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    val stats = currentStats ?: return
+    val report = stats.gameAnalytics
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(paddingValues)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(paddingValues),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item {
-            StatisticsHeader(skillLevel = stats?.skillLevel)
+        // ==================== ПЕРИОД + ОБНОВЛЕНИЕ ====================
+        item(key = "period_bar") {
+            PeriodSelectorRow(
+                selectedPeriod = selectedPeriod,
+                isRefreshing = isLoading,
+                onSelectPeriod = { statisticsViewModel.selectPeriod(it) },
+                onRefresh = { statisticsViewModel.refresh() }
+            )
         }
 
-        if (isLoading) {
-            item {
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+        // ==================== ВКЛАДКИ РАЗДЕЛОВ ====================
+        item(key = "section_tabs") {
+            SectionSegmentedBar(
+                selected = selectedSection,
+                openingsCount = report.repertoire.uniqueOpeningsCount,
+                dueCount = stats.training.dueForReviewCount,
+                onSelect = { statisticsViewModel.selectedSection.value = it }
+            )
+        }
+
+        // Индикатор пустого временного окна, если в библиотеке есть более старые партии
+        if (stats.totalGames == 0 && stats.totalGamesAllTime > 0 && selectedPeriod != StatsPeriod.ALL) {
+            item(key = "empty_period_banner") {
+                EmptyPeriodNoticeCard(
+                    period = selectedPeriod,
+                    totalAllTime = stats.totalGamesAllTime,
+                    onShowAllTime = { statisticsViewModel.selectPeriod(StatsPeriod.ALL) }
+                )
+            }
+        }
+
+        when (selectedSection) {
+            StatisticsSection.OVERVIEW -> {
+                item(key = "hero_card") {
+                    PlayerHeroSummaryCard(stats = stats)
+                }
+
+                if (stats.coachingActions.isNotEmpty()) {
+                    item(key = "coaching_plan") {
+                        CoachingPlanCard(
+                            actions = stats.coachingActions,
+                            onStartTraining = launchTraining,
+                            onOpenGamesLibrary = onOpenGamesLibrary,
+                            onOpenGameById = onOpenGameById
+                        )
+                    }
+                }
+
+                if (report.accuracySeries.isNotEmpty()) {
+                    item(key = "accuracy_chart") {
+                        AccuracyTrendCard(
+                            points = report.accuracySeries,
+                            direction = report.accuracyTrendDirection,
+                            delta = report.accuracyTrendDelta,
+                            onOpenGameById = onOpenGameById
+                        )
+                    }
+                }
+
+                if (report.overall.gamesCount > 0) {
+                    item(key = "color_split") {
+                        ColorSplitComparisonCard(
+                            white = report.asWhite,
+                            black = report.asBlack,
+                            onOpenColorRepertoire = { color ->
+                                statisticsViewModel.selectedRepertoireColor.value = color
+                                statisticsViewModel.selectedSection.value = StatisticsSection.OPENINGS
+                            }
+                        )
+                    }
+                } else {
+                    item(key = "no_games_cta") {
+                        EmptyGamesAnalyticsCard(onNavigateToUpload = onNavigateToUpload)
+                    }
+                }
+
+                if (report.phases.hasData) {
+                    item(key = "phase_overview") {
+                        GamePhaseCard(phases = report.phases)
+                    }
+                }
+
+                if (report.moveQuality.totalPlayerMoves > 0 || stats.totalMistakes > 0) {
+                    item(key = "move_quality") {
+                        MoveQualityBreakdownCard(
+                            quality = report.moveQuality,
+                            fallbackBlunders = stats.blunders,
+                            fallbackMistakes = stats.mistakes,
+                            fallbackInaccuracies = stats.inaccuracies,
+                            averageAcpl = stats.averageEvaluationLoss
+                        )
+                    }
+                }
+
+                if (report.timeControls.isNotEmpty() || report.timeTrouble.gamesWithClocks > 0) {
+                    item(key = "time_controls") {
+                        TimeControlsAndClockCard(
+                            timeControls = report.timeControls,
+                            timeTrouble = report.timeTrouble,
+                            onTrainVision = launchTraining?.let { fn -> { fn(TrainingMode.PatternVision) } }
+                        )
+                    }
+                }
+
+                if (stats.dailyActivity.isNotEmpty()) {
+                    item(key = "daily_activity") {
+                        DailyActivityCard(
+                            points = stats.dailyActivity,
+                            activeDaysStreak = stats.activeDaysStreak
+                        )
+                    }
+                }
+            }
+
+            StatisticsSection.OPENINGS -> {
+                item(key = "repertoire_header") {
+                    RepertoireOverviewBanner(
+                        repertoire = report.repertoire,
+                        selectedColor = repertoireColor,
+                        onSelectColor = { statisticsViewModel.selectedRepertoireColor.value = it }
+                    )
+                }
+
+                if (!report.repertoire.hasAnyOpenings) {
+                    item(key = "empty_repertoire") {
+                        EmptyRepertoireCard(onNavigateToUpload = onNavigateToUpload)
+                    }
+                } else {
+                    val bestForColor = if (repertoireColor == ChessColor.WHITE) {
+                        report.repertoire.bestWhite
+                    } else {
+                        report.repertoire.bestBlack
+                    }
+                    val weakestForColor = if (repertoireColor == ChessColor.WHITE) {
+                        report.repertoire.weakestWhite
+                    } else {
+                        report.repertoire.weakestBlack
+                    }
+
+                    if (bestForColor != null || weakestForColor != null) {
+                        item(key = "repertoire_spotlights_${repertoireColor.name}") {
+                            OpeningSpotlightsCard(
+                                color = repertoireColor,
+                                best = bestForColor,
+                                weakest = weakestForColor,
+                                onOpenLibrary = onOpenGamesLibrary
+                            )
+                        }
+                    }
+
+                    val activeLines = if (repertoireColor == ChessColor.WHITE) {
+                        report.repertoire.whiteOpenings
+                    } else {
+                        report.repertoire.blackOpenings
+                    }
+
+                    item(key = "opening_lines_${repertoireColor.name}") {
+                        OpeningLinesListCard(
+                            color = repertoireColor,
+                            lines = activeLines,
+                            onOpenLibrary = onOpenGamesLibrary,
+                            onOpenGameById = onOpenGameById
+                        )
+                    }
+
+                    if (report.repertoire.ecoFamilies.isNotEmpty()) {
+                        item(key = "eco_families") {
+                            EcoVolumesCard(
+                                families = report.repertoire.ecoFamilies,
+                                onSearchEco = onOpenGamesLibrary?.let { fn -> { code -> fn(code, null) } }
+                            )
+                        }
+                    }
+                }
+            }
+
+            StatisticsSection.TACTICS -> {
+                item(key = "tactics_summary") {
+                    TacticalOverviewCard(
+                        currentRating = stats.currentRating,
+                        ratingChange = stats.ratingChange,
+                        training = stats.training,
+                        onStartTraining = launchTraining
+                    )
+                }
+
+                if (stats.training.ratingHistory.size >= 2) {
+                    item(key = "rating_trend") {
+                        RatingTrendCard(
+                            points = stats.training.ratingHistory,
+                            isProvisional = stats.training.isRatingProvisional
+                        )
+                    }
+                }
+
+                if (stats.training.allPatternMastery.isNotEmpty()) {
+                    item(key = "pattern_mastery") {
+                        PatternMasteryCard(
+                            weakPatterns = stats.training.weakPatterns,
+                            strongPatterns = stats.training.strongPatterns,
+                            allPatterns = stats.training.allPatternMastery,
+                            onStartTraining = launchTraining
+                        )
+                    }
+                }
+
+                if (stats.actionableProblemThemes.isNotEmpty()) {
+                    item(key = "game_problem_themes") {
+                        ProblemThemesCard(
+                            themes = stats.actionableProblemThemes,
+                            onStartTraining = launchTraining
+                        )
+                    }
                 }
             }
         }
 
-        errorMessage?.let { err ->
-            item {
-                ErrorCard(message = err)
-            }
+        item(key = "bottom_spacer") {
+            Spacer(modifier = Modifier.height(8.dp))
         }
+    }
+}
 
-        stats?.let { s ->
-            // Рейтинг
-            item {
-                StatCard(
-                    icon = Icons.Default.TrendingUp,
-                    title = "Рейтинг Эло",
-                    value = "${s.currentRating}",
-                    subValue = if (s.ratingChange >= 0) "+${s.ratingChange}" else "${s.ratingChange}",
-                    subValueColor = if (s.ratingChange >= 0) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.error
+// ==================== ВЕРХНЯЯ ПАНЕЛЬ ПЕРИОДА И РАЗДЕЛОВ ====================
+
+@Composable
+private fun PeriodSelectorRow(
+    selectedPeriod: StatsPeriod,
+    isRefreshing: Boolean,
+    onSelectPeriod: (StatsPeriod) -> Unit,
+    onRefresh: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            StatsPeriod.entries.forEach { period ->
+                FilterChip(
+                    selected = selectedPeriod == period,
+                    onClick = { onSelectPeriod(period) },
+                    label = {
+                        Text(
+                            text = period.displayName,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (selectedPeriod == period) FontWeight.SemiBold else FontWeight.Normal
+                        )
                     }
                 )
             }
+        }
 
-            // Тактическая тренировка (прогресс, точность, серия, слабые/сильные мотивы)
-            item {
-                TrainingProgressCard(
-                    training = s.training,
-                    onPracticeWeakPatterns = onPracticeWeakPatterns
+        IconButton(
+            onClick = onRefresh,
+            enabled = !isRefreshing,
+            modifier = Modifier.size(36.dp)
+        ) {
+            if (isRefreshing) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Обновить статистику",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-
-            // Точность в партиях
-            item {
-                StatCard(
-                    icon = Icons.Default.TrackChanges,
-                    title = "Точность в партиях",
-                    value = "${s.averageAccuracy.toInt()}%",
-                    subValue = s.accuracyTrend
-                )
-            }
-
-            // Партии
-            item {
-                StatCard(
-                    icon = Icons.Default.SportsEsports,
-                    title = "Проанализировано партий",
-                    value = "${s.analyzedGames}",
-                    subValue = "из ${s.totalGames}"
-                )
-            }
-
-            // Анализ ошибок в партиях
-            item {
-                MistakesAnalysisCard(
-                    blunders = s.blunders,
-                    mistakes = s.mistakes,
-                    inaccuracies = s.inaccuracies
-                )
-            }
-
-            // Проблемные темы в партиях
-            item {
-                ProblemThemesCard(themes = s.problemThemes)
-            }
-
-            // Персональные рекомендации
-            item {
-                RecommendationsCard(recommendations = s.recommendations)
             }
         }
     }
 }
 
 @Composable
-private fun StatisticsHeader(skillLevel: String?) {
+private fun SectionSegmentedBar(
+    selected: StatisticsSection,
+    openingsCount: Int,
+    dueCount: Int,
+    onSelect: (StatisticsSection) -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            StatisticsSection.entries.forEach { section ->
+                val isSelected = section == selected
+                val badge = when (section) {
+                    StatisticsSection.OVERVIEW -> null
+                    StatisticsSection.OPENINGS -> openingsCount.takeIf { it > 0 }?.toString()
+                    StatisticsSection.TACTICS -> dueCount.takeIf { it > 0 }?.toString()
+                }
+                Surface(
+                    onClick = { onSelect(section) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        Color.Transparent
+                    },
+                    shadowElevation = if (isSelected) 2.dp else 0.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 9.dp, horizontal = 6.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = section.title,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (badge != null) {
+                            Spacer(Modifier.width(5.dp))
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isSelected) {
+                                    MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.22f)
+                                } else {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                                }
+                            ) {
+                                Text(
+                                    text = badge,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) {
+                                        MaterialTheme.colorScheme.onPrimary
+                                    } else {
+                                        MaterialTheme.colorScheme.primary
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyPeriodNoticeCard(
+    period: StatsPeriod,
+    totalAllTime: Int,
+    onShowAllTime: () -> Unit
+) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
         )
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Icon(
-                imageVector = Icons.Default.InsertChart,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp)
+            Text(
+                text = "За «${period.displayName}» партий нет (в архиве: $totalAllTime)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.weight(1f)
             )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text(
-                    text = "Моя статистика",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Text(
-                    text = if (!skillLevel.isNullOrBlank()) {
-                        "Прогресс обучения • $skillLevel"
-                    } else {
-                        "Прогресс обучения"
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+            TextButton(onClick = onShowAllTime) {
+                Text("Всё время")
             }
         }
     }
 }
 
+// ==================== ОБЗОР: ГЛАВНАЯ КАРТОЧКА ПРОФИЛЯ ====================
+
 @Composable
-private fun TrainingProgressCard(
-    training: GetUserStatisticsUseCase.TrainingStatistics,
-    onPracticeWeakPatterns: (() -> Unit)?
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+private fun PlayerHeroSummaryCard(stats: GetUserStatisticsUseCase.UserStatistics) {
+    val overall = stats.gameAnalytics.overall
+    val ratingSuffix = if (stats.training.isRatingProvisional) "?" else ""
+    val ratingDeltaText = when {
+        stats.ratingChange > 0 -> "+${stats.ratingChange}"
+        stats.ratingChange < 0 -> "${stats.ratingChange}"
+        else -> "±0"
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        ),
+        shape = RoundedCornerShape(18.dp)
+    ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
@@ -224,151 +604,1773 @@ private fun TrainingProgressCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Extension,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Тактическая тренировка",
-                        fontSize = 18.sp,
+                        text = stats.nickname,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = buildString {
+                            append(stats.skillLevel)
+                            if (stats.activeDaysStreak > 0) {
+                                append(" · Серия дней: ${stats.activeDaysStreak}")
+                            }
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                    )
+                }
+
+                overall.bestWinOpponentElo?.let { bestElo ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.EmojiEvents,
+                                contentDescription = null,
+                                tint = WarnAmber,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = "Победа $bestElo",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 4 главных KPI
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                HeroKpiPill(
+                    modifier = Modifier.weight(1f),
+                    label = "Рейтинг",
+                    value = "${stats.currentRating}$ratingSuffix",
+                    subLabel = ratingDeltaText
+                )
+                HeroKpiPill(
+                    modifier = Modifier.weight(1f),
+                    label = "Точность",
+                    value = overall.averageAccuracy?.let { "${formatPct(it)}%" } ?: "—",
+                    subLabel = stats.accuracyTrend
+                )
+                HeroKpiPill(
+                    modifier = Modifier.weight(1f),
+                    label = "Очки",
+                    value = overall.scorePercent?.let { "${it.roundToInt()}%" } ?: "—",
+                    subLabel = if (overall.decidedGames > 0) overall.wdlSummary() else "нет итогов"
+                )
+                HeroKpiPill(
+                    modifier = Modifier.weight(1f),
+                    label = "Партии",
+                    value = "${stats.totalGames}",
+                    subLabel = "${stats.analyzedGames} разобр."
+                )
+            }
+
+            // Полоса W/D/L
+            if (overall.decidedGames > 0) {
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    WdlStackedBar(
+                        wins = overall.wins,
+                        draws = overall.draws,
+                        losses = overall.losses,
+                        height = 10.dp
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Победы ${overall.wins}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = WinGreen,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Ничьи ${overall.draws}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                        )
+                        Text(
+                            text = "Поражения ${overall.losses}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = LossRed,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeroKpiPill(
+    modifier: Modifier = Modifier,
+    label: String,
+    value: String,
+    subLabel: String
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+            Text(
+                text = subLabel,
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+// ==================== ПЛАН ТРЕНЕРА (С ДЕЙСТВИЯМИ В 1 НАЖАТИЕ) ====================
+
+@Composable
+private fun CoachingPlanCard(
+    actions: List<CoachingAction>,
+    onStartTraining: ((TrainingMode) -> Unit)?,
+    onOpenGamesLibrary: ((query: String, color: ChessColor?) -> Unit)?,
+    onOpenGameById: ((Long) -> Unit)?
+) {
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.School,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "План тренера",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            actions.forEachIndexed { idx, action ->
+                if (idx > 0) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = action.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = action.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    val clickHandler: (() -> Unit)? = when {
+                        action.trainingMode != null && onStartTraining != null -> {
+                            { onStartTraining(action.trainingMode) }
+                        }
+                        action.openingSearchQuery != null && onOpenGamesLibrary != null -> {
+                            { onOpenGamesLibrary(action.openingSearchQuery, null) }
+                        }
+                        action.gameIdToOpen != null && onOpenGameById != null -> {
+                            { onOpenGameById(action.gameIdToOpen) }
+                        }
+                        else -> null
+                    }
+                    if (clickHandler != null && !action.actionLabel.isNullOrBlank()) {
+                        FilledTonalButton(
+                            onClick = clickHandler,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Text(action.actionLabel, style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==================== ИНТЕРАКТИВНЫЙ ГРАФИК ДИНАМИКИ ТОЧНОСТИ ====================
+
+@Composable
+private fun AccuracyTrendCard(
+    points: List<AccuracyTrendPoint>,
+    direction: TrendDirection,
+    delta: Double?,
+    onOpenGameById: ((Long) -> Unit)?
+) {
+    var selectedIdx by remember(points) { mutableIntStateOf(points.lastIndex) }
+    val safeIndex = selectedIdx.coerceIn(0, points.lastIndex)
+    val selected = points[safeIndex]
+
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+    val highlightRing = MaterialTheme.colorScheme.onSurface
+
+    val badgeColor = when (direction) {
+        TrendDirection.IMPROVING -> WinGreen
+        TrendDirection.DECLINING -> LossRed
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                        contentDescription = null,
+                        tint = primaryColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "Динамика точности",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Последние ${points.size} разобранных · скользящая средняя (5)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (delta != null) {
+                    val sign = if (delta >= 0) "+" else ""
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = badgeColor.copy(alpha = 0.14f)
+                    ) {
+                        Text(
+                            text = "$sign${formatPct(delta)}%",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = badgeColor
+                        )
+                    }
+                }
+            }
+
+            // Шкала 0..100% с адаптивным нижним порогом для наглядности
+            val minAcc = ((points.minOf { it.accuracy } - 10.0) / 10.0).toInt() * 10
+            val yMin = minAcc.coerceIn(0, 60).toFloat()
+            val yMax = 100f
+            val ySpan = (yMax - yMin).coerceAtLeast(20f)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier
+                        .height(145.dp)
+                        .padding(end = 6.dp),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                    horizontalAlignment = Alignment.End
+                ) {
+                    Text("100%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${((yMin + yMax) / 2f).roundToInt()}%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${yMin.roundToInt()}%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+
+                Canvas(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(145.dp)
+                        .pointerInput(points) {
+                            detectTapGestures { tap ->
+                                if (points.size == 1) {
+                                    selectedIdx = 0
+                                } else {
+                                    val padX = 10.dp.toPx()
+                                    val usableW = (size.width - padX * 2f).coerceAtLeast(1f)
+                                    val ratio = ((tap.x - padX) / usableW).coerceIn(0f, 1f)
+                                    selectedIdx = (ratio * (points.size - 1)).roundToInt()
+                                        .coerceIn(0, points.lastIndex)
+                                }
+                            }
+                        }
+                ) {
+                    val padX = 10.dp.toPx()
+                    val padY = 8.dp.toPx()
+                    val usableW = (size.width - padX * 2f).coerceAtLeast(1f)
+                    val usableH = (size.height - padY * 2f).coerceAtLeast(1f)
+
+                    fun xOf(index: Int): Float = if (points.size == 1) {
+                        size.width / 2f
+                    } else {
+                        padX + (index.toFloat() / (points.size - 1)) * usableW
+                    }
+
+                    fun yOf(value: Double): Float {
+                        val norm = ((value.toFloat() - yMin) / ySpan).coerceIn(0f, 1f)
+                        return padY + (1f - norm) * usableH
+                    }
+
+                    // Сетка
+                    val dash = PathEffect.dashPathEffect(floatArrayOf(8f, 8f))
+                    listOf(0f, 0.5f, 1f).forEach { frac ->
+                        val y = padY + frac * usableH
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(0f, y),
+                            end = Offset(size.width, y),
+                            strokeWidth = 1.dp.toPx(),
+                            pathEffect = dash
+                        )
+                    }
+
+                    // Заливка и линия скользящей средней
+                    if (points.size >= 2) {
+                        val linePath = Path()
+                        val fillPath = Path()
+                        points.forEachIndexed { i, pt ->
+                            val x = xOf(i)
+                            val y = yOf(pt.rollingAccuracy)
+                            if (i == 0) {
+                                linePath.moveTo(x, y)
+                                fillPath.moveTo(x, padY + usableH)
+                                fillPath.lineTo(x, y)
+                            } else {
+                                linePath.lineTo(x, y)
+                                fillPath.lineTo(x, y)
+                            }
+                        }
+                        fillPath.lineTo(xOf(points.lastIndex), padY + usableH)
+                        fillPath.close()
+
+                        drawPath(
+                            path = fillPath,
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    primaryColor.copy(alpha = 0.24f),
+                                    primaryColor.copy(alpha = 0.02f)
+                                ),
+                                startY = padY,
+                                endY = padY + usableH
+                            )
+                        )
+                        drawPath(
+                            path = linePath,
+                            color = primaryColor,
+                            style = Stroke(
+                                width = 2.6.dp.toPx(),
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round
+                            )
+                        )
+                    }
+
+                    // Вертикальный маркер выбранной партии
+                    val selX = xOf(safeIndex)
+                    drawLine(
+                        color = primaryColor.copy(alpha = 0.35f),
+                        start = Offset(selX, padY),
+                        end = Offset(selX, padY + usableH),
+                        strokeWidth = 1.2.dp.toPx()
+                    )
+
+                    // Точки отдельных партий, окрашенные по исходу
+                    points.forEachIndexed { i, pt ->
+                        val cx = xOf(i)
+                        val cy = yOf(pt.accuracy)
+                        val dotColor = when (pt.outcome) {
+                            PgnParser.PlayerOutcome.WIN -> WinGreen
+                            PgnParser.PlayerOutcome.LOSS -> LossRed
+                            PgnParser.PlayerOutcome.DRAW -> DrawGray
+                            PgnParser.PlayerOutcome.UNKNOWN -> primaryColor
+                        }
+                        val isSel = i == safeIndex
+                        drawCircle(
+                            color = dotColor,
+                            radius = if (isSel) 5.5.dp.toPx() else 3.8.dp.toPx(),
+                            center = Offset(cx, cy)
+                        )
+                        if (isSel) {
+                            drawCircle(
+                                color = highlightRing,
+                                radius = 7.5.dp.toPx(),
+                                center = Offset(cx, cy),
+                                style = Stroke(width = 1.8.dp.toPx())
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Карточка деталей выбранной на графике партии
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        val colorGlyph = if (selected.playerColor == ChessColor.WHITE) "⚪" else "⚫"
+                        Text(
+                            text = "$colorGlyph vs ${selected.opponentLabel} · ${selected.outcome.displayName}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = buildString {
+                                append("Точность ${formatPct(selected.accuracy)}%")
+                                append(" (ср. ${formatPct(selected.rollingAccuracy)}%)")
+                                selected.openingShort?.let { append(" · $it") }
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    val targetId = selected.gameId
+                    if (targetId != null && onOpenGameById != null) {
+                        TextButton(
+                            onClick = { onOpenGameById(targetId) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(Icons.Default.Insights, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Разбор", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==================== СРАВНЕНИЕ ИГРЫ БЕЛЫМИ И ЧЁРНЫМИ ====================
+
+@Composable
+private fun ColorSplitComparisonCard(
+    white: ColorPerformance,
+    black: ColorPerformance,
+    onOpenColorRepertoire: (ChessColor) -> Unit
+) {
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Игра по цвету фигур",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ColorSideTile(
+                    modifier = Modifier.weight(1f),
+                    icon = "♔",
+                    perf = white,
+                    onClick = { onOpenColorRepertoire(ChessColor.WHITE) }
+                )
+                ColorSideTile(
+                    modifier = Modifier.weight(1f),
+                    icon = "♚",
+                    perf = black,
+                    onClick = { onOpenColorRepertoire(ChessColor.BLACK) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ColorSideTile(
+    modifier: Modifier = Modifier,
+    icon: String,
+    perf: ColorPerformance,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "$icon ${perf.label}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "${perf.gamesCount}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (perf.gamesCount == 0) {
+                Text(
+                    text = "Пока нет партий",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Text(
+                    text = perf.scorePercent?.let { "${it.roundToInt()}% очков" } ?: "${perf.gamesCount} парт.",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = scoreColor(perf.scorePercent)
+                )
+
+                if (perf.decidedGames > 0) {
+                    WdlStackedBar(
+                        wins = perf.wins,
+                        draws = perf.draws,
+                        losses = perf.losses,
+                        height = 7.dp
+                    )
+                    Text(
+                        text = perf.wdlSummary(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+
+                MetricInlineRow(
+                    label = "Точность",
+                    value = perf.averageAccuracy?.let { "${formatPct(it)}%" } ?: "—"
+                )
+                MetricInlineRow(
+                    label = "Потеря (ACPL)",
+                    value = perf.averageAcpl?.let { "$it сП" } ?: "—"
+                )
+                MetricInlineRow(
+                    label = "Зевков / парт.",
+                    value = perf.blundersPerGame?.let { formatPct(it) } ?: "—"
+                )
+
+                Text(
+                    text = "Дебюты →",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+// ==================== ФАЗЫ ПАРТИИ ====================
+
+@Composable
+private fun GamePhaseCard(phases: PhaseOverview) {
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column {
+                Text(
+                    text = "Точность по фазам партии",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                val weak = phases.weakest
+                val strong = phases.strongest
+                if (weak?.accuracy != null && strong?.accuracy != null) {
+                    Text(
+                        text = "Лучшая: ${strong.phase.displayName} (${strong.accuracy.roundToInt()}%) · " +
+                            "Зона роста: ${weak.phase.displayName} (${weak.accuracy.roundToInt()}%)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            phases.all.forEach { phase ->
+                PhaseProgressRow(
+                    perf = phase,
+                    isWeakest = phases.weakest?.phase == phase.phase && (phases.gapPercent ?: 0.0) >= 5.0
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhaseProgressRow(
+    perf: PhasePerformance,
+    isWeakest: Boolean
+) {
+    val acc = perf.accuracy
+    val barColor = when {
+        acc == null -> MaterialTheme.colorScheme.outline
+        isWeakest -> WarnAmber
+        acc >= 82.0 -> WinGreen
+        acc >= 68.0 -> MaterialTheme.colorScheme.primary
+        else -> LossRed
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = perf.phase.displayName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = perf.phase.moveRangeHint,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = acc?.let { "${formatPct(it)}%" } ?: "нет ходов",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (acc != null) barColor else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        LinearProgressIndicator(
+            progress = { ((acc ?: 0.0) / 100.0).toFloat().coerceIn(0f, 1f) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp)),
+            color = barColor,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+
+        if (perf.movesCount > 0) {
+            val details = buildList {
+                add("${perf.movesCount} ход.")
+                if (perf.bookMoves > 0) add("теория: ${perf.bookMoves}")
+                if (perf.greatAndBrilliant > 0) add("сильных: ${perf.greatAndBrilliant}")
+                if (perf.blunders > 0) add("зевков: ${perf.blunders}")
+                if (perf.mistakes + perf.missedWins > 0) add("ошибок: ${perf.mistakes + perf.missedWins}")
+                if (perf.inaccuracies > 0) add("неточн.: ${perf.inaccuracies}")
+            }.joinToString(" · ")
+            Text(
+                text = details,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+// ==================== КАЧЕСТВО ХОДОВ И НАКАЗАНИЕ ЗЕВКОВ ====================
+
+@Composable
+private fun MoveQualityBreakdownCard(
+    quality: MoveQualityDistribution,
+    fallbackBlunders: Int,
+    fallbackMistakes: Int,
+    fallbackInaccuracies: Int,
+    averageAcpl: Double
+) {
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Профиль качества ходов",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                if (averageAcpl > 0.0) {
+                    Text(
+                        text = "ACPL ${averageAcpl.roundToInt()} сП",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (quality.totalPlayerMoves > 0) {
+                Text(
+                    text = "Точных и хороших ходов: ${formatPct(quality.cleanMovePercent)}% " +
+                        "(${quality.cleanMoves} из ${quality.totalPlayerMoves})",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    QualityBadgeChip(Modifier.weight(1f), "!! / !", quality.brilliant + quality.great, BrilliantTeal)
+                    QualityBadgeChip(Modifier.weight(1f), "Лучшие", quality.best, WinGreen)
+                    QualityBadgeChip(Modifier.weight(1f), "Хорошие", quality.excellent + quality.good, GreatBlue)
+                    QualityBadgeChip(Modifier.weight(1f), "Теория", quality.book, BookBrown)
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    QualityBadgeChip(Modifier.weight(1f), "Неточн. ?!", quality.inaccuracy, DrawGray)
+                    QualityBadgeChip(Modifier.weight(1f), "Ошибки ?", quality.mistake, WarnAmber)
+                    QualityBadgeChip(Modifier.weight(1f), "Упущено", quality.missedWin, WarnAmber)
+                    QualityBadgeChip(Modifier.weight(1f), "Зевки ??", quality.blunder, LossRed)
+                }
+
+                val punishPct = quality.opponentBlunderPunishPercent
+                if (punishPct != null) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Наказание зевков соперника",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                text = "$punishPct% (${quality.opponentBlundersPunished}/${quality.opponentBlundersTotal})",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (punishPct >= 65) WinGreen else WarnAmber
+                            )
+                        }
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    QualityBadgeChip(Modifier.weight(1f), "Зевки ??", fallbackBlunders, LossRed)
+                    QualityBadgeChip(Modifier.weight(1f), "Ошибки ?", fallbackMistakes, WarnAmber)
+                    QualityBadgeChip(Modifier.weight(1f), "Неточн. ?!", fallbackInaccuracies, DrawGray)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QualityBadgeChip(
+    modifier: Modifier = Modifier,
+    label: String,
+    count: Int,
+    accent: Color
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        color = accent.copy(alpha = 0.11f)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 7.dp, horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "$count",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = accent
+            )
+            Text(
+                text = label,
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+// ==================== КОНТРОЛИ ВРЕМЕНИ И ЦЕЙТНОТ ====================
+
+@Composable
+private fun TimeControlsAndClockCard(
+    timeControls: List<TimeControlPerformance>,
+    timeTrouble: TimeTroubleReport,
+    onTrainVision: (() -> Unit)?
+) {
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Timer,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "Контроли времени и цейтнот",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            timeControls.forEach { tc ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${timeControlGlyph(tc.category)} ${tc.category.displayName} (${tc.gamesCount})",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = buildString {
+                                tc.scorePercent?.let { append("${it.roundToInt()}% очков") }
+                                tc.averageAccuracy?.let {
+                                    if (isNotEmpty()) append(" · ")
+                                    append("точн. ${it.roundToInt()}%")
+                                }
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (tc.decidedGames > 0) {
+                        WdlStackedBar(tc.wins, tc.draws, tc.losses, height = 6.dp)
+                    }
+                }
+            }
+
+            if (timeTrouble.gamesWithClocks > 0) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if ((timeTrouble.accuracyDropPercent ?: 0.0) >= 7.0) {
+                        WarnAmber.copy(alpha = 0.12f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    }
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Диагностика часов (${timeTrouble.gamesWithClocks} парт. с [%clk])",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (timeTrouble.hasComparison) {
+                            Text(
+                                text = "Обычный темп: ${formatPct(timeTrouble.normalAccuracy!!)}% точн. → " +
+                                    "Цейтнот (<20с, ${timeTrouble.timeTroubleMovesCount} ход.): " +
+                                    "${formatPct(timeTrouble.timeTroubleAccuracy!!)}% точн.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            val ttBl = timeTrouble.timeTroubleBlunderRatePercent
+                            val nBl = timeTrouble.normalBlunderRatePercent
+                            if (ttBl != null && nBl != null && ttBl > nBl) {
+                                Text(
+                                    text = "Частота зевков в цейтноте: ${formatPct(ttBl)}% против ${formatPct(nBl)}% в норме",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = LossRed
+                                )
+                            }
+                            if ((timeTrouble.accuracyDropPercent ?: 0.0) >= 7.0 && onTrainVision != null) {
+                                TextButton(
+                                    onClick = onTrainVision,
+                                    contentPadding = PaddingValues(0.dp),
+                                    modifier = Modifier.height(28.dp)
+                                ) {
+                                    Text("Прокачать тактическую зоркость →", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = if (timeTrouble.timeTroubleMovesCount == 0) {
+                                    "Отличный тайм-менеджмент: ходов с остатком менее 20 секунд не зафиксировано."
+                                } else {
+                                    "Ходов в цейтноте (<20с): ${timeTrouble.timeTroubleMovesCount} в ${timeTrouble.gamesWithTimeTrouble} парт."
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==================== 14-ДНЕВНАЯ АКТИВНОСТЬ ====================
+
+@Composable
+private fun DailyActivityCard(
+    points: List<DailyActivityPoint>,
+    activeDaysStreak: Int
+) {
+    val totalGames14 = points.sumOf { it.gamesCount }
+    val totalSolved14 = points.sumOf { it.puzzlesSolved }
+    val maxDay = points.maxOfOrNull { it.totalActions }?.coerceAtLeast(1) ?: 1
+    val gameColor = MaterialTheme.colorScheme.primary
+    val puzzleColor = BrilliantTeal
+    val emptyColor = MaterialTheme.colorScheme.surfaceVariant
+
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Ритм занятий (14 дней)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Партий: $totalGames14 · Решено задач: $totalSolved14",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (activeDaysStreak > 0) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = WarnAmber.copy(alpha = 0.15f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocalFireDepartment,
+                                contentDescription = null,
+                                tint = WarnAmber,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = "$activeDaysStreak дн.",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = WarnAmber
+                            )
+                        }
+                    }
+                }
+            }
+
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
+            ) {
+                val n = points.size.coerceAtLeast(1)
+                val gap = 4.dp.toPx()
+                val barW = ((size.width - gap * (n - 1)) / n).coerceAtLeast(4f)
+                val minStub = 4.dp.toPx()
+
+                points.forEachIndexed { i, day ->
+                    val x = i * (barW + gap)
+                    if (day.totalActions == 0) {
+                        drawRoundRect(
+                            color = emptyColor,
+                            topLeft = Offset(x, size.height - minStub),
+                            size = Size(barW, minStub),
+                            cornerRadius = CornerRadius(3.dp.toPx())
+                        )
+                    } else {
+                        val totalH = ((day.totalActions.toFloat() / maxDay) * size.height)
+                            .coerceAtLeast(8.dp.toPx())
+                        val gamesFrac = day.gamesCount.toFloat() / day.totalActions
+                        val gamesH = totalH * gamesFrac
+                        val puzzlesH = totalH - gamesH
+
+                        if (puzzlesH > 0.5f) {
+                            drawRoundRect(
+                                color = puzzleColor,
+                                topLeft = Offset(x, size.height - totalH),
+                                size = Size(barW, totalH),
+                                cornerRadius = CornerRadius(4.dp.toPx())
+                            )
+                        }
+                        if (gamesH > 0.5f) {
+                            drawRoundRect(
+                                color = gameColor,
+                                topLeft = Offset(x, size.height - gamesH),
+                                size = Size(barW, gamesH),
+                                cornerRadius = CornerRadius(4.dp.toPx())
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = points.firstOrNull()?.dayLabel.orEmpty(),
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "■ партии   ■ задачи",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Сегодня (${points.lastOrNull()?.dayLabel.orEmpty()})",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+// ==================== ВКЛАДКА «ДЕБЮТЫ» (ECO-РЕПЕРТУАР) ====================
+
+@Composable
+private fun RepertoireOverviewBanner(
+    repertoire: OpeningRepertoireSummary,
+    selectedColor: ChessColor,
+    onSelectColor: (ChessColor) -> Unit
+) {
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MenuBook,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "Дебютный репертуар (ECO)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = buildString {
+                                append("Дебютов: ${repertoire.uniqueOpeningsCount}")
+                                append(" · Партий: ${repertoire.recognizedGamesCount}")
+                                repertoire.averageBookMoves?.let {
+                                    append(" · Теория: ${formatPct(it)} х.")
+                                }
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // Переключатель репертуара За белых / За чёрных
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val whiteCount = repertoire.whiteOpenings.sumOf { it.gamesCount }
+                val blackCount = repertoire.blackOpenings.sumOf { it.gamesCount }
+
+                FilterChip(
+                    selected = selectedColor == ChessColor.WHITE,
+                    onClick = { onSelectColor(ChessColor.WHITE) },
+                    modifier = Modifier.weight(1f),
+                    label = {
+                        Text(
+                            text = "♔ За белых ($whiteCount)",
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                )
+                FilterChip(
+                    selected = selectedColor == ChessColor.BLACK,
+                    onClick = { onSelectColor(ChessColor.BLACK) },
+                    modifier = Modifier.weight(1f),
+                    label = {
+                        Text(
+                            text = "♚ За чёрных ($blackCount)",
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpeningSpotlightsCard(
+    color: ChessColor,
+    best: OpeningLineStat?,
+    weakest: OpeningLineStat?,
+    onOpenLibrary: ((query: String, color: ChessColor?) -> Unit)?
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (best != null) {
+            SpotlightOpeningBanner(
+                badge = "Коронный дебют",
+                icon = Icons.Default.EmojiEvents,
+                accent = WinGreen,
+                line = best,
+                onClick = onOpenLibrary?.let { fn -> { fn(best.searchQuery, color) } }
+            )
+        }
+        if (weakest != null) {
+            SpotlightOpeningBanner(
+                badge = "Уязвимый дебют",
+                icon = Icons.Default.Warning,
+                accent = WarnAmber,
+                line = weakest,
+                onClick = onOpenLibrary?.let { fn -> { fn(weakest.searchQuery, color) } }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SpotlightOpeningBanner(
+    badge: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    accent: Color,
+    line: OpeningLineStat,
+    onClick: (() -> Unit)?
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = accent.copy(alpha = 0.11f),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.35f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(24.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = badge,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = accent
+                )
+                Text(
+                    text = line.displayTitle(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = buildList {
+                        add("${line.gamesCount} парт. (+${line.wins} =${line.draws} −${line.losses})")
+                        line.scorePercent?.let { add("${it.roundToInt()}% очков") }
+                        (line.openingPhaseAccuracy ?: line.averageAccuracy)?.let {
+                            add("точн. ${it.roundToInt()}%")
+                        }
+                        line.formattedExitEval()?.let { add("выход $it") }
+                    }.joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpeningLinesListCard(
+    color: ChessColor,
+    lines: List<OpeningLineStat>,
+    onOpenLibrary: ((query: String, color: ChessColor?) -> Unit)?,
+    onOpenGameById: ((Long) -> Unit)?
+) {
+    val sideTitle = if (color == ChessColor.WHITE) "Репертуар белыми" else "Репертуар чёрными"
+    var expandedKey by remember(color) { mutableStateOf<String?>(null) }
+
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "$sideTitle (${lines.size})",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            if (lines.isEmpty()) {
+                Text(
+                    text = "За этот цвет пока нет партий с определённым дебютом.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                lines.forEachIndexed { idx, line ->
+                    if (idx > 0) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    }
+                    val itemKey = "${line.primaryEco.orEmpty()}_${line.openingName}"
+                    val isExpanded = expandedKey == itemKey
+                    OpeningLineItem(
+                        line = line,
+                        expanded = isExpanded,
+                        onToggle = { expandedKey = if (isExpanded) null else itemKey },
+                        onOpenLibrary = onOpenLibrary?.let { fn -> { fn(line.searchQuery, color) } },
+                        onOpenLatestGame = line.latestGameId?.let { gid ->
+                            onOpenGameById?.let { fn -> { fn(gid) } }
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpeningLineItem(
+    line: OpeningLineStat,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onOpenLibrary: (() -> Unit)?,
+    onOpenLatestGame: (() -> Unit)?
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (!line.primaryEco.isNullOrBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        text = line.primaryEco,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = line.openingName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = if (expanded) 2 else 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = buildList {
+                        add("${line.gamesCount} парт.")
+                        (line.openingPhaseAccuracy ?: line.averageAccuracy)?.let {
+                            add("точн. ${formatPct(it)}%")
+                        }
+                        line.averageBookMoves?.takeIf { it > 0.0 }?.let {
+                            add("книга ${formatPct(it)} х.")
+                        }
+                        line.formattedExitEval()?.let { add("оценка $it") }
+                    }.joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = line.scorePercent?.let { "${it.roundToInt()}%" } ?: "—",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = scoreColor(line.scorePercent)
+                )
+                Text(
+                    text = "+${line.wins}=${line.draws}−${line.losses}",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Icon(
+                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        if (line.decidedGames > 0) {
+            WdlStackedBar(
+                wins = line.wins,
+                draws = line.draws,
+                losses = line.losses,
+                height = 6.dp
+            )
+        }
+
+        AnimatedVisibility(visible = expanded) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (line.ecoCodes.size > 1) {
+                    Text(
+                        text = "Коды ECO: ${line.ecoCodes.joinToString(", ")}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (line.openingPhaseAccuracy != null || line.averageAccuracy != null) {
+                    Text(
+                        text = buildList {
+                            line.openingPhaseAccuracy?.let { add("Точность ходов 1–12: ${formatPct(it)}%") }
+                            line.averageAccuracy?.let { add("Общая точность: ${formatPct(it)}%") }
+                            if (line.earlyMistakesCount > 0) add("Ранних ошибок: ${line.earlyMistakesCount}")
+                        }.joinToString(" · "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                line.keyIdea?.let { idea ->
+                    Text(
+                        text = "Ключевая идея: $idea",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                line.commonMistakeTip?.let { tip ->
+                    Text(
+                        text = "Типичная ловушка: $tip",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = WarnAmber
+                    )
+                }
+
+                if (onOpenLibrary != null || onOpenLatestGame != null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (onOpenLibrary != null) {
+                            FilledTonalButton(
+                                onClick = onOpenLibrary,
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Все партии (${line.gamesCount})", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                        if (onOpenLatestGame != null) {
+                            OutlinedButton(
+                                onClick = onOpenLatestGame,
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("Последняя", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EcoVolumesCard(
+    families: List<EcoFamilyStat>,
+    onSearchEco: ((String) -> Unit)?
+) {
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "Профиль по томам ECO (A–E)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            families.forEach { fam ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .then(
+                            if (onSearchEco != null) {
+                                Modifier.clickable { onSearchEco(fam.code.toString()) }
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "${fam.code}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "${fam.title} (${fam.gamesCount})",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = fam.subtitle,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (fam.decidedGames > 0) {
+                            Spacer(Modifier.height(3.dp))
+                            WdlStackedBar(fam.wins, fam.draws, fam.losses, height = 5.dp)
+                        }
+                    }
+
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = fam.scorePercent?.let { "${it.roundToInt()}%" } ?: "—",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = scoreColor(fam.scorePercent)
+                        )
+                        fam.averageAccuracy?.let {
+                            Text(
+                                text = "точн. ${it.roundToInt()}%",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==================== ВКЛАДКА «ТАКТИКА» ====================
+
+@Composable
+private fun TacticalOverviewCard(
+    currentRating: Int,
+    ratingChange: Int,
+    training: GetUserStatisticsUseCase.TrainingStatistics,
+    onStartTraining: ((TrainingMode) -> Unit)?
+) {
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FitnessCenter,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "Тактическая подготовка",
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
+                val suffix = if (training.isRatingProvisional) "?" else ""
+                val sign = if (ratingChange >= 0) "+$ratingChange" else "$ratingChange"
                 Text(
-                    text = "${training.uniqueExercisesSolved}/${training.totalAvailableExercises}",
+                    text = "$currentRating$suffix ($sign)",
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.primary
                 )
             }
 
-            val progress = if (training.totalAvailableExercises > 0) {
-                (training.uniqueExercisesSolved.toFloat() / training.totalAvailableExercises.toFloat())
-                    .coerceIn(0f, 1f)
-            } else {
-                0f
+            // Прогресс банка задач
+            if (training.totalAvailableExercises > 0) {
+                val solvedRatio = (training.uniqueExercisesSolved.toFloat() /
+                    training.totalAvailableExercises.toFloat()).coerceIn(0f, 1f)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Освоено задач банка",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "${training.uniqueExercisesSolved} / ${training.totalAvailableExercises}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    LinearProgressIndicator(
+                        progress = { solvedRatio },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                    )
+                }
             }
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp))
-            )
 
-            if (training.totalAttempts == 0) {
+            // Карточки интервальной памяти SM-2
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                QualityBadgeChip(Modifier.weight(1f), "Закреплено", training.masteredExercisesCount, WinGreen)
+                QualityBadgeChip(Modifier.weight(1f), "В изучении", training.inLearningCount, GreatBlue)
+                QualityBadgeChip(Modifier.weight(1f), "К повтору", training.dueForReviewCount, WarnAmber)
+                QualityBadgeChip(Modifier.weight(1f), "Из партий", training.personalMistakeExercises, BrilliantTeal)
+            }
+
+            if (training.totalAttempts > 0) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                MetricInlineRow("Решено с 1-й попытки", "${training.firstTryAccuracyPercent}%")
+                MetricInlineRow("Общий процент решений", "${training.solveAccuracyPercent}% (${training.solvedAttempts}/${training.totalAttempts})")
+                MetricInlineRow("Чистая серия (текущая / рекорд)", "${training.currentStreak} / ${training.bestStreak}")
+                if (training.averageSolveTimeSeconds > 0) {
+                    MetricInlineRow("Среднее время расчёта", "${training.averageSolveTimeSeconds} сек")
+                }
+                if (training.impulsiveMistakeCount > 0) {
+                    MetricInlineRow(
+                        label = "Импульсивные ошибки",
+                        value = "${training.impulsiveMistakeCount} (${training.impulsiveMistakeRatePercent}%)",
+                        valueColor = if (training.impulsiveMistakeRatePercent >= 35) LossRed else WarnAmber
+                    )
+                }
+            } else {
                 Text(
-                    text = "Доступно ${training.totalAvailableExercises} задач" +
-                        if (training.personalMistakeExercises > 0) {
-                            " (из них ${training.personalMistakeExercises} по вашим партиям)."
-                        } else {
-                            ". Решите первую задачу, чтобы увидеть аналитику по тактическим мотивам!"
-                        },
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "Вы ещё не решали задачи за выбранный период — начните с умной сессии из 10 позиций.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (onPracticeWeakPatterns != null) {
-                    Button(
-                        onClick = onPracticeWeakPatterns,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.FitnessCenter, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Начать тренировку")
-                    }
-                }
-            } else {
-                // Ключевые показатели тренировки
+            }
+
+            if (onStartTraining != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    TrainingMetricItem(
-                        label = "С 1-й попытки",
-                        value = "${training.firstTryAccuracyPercent}%"
-                    )
-                    TrainingMetricItem(
-                        label = "Закреплено",
-                        value = "${training.masteredExercisesCount}"
-                    )
-                    TrainingMetricItem(
-                        label = "Серия",
-                        value = "${training.currentStreak} (макс ${training.bestStreak})"
-                    )
-                }
-
-                val details = buildList {
-                    if (training.dueForReviewCount > 0) {
-                        add("К повтору: ${training.dueForReviewCount}")
+                    val primaryMode = when {
+                        training.dueForReviewCount > 0 -> TrainingMode.WeakPatterns
+                        training.personalMistakeExercises > 0 -> TrainingMode.MyMistakes
+                        else -> TrainingMode.SmartSession
                     }
-                    if (training.inLearningCount > 0) {
-                        add("В изучении: ${training.inLearningCount}")
+                    val primaryText = when {
+                        training.dueForReviewCount > 0 -> "Повторить (${training.dueForReviewCount})"
+                        training.personalMistakeExercises > 0 -> "Мои ошибки (${training.personalMistakeExercises})"
+                        else -> "Сессия 10"
                     }
-                    if (training.averageSolveTimeSeconds > 0) {
-                        add("Ср. время: ${training.averageSolveTimeSeconds} с")
+                    Button(
+                        onClick = { onStartTraining(primaryMode) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(primaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    if (training.impulsiveMistakeCount > 0) {
-                        add("Поспешных: ${training.impulsiveMistakeCount} (${training.impulsiveMistakeRatePercent}%)")
-                    }
-                    if (training.personalMistakeExercises > 0) {
-                        add("Из партий: ${training.personalMistakeExercises}")
-                    }
-                    if (training.isRatingProvisional) {
-                        add("Калибровка рейтинга")
-                    }
-                }.joinToString(" • ")
-
-                if (details.isNotEmpty()) {
-                    Text(
-                        text = details,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                // Слабые тактические мотивы
-                if (training.weakPatterns.isNotEmpty()) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                    Text(
-                        text = "Требуют отработки",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                    training.weakPatterns.forEach { pm ->
-                        PatternMasteryRow(mastery = pm, isWeak = true)
-                    }
-                    if (onPracticeWeakPatterns != null) {
-                        Button(
-                            onClick = onPracticeWeakPatterns,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.FitnessCenter,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("Отработать слабые темы")
-                        }
-                    }
-                }
-
-                // Сильные тактические мотивы
-                if (training.strongPatterns.isNotEmpty()) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                    Text(
-                        text = "Сильные мотивы",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    training.strongPatterns.forEach { pm ->
-                        PatternMasteryRow(mastery = pm, isWeak = false)
+                    OutlinedButton(
+                        onClick = { onStartTraining(TrainingMode.SmartSession) }
+                    ) {
+                        Text("Сессия 10")
                     }
                 }
             }
@@ -377,252 +2379,318 @@ private fun TrainingProgressCard(
 }
 
 @Composable
-private fun TrainingMetricItem(
-    label: String,
-    value: String
+private fun RatingTrendCard(
+    points: List<RatingTrendPoint>,
+    isProvisional: Boolean
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
+    val startElo = points.first().rating - points.first().delta
+    val currentElo = points.last().rating
+    val minElo = minOf(points.minOf { it.rating }, startElo)
+    val maxElo = maxOf(points.maxOf { it.rating }, startElo)
+    val netDelta = currentElo - startElo
+    val lineColor = if (netDelta >= 0) WinGreen else LossRed
+    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
 
-@Composable
-private fun PatternMasteryRow(
-    mastery: PatternMastery,
-    isWeak: Boolean
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.weight(1f)
-        ) {
-            if (!isWeak) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-            }
-            Text(
-                text = mastery.pattern.displayName,
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-
-        Surface(
-            color = if (isWeak) {
-                MaterialTheme.colorScheme.errorContainer
-            } else {
-                MaterialTheme.colorScheme.primaryContainer
-            },
-            shape = RoundedCornerShape(6.dp)
-        ) {
-            Text(
-                text = "${mastery.masteryPercent}% • 1-я: ${mastery.firstTryAccuracyPercent}%",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = if (isWeak) {
-                    MaterialTheme.colorScheme.onErrorContainer
-                } else {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                },
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun ErrorCard(message: String) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer
-        )
-    ) {
-        Row(modifier = Modifier.padding(16.dp)) {
-            Icon(Icons.Default.Error, null, tint = MaterialTheme.colorScheme.error)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "Ошибка: $message",
-                color = MaterialTheme.colorScheme.onErrorContainer
-            )
-        }
-    }
-}
-
-@Composable
-fun StatCard(
-    icon: ImageVector,
-    title: String,
-    value: String,
-    subValue: String = "",
-    subValueColor: Color = MaterialTheme.colorScheme.onSurfaceVariant
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = CircleShape,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-                    }
-                }
-                Spacer(Modifier.width(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Column {
                     Text(
-                        title,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        value,
-                        style = MaterialTheme.typography.headlineSmall,
+                        text = "Кривая тактического рейтинга",
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
+                    Text(
+                        text = buildString {
+                            append("Последние ${points.size} задач · мин $minElo / макс $maxElo")
+                            if (isProvisional) append(" · калибровка")
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-            }
-            if (subValue.isNotEmpty()) {
-                Text(
-                    subValue,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = subValueColor
-                )
-            }
-        }
-    }
-}
 
-@Composable
-private fun MistakesAnalysisCard(
-    blunders: Int,
-    mistakes: Int,
-    inaccuracies: Int
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.BugReport, null, tint = MaterialTheme.colorScheme.error)
-                Spacer(Modifier.width(8.dp))
-                Text("Ошибки в партиях", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.height(14.dp))
-            if (blunders == 0 && mistakes == 0 && inaccuracies == 0) {
-                Text(
-                    text = "Пока нет проанализированных ошибок",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 14.sp
-                )
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceAround
+                val sign = if (netDelta >= 0) "+$netDelta" else "$netDelta"
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = lineColor.copy(alpha = 0.14f)
                 ) {
-                    MistakeTypeCount(MistakeType.BLUNDER, blunders)
-                    MistakeTypeCount(MistakeType.MISTAKE, mistakes)
-                    MistakeTypeCount(MistakeType.INACCURACY, inaccuracies)
+                    Text(
+                        text = sign,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = lineColor
+                    )
                 }
+            }
+
+            val paddedMin = (minElo - 15).toFloat()
+            val paddedMax = (maxElo + 15).toFloat()
+            val span = (paddedMax - paddedMin).coerceAtLeast(30f)
+
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(125.dp)
+            ) {
+                val padX = 8.dp.toPx()
+                val padY = 8.dp.toPx()
+                val w = (size.width - padX * 2f).coerceAtLeast(1f)
+                val h = (size.height - padY * 2f).coerceAtLeast(1f)
+
+                val allValues = listOf(startElo) + points.map { it.rating }
+                fun xOf(i: Int): Float = padX + (i.toFloat() / (allValues.size - 1).coerceAtLeast(1)) * w
+                fun yOf(elo: Int): Float = padY + (1f - ((elo - paddedMin) / span).coerceIn(0f, 1f)) * h
+
+                drawLine(
+                    color = gridColor,
+                    start = Offset(0f, yOf(startElo)),
+                    end = Offset(size.width, yOf(startElo)),
+                    strokeWidth = 1.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f))
+                )
+
+                val strokePath = Path()
+                val fillPath = Path()
+                allValues.forEachIndexed { i, elo ->
+                    val x = xOf(i)
+                    val y = yOf(elo)
+                    if (i == 0) {
+                        strokePath.moveTo(x, y)
+                        fillPath.moveTo(x, padY + h)
+                        fillPath.lineTo(x, y)
+                    } else {
+                        strokePath.lineTo(x, y)
+                        fillPath.lineTo(x, y)
+                    }
+                }
+                fillPath.lineTo(xOf(allValues.lastIndex), padY + h)
+                fillPath.close()
+
+                drawPath(
+                    path = fillPath,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(lineColor.copy(alpha = 0.22f), lineColor.copy(alpha = 0.01f)),
+                        startY = padY,
+                        endY = padY + h
+                    )
+                )
+                drawPath(
+                    path = strokePath,
+                    color = lineColor,
+                    style = Stroke(width = 2.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+                drawCircle(
+                    color = lineColor,
+                    radius = 4.5.dp.toPx(),
+                    center = Offset(xOf(allValues.lastIndex), yOf(currentElo))
+                )
             }
         }
     }
 }
 
 @Composable
-fun MistakeTypeCount(type: MistakeType, count: Int) {
-    if (count > 0) {
-        val color = when (type) {
-            MistakeType.BLUNDER -> Color(0xFFD32F2F)
-            MistakeType.MISTAKE -> Color(0xFFF57C00)
-            MistakeType.INACCURACY -> Color(0xFFFBC02D)
-        }
+private fun PatternMasteryCard(
+    weakPatterns: List<PatternMastery>,
+    strongPatterns: List<PatternMastery>,
+    allPatterns: List<PatternMastery>,
+    onStartTraining: ((TrainingMode) -> Unit)?
+) {
+    val displayed = remember(weakPatterns, strongPatterns, allPatterns) {
+        (weakPatterns + strongPatterns)
+            .distinctBy { it.pattern }
+            .ifEmpty { allPatterns.take(6) }
+    }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = type.getIcon(),
-                contentDescription = null,
-                tint = color,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             Text(
-                text = "$count",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                text = "Владение тактическими мотивами",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
             )
+
+            displayed.forEach { item ->
+                val color = when {
+                    item.masteryPercent >= 78 -> WinGreen
+                    item.masteryPercent >= 55 -> GreatBlue
+                    else -> WarnAmber
+                }
+                val mode = PlayerAnalyticsCalculator.mapPatternToTrainingMode(item)
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (onStartTraining != null) {
+                                Modifier.clickable { onStartTraining(mode) }
+                            } else {
+                                Modifier
+                            }
+                        ),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = item.pattern.displayName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "${item.masteryPercent}% (с 1-й: ${item.firstTryAccuracyPercent}%)",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = color
+                        )
+                    }
+                    LinearProgressIndicator(
+                        progress = { (item.masteryPercent / 100f).coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(7.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = color,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                }
+            }
+
+            if (weakPatterns.isNotEmpty() && onStartTraining != null) {
+                FilledTonalButton(
+                    onClick = { onStartTraining(TrainingMode.WeakPatterns) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Отработать слабые мотивы")
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun ProblemThemesCard(
-    themes: List<ProblemTheme>
+    themes: List<ActionableProblemTheme>,
+    onStartTraining: ((TrainingMode) -> Unit)?
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Psychology, null, tint = MaterialTheme.colorScheme.secondary)
-                Spacer(Modifier.width(8.dp))
-                Text("Частые ошибки в партиях", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.height(12.dp))
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "Частые ошибки в ваших партиях",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
 
-            if (themes.isEmpty()) {
-                Text(
-                    text = "Пока нет данных",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 14.sp
-                )
-            } else {
-                themes.forEach { theme ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "${theme.category}: ${theme.themeName}",
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "${theme.mistakeCount} раз",
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.error
+            themes.forEach { theme ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "${theme.themeName} · ${theme.category}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "${theme.mistakeCount} (${theme.percentage.roundToInt()}%)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        LinearProgressIndicator(
+                            progress = { (theme.percentage / 100.0).toFloat().coerceIn(0.04f, 1f) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                            color = WarnAmber,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
                         )
                     }
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                    )
+
+                    if (onStartTraining != null) {
+                        TextButton(
+                            onClick = { onStartTraining(theme.suggestedMode) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("Тренир.", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==================== ПУСТЫЕ СОСТОЯНИЯ И ОБЩИЕ КОМПОНЕНТЫ ====================
+
+@Composable
+private fun EmptyGamesAnalyticsCard(onNavigateToUpload: (() -> Unit)?) {
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(32.dp)
+            )
+            Text(
+                text = "Добавьте партии для полной аналитики",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "Импортируйте PGN с Lichess или Chess.com — приложение построит график точности, " +
+                    "сравнит игру белыми и чёрными, разберёт фазы партии и цейтнот.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            if (onNavigateToUpload != null) {
+                Button(onClick = onNavigateToUpload) {
+                    Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Загрузить PGN")
                 }
             }
         }
@@ -630,46 +2698,135 @@ private fun ProblemThemesCard(
 }
 
 @Composable
-private fun RecommendationsCard(recommendations: List<String>) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer
-        )
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Star,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onTertiaryContainer
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "Рекомендации",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            recommendations.forEach { recommendation ->
-                Row(
-                    modifier = Modifier.padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Text(
-                        text = "•",
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                    )
+private fun EmptyRepertoireCard(onNavigateToUpload: (() -> Unit)?) {
+    Card(shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.MenuBook,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(34.dp)
+            )
+            Text(
+                text = "Дебютный репертуар пока пуст",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "Загрузите партии с тегами [ECO] / [Opening] или проанализируйте их движком — " +
+                    "здесь появится статистика побед, точности и оценки выхода из каждого дебюта за белых и чёрных.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            if (onNavigateToUpload != null) {
+                Button(onClick = onNavigateToUpload) {
+                    Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = recommendation,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                    )
+                    Text("Импортировать партии")
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun WdlStackedBar(
+    wins: Int,
+    draws: Int,
+    losses: Int,
+    height: Dp
+) {
+    val total = wins + draws + losses
+    if (total <= 0) return
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height)
+            .clip(RoundedCornerShape(height / 2))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        if (wins > 0) {
+            Box(
+                modifier = Modifier
+                    .weight(wins.toFloat())
+                    .fillMaxHeight()
+                    .background(WinGreen)
+            )
+        }
+        if (draws > 0) {
+            Box(
+                modifier = Modifier
+                    .weight(draws.toFloat())
+                    .fillMaxHeight()
+                    .background(DrawGray)
+            )
+        }
+        if (losses > 0) {
+            Box(
+                modifier = Modifier
+                    .weight(losses.toFloat())
+                    .fillMaxHeight()
+                    .background(LossRed)
+            )
+        }
+    }
+}
+
+@Composable
+private fun MetricInlineRow(
+    label: String,
+    value: String,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            color = valueColor
+        )
+    }
+}
+
+@Composable
+private fun scoreColor(scorePercent: Double?): Color = when {
+    scorePercent == null -> MaterialTheme.colorScheme.onSurface
+    scorePercent >= 55.0 -> WinGreen
+    scorePercent <= 44.0 -> LossRed
+    else -> MaterialTheme.colorScheme.onSurface
+}
+
+private fun timeControlGlyph(category: PgnParser.TimeControlCategory): String = when (category) {
+    PgnParser.TimeControlCategory.BULLET -> "⚡"
+    PgnParser.TimeControlCategory.BLITZ -> "🔥"
+    PgnParser.TimeControlCategory.RAPID -> "⏱"
+    PgnParser.TimeControlCategory.CLASSICAL -> "🏛"
+    PgnParser.TimeControlCategory.CORRESPONDENCE -> "✉"
+    PgnParser.TimeControlCategory.UNKNOWN -> "♟"
+}
+
+private fun formatPct(value: Double): String {
+    val rounded = (value * 10.0).roundToInt() / 10.0
+    return if (abs(rounded - rounded.roundToInt()) < 0.05) {
+        "${rounded.roundToInt()}"
+    } else {
+        String.format(Locale.US, "%.1f", rounded)
     }
 }

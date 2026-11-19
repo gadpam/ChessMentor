@@ -3,6 +3,7 @@ package com.example.chessmentor.domain.session
 import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.domain.entity.SkillLevel
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnArchiveExporter
 import com.example.chessmentor.domain.pgn.PgnParser
@@ -45,6 +46,11 @@ class SessionAuthAndBackupTest {
         }
         override suspend fun existsByEmail(email: String): Boolean = findByEmail(email) != null
         override suspend fun existsByNickname(nickname: String): Boolean = findByNickname(nickname) != null
+        override suspend fun findAll(): List<User> = users.values.toList()
+        override suspend fun findBySkillLevel(skillLevel: SkillLevel): List<User> =
+            users.values.filter { it.skillLevel == skillLevel }
+        override suspend fun findTopByRating(limit: Int): List<User> =
+            users.values.sortedByDescending { it.rating }.take(limit)
     }
 
     @Test
@@ -183,20 +189,20 @@ class SessionAuthAndBackupTest {
         assertEquals("chessmentor_tal_fan_2026-11-17.pgn", archive.suggestedFileName)
 
         // Архив обязан без потерь читаться обратно нашим мульти-PGN парсером
-        val reparsed = PgnParser.splitMultiGamePgn(archive.content)
-            .map { PgnParser.parseSingleGame(it) }
+        val reparsed = PgnParser.splitGames(archive.content)
+            .map { PgnParser.parseAndValidate(it) }
         assertEquals(2, reparsed.size)
         assertTrue(reparsed.all { it is PgnParser.ParseResult.Success })
 
         // Первая партия в архиве — самая свежая (Сицилианская за чёрных)
         val newest = (reparsed[0] as PgnParser.ParseResult.Success).game
-        assertEquals("Tal_Fan", newest.black)
-        assertEquals("0-1", newest.result)
+        assertEquals("Tal_Fan", newest.metadata.blackName)
+        assertEquals("0-1", newest.metadata.result.token)
 
         // Вторая партия получила корректные заголовки [White], [TimeControl] и завершающий `*`
         val older = (reparsed[1] as PgnParser.ParseResult.Success).game
-        assertEquals("Tal Fan!", older.white)
-        assertEquals("3+2", older.timeControl)
+        assertEquals("Tal Fan!", older.metadata.whiteName)
+        assertEquals("3+2", older.metadata.timeControl?.shortLabel)
         assertEquals(6, older.sanMoves.size)
     }
 }
