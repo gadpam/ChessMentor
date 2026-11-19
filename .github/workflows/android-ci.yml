@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
@@ -45,12 +45,41 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Run JVM unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace --no-daemon
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest --no-daemon 2>&1 | tee /tmp/gradle-test.log || {
+            STATUS=$?
+            python3 - /tmp/gradle-test.log "$GITHUB_WORKSPACE" <<'PY'
+          import glob, re, sys, xml.etree.ElementTree as ET
+          log = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+          ws = sys.argv[2].rstrip("/") + "/"
+          emitted = 0
+          for m in re.finditer(r"^e: file://([^:\n]+):(\d+):(\d+)\s+(.+)$", log, re.M):
+              rel = m.group(1).replace(ws, "")
+              print(f"::error file={rel},line={m.group(2)},col={m.group(3)},title=Kotlin::{m.group(4)}")
+              emitted += 1
+              if emitted >= 35: break
+          for m in re.finditer(r"^e: \[ksp\]\s+(.+)$", log, re.M):
+              print(f"::error title=KSP::{m.group(1)}")
+              emitted += 1
+          for xml_path in sorted(glob.glob("app/build/test-results/testDebugUnitTest/*.xml")):
+              root = ET.parse(xml_path).getroot()
+              for tc in root.findall("testcase"):
+                  for fail in list(tc.findall("failure")) + list(tc.findall("error")):
+                      first_lines = " | ".join((fail.text or fail.attrib.get("message", "")).splitlines()[:4])
+                      print(f"::error title=Test {tc.attrib.get('classname')}.{tc.attrib.get('name')}::{first_lines[:400]}")
+                      emitted += 1
+          if emitted == 0:
+              tail = " | ".join(l.strip() for l in log.splitlines()[-35:] if l.strip())
+              print(f"::error title=Gradle::{tail[:900]}")
+          PY
+            exit $STATUS
+          }
 
       - name: Verify exported Room v5 schema
         run: |
           SCHEMA_FILE="app/schemas/com.example.chessmentor.data.local.AppDatabase/5.json"
-          test -f "$SCHEMA_FILE" || (echo "Missing Room schema: $SCHEMA_FILE" && exit 1)
+          test -f "$SCHEMA_FILE" || (echo "::error title=RoomSchema::Missing $SCHEMA_FILE" && exit 1)
           python3 - "$SCHEMA_FILE" <<'PY'
           import json, sys
           data = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -59,11 +88,39 @@ jobs:
           tables = sorted(e["tableName"] for e in db["entities"])
           expected = ["analyzed_moves", "exercise_attempts", "exercises", "games", "mistakes", "users"]
           assert tables == expected, f"Unexpected Room tables: {tables}"
-          print(f"Verified Room schema v{db['version']} ({len(tables)} tables, hash={db['identityHash']})")
+          print(f"::notice title=RoomSchema::Verified v{db['version']} ({len(tables)} tables, identityHash={db['identityHash']})")
           PY
 
       - name: Run Android Lint
-        run: ./gradlew lintDebug --stacktrace --no-daemon
+        run: |
+          set -o pipefail
+          ./gradlew lintDebug --no-daemon 2>&1 | tee /tmp/gradle-lint.log || {
+            STATUS=$?
+            python3 - "$GITHUB_WORKSPACE" /tmp/gradle-lint.log <<'PY'
+          import os, sys, xml.etree.ElementTree as ET
+          ws = sys.argv[1].rstrip("/") + "/"
+          xml_file = "app/build/reports/lint-results-debug.xml"
+          emitted = 0
+          if os.path.exists(xml_file):
+              for issue in ET.parse(xml_file).getroot().findall("issue"):
+                  if issue.attrib.get("severity") in ("Error", "Fatal"):
+                      loc = issue.find("location")
+                      f = (loc.attrib.get("file", "") if loc is not None else "").replace(ws, "")
+                      ln = loc.attrib.get("line", "1") if loc is not None else "1"
+                      msg = f"[{issue.attrib.get('id')}] {issue.attrib.get('message', '')}"
+                      if f:
+                          print(f"::error file={f},line={ln},title=AndroidLint::{msg[:400]}")
+                      else:
+                          print(f"::error title=AndroidLint::{msg[:400]}")
+                      emitted += 1
+                      if emitted >= 30: break
+          if emitted == 0:
+              log = open(sys.argv[2], encoding="utf-8", errors="replace").read()
+              tail = " | ".join(l.strip() for l in log.splitlines()[-30:] if l.strip())
+              print(f"::error title=LintGradle::{tail[:900]}")
+          PY
+            exit $STATUS
+          }
 
       - name: Upload test, lint & Room schema artifacts
         if: always()
@@ -88,7 +145,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
@@ -117,15 +174,42 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Assemble Debug & R8-minified Release APKs
-        run: ./gradlew assembleDebug assembleRelease --stacktrace --no-daemon
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug assembleRelease --no-daemon 2>&1 | tee /tmp/gradle-apk.log || {
+            STATUS=$?
+            python3 - /tmp/gradle-apk.log "$GITHUB_WORKSPACE" <<'PY'
+          import re, sys
+          log = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+          ws = sys.argv[2].rstrip("/") + "/"
+          emitted = 0
+          for m in re.finditer(r"^e: file://([^:\n]+):(\d+):(\d+)\s+(.+)$", log, re.M):
+              rel = m.group(1).replace(ws, "")
+              print(f"::error file={rel},line={m.group(2)},col={m.group(3)},title=Kotlin::{m.group(4)}")
+              emitted += 1
+              if emitted >= 25: break
+          for m in re.finditer(r"^([^\s:]+):(\d+):(\d+):\s+error:\s+(.+)$", log, re.M):
+              rel = m.group(1).replace(ws, "")
+              print(f"::error file={rel},line={m.group(2)},title=NDK::{m.group(4)}")
+              emitted += 1
+              if emitted >= 35: break
+          for m in re.finditer(r"(?:Missing class .+|ERROR:\s*R8:.+|e: \[ksp\] .+)", log):
+              print(f"::error title=Build::{m.group(0)[:400]}")
+              emitted += 1
+              if emitted >= 40: break
+          if emitted == 0:
+              tail = " | ".join(l.strip() for l in log.splitlines()[-35:] if l.strip())
+              print(f"::error title=AssembleGradle::{tail[:900]}")
+          PY
+            exit $STATUS
+          }
 
       - name: Verify 16 KB ELF page alignment on libstockfish-lib.so (Android 15+)
         run: |
           READELF="${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
           SO_FILES=$(find app/build/intermediates/merged_native_libs -name "libstockfish-lib.so")
-          test -n "$SO_FILES" || (echo "No libstockfish-lib.so found!" && exit 1)
+          test -n "$SO_FILES" || (echo "::error title=ELF16KB::No libstockfish-lib.so found" && exit 1)
           for so in $SO_FILES; do
-            echo "Checking ELF LOAD alignment: $so"
             python3 - "$READELF" "$so" <<'PY'
           import re, subprocess, sys
           out = subprocess.check_output([sys.argv[1], "-l", sys.argv[2]], text=True)
@@ -133,7 +217,7 @@ jobs:
           assert aligns, f"No LOAD segments in {sys.argv[2]}"
           bad = [hex(a) for a in aligns if a < 0x4000]
           assert not bad, f"{sys.argv[2]} has LOAD alignment < 16KB: {bad}"
-          print(f"  OK: LOAD alignments = {[hex(a) for a in aligns]}")
+          print(f"Verified 16KB alignment on {sys.argv[2]}: {[hex(a) for a in aligns]}")
           PY
           done
 
