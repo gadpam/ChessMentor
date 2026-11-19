@@ -72,7 +72,10 @@ fun GamesListScreen(
     onGameClick: (Game) -> Unit,
     onNavigateToUpload: () -> Unit = {},
     onAnalysisComplete: () -> Unit = {},
-    onOpenEngineSettings: (() -> Unit)? = null
+    onOpenEngineSettings: (() -> Unit)? = null,
+    initialSearchQuery: String? = null,
+    initialColorFilter: ChessColor? = null,
+    onInitialFilterConsumed: () -> Unit = {}
 ) {
     val games = gameViewModel.userGames.toList()
     val mistakesByGame = gameViewModel.mistakesByGameId
@@ -98,10 +101,30 @@ fun GamesListScreen(
         }
     }
 
-    var searchQuery by remember { mutableStateOf("") }
-    var activeFilter by remember { mutableStateOf(LibraryFilter.ALL) }
+    var searchQuery by remember { mutableStateOf(initialSearchQuery.orEmpty()) }
+    var activeFilter by remember {
+        mutableStateOf(
+            when (initialColorFilter) {
+                ChessColor.WHITE -> LibraryFilter.WHITE
+                ChessColor.BLACK -> LibraryFilter.BLACK
+                null -> LibraryFilter.ALL
+            }
+        )
+    }
     var activeSort by remember { mutableStateOf(LibrarySort.NEWEST) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(initialSearchQuery, initialColorFilter) {
+        if (!initialSearchQuery.isNullOrBlank() || initialColorFilter != null) {
+            searchQuery = initialSearchQuery.orEmpty()
+            activeFilter = when (initialColorFilter) {
+                ChessColor.WHITE -> LibraryFilter.WHITE
+                ChessColor.BLACK -> LibraryFilter.BLACK
+                null -> LibraryFilter.ALL
+            }
+            onInitialFilterConsumed()
+        }
+    }
 
     // Кэшируем разбор метаданных карточек по (id, hash(pgn), color, timeControl) — O(1) при прокрутке и поиске
     val infoCache = remember { mutableMapOf<String, PgnParser.GameCardInfo>() }

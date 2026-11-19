@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.di.AppContainer
+import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.session.SessionState
 import com.example.chessmentor.domain.training.TrainingMode
@@ -51,7 +52,10 @@ fun ChessMentorApp(
 
     var currentScreen by rememberSaveable { mutableStateOf("home") }
     var pendingTrainingModeKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingGamesSearchQuery by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingGamesColorKey by rememberSaveable { mutableStateOf<String?>(null) }
     var trainingReturnScreen by rememberSaveable { mutableStateOf<String?>(null) }
+    var summaryReturnScreen by rememberSaveable { mutableStateOf("games") }
     var engineSettingsReturnScreen by rememberSaveable { mutableStateOf("upload") }
     var isLoading by remember { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf("") }
@@ -98,7 +102,9 @@ fun ChessMentorApp(
             "summary" -> {
                 boardViewModel.dismissEngineLine()
                 gameViewModel.closeGameView()
-                "games"
+                val target = summaryReturnScreen.takeIf { it in setOf("games", "stats", "home") } ?: "games"
+                summaryReturnScreen = "games"
+                target
             }
             "engine_settings" -> {
                 engineSettingsReturnScreen
@@ -132,6 +138,7 @@ fun ChessMentorApp(
                             boardViewModel.dismissEngineLine()
                         }
                         trainingReturnScreen = null
+                        summaryReturnScreen = "games"
                         currentScreen = target
                         Log.d(TAG, "Navigate to: $target")
                     }
@@ -144,6 +151,10 @@ fun ChessMentorApp(
             currentScreen = currentScreen,
             isRestoringSession = sessionState is SessionState.Restoring && currentUser == null,
             pendingTrainingModeKey = pendingTrainingModeKey,
+            pendingGamesSearchQuery = pendingGamesSearchQuery,
+            pendingGamesColor = pendingGamesColorKey?.let { key ->
+                ChessColor.entries.firstOrNull { it.name == key }
+            },
             currentUser = currentUser,
             gameViewModel = gameViewModel,
             boardViewModel = boardViewModel,
@@ -202,6 +213,33 @@ fun ChessMentorApp(
             onTrainingModeConsumed = {
                 pendingTrainingModeKey = null
             },
+            onOpenGamesWithFilter = { query, color ->
+                pendingGamesSearchQuery = query
+                pendingGamesColorKey = color?.name
+                currentScreen = "games"
+                Log.d(TAG, "Open games library filtered by query='$query' color=$color")
+            },
+            onGamesFilterConsumed = {
+                pendingGamesSearchQuery = null
+                pendingGamesColorKey = null
+            },
+            onOpenGameSummaryById = { fromScreen, gameId ->
+                val cached = gameViewModel.userGames.firstOrNull { it.id == gameId }
+                if (cached != null) {
+                    summaryReturnScreen = fromScreen
+                    gameViewModel.selectGame(cached)
+                    currentScreen = "summary"
+                } else {
+                    coroutineScope.launch {
+                        val loaded = runCatching { container.gameRepository.findById(gameId) }.getOrNull()
+                        if (loaded != null) {
+                            summaryReturnScreen = fromScreen
+                            gameViewModel.selectGame(loaded)
+                            currentScreen = "summary"
+                        }
+                    }
+                }
+            },
             onUserUpdated = { updated ->
                 gameViewModel.updateCurrentUser(updated)
             },
@@ -214,7 +252,10 @@ fun ChessMentorApp(
                 regPassword = ""
                 message = ""
                 pendingTrainingModeKey = null
+                pendingGamesSearchQuery = null
+                pendingGamesColorKey = null
                 trainingReturnScreen = null
+                summaryReturnScreen = "games"
                 engineSettingsReturnScreen = "upload"
                 currentScreen = "home"
             },
@@ -387,6 +428,8 @@ private fun NavigationHost(
     currentScreen: String,
     isRestoringSession: Boolean,
     pendingTrainingModeKey: String?,
+    pendingGamesSearchQuery: String?,
+    pendingGamesColor: ChessColor?,
     currentUser: User?,
     gameViewModel: GameViewModel,
     boardViewModel: BoardViewModel,
@@ -406,6 +449,9 @@ private fun NavigationHost(
     onOpenGameMistakeTraining: (fromScreen: String, gameId: Long, focusMoveNumber: Int?) -> Unit,
     onReturnToGameFromTraining: (() -> Unit)?,
     onTrainingModeConsumed: () -> Unit,
+    onOpenGamesWithFilter: (query: String, color: ChessColor?) -> Unit,
+    onGamesFilterConsumed: () -> Unit,
+    onOpenGameSummaryById: (fromScreen: String, gameId: Long) -> Unit,
     onUserUpdated: (User) -> Unit,
     onLogout: () -> Unit,
     onMessageDismiss: () -> Unit,
@@ -468,7 +514,10 @@ private fun NavigationHost(
             },
             onNavigateToUpload = { onScreenChange("upload") },
             onAnalysisComplete = { onScreenChange("summary") },
-            onOpenEngineSettings = { onOpenEngineSettings("games") }
+            onOpenEngineSettings = { onOpenEngineSettings("games") },
+            initialSearchQuery = pendingGamesSearchQuery,
+            initialColorFilter = pendingGamesColor,
+            onInitialFilterConsumed = onGamesFilterConsumed
         )
 
         "game_view" -> {
@@ -583,6 +632,18 @@ private fun NavigationHost(
                     container = container,
                     onPracticeWeakPatterns = {
                         onOpenTrainingWithMode(TrainingMode.WeakPatterns)
+                    },
+                    onStartTraining = { mode ->
+                        onOpenTrainingWithMode(mode)
+                    },
+                    onOpenGamesLibrary = { query, color ->
+                        onOpenGamesWithFilter(query, color)
+                    },
+                    onOpenGameById = { gameId ->
+                        onOpenGameSummaryById("stats", gameId)
+                    },
+                    onNavigateToUpload = {
+                        onScreenChange("upload")
                     }
                 )
             } ?: LaunchedEffect(Unit) {
