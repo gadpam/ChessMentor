@@ -315,6 +315,27 @@ object UserProgressBackupCodec {
         )
     }
 
+    // Индексы в копии ссылаются на позиции в массивах, поэтому нельзя пропускать
+    // повреждённые записи: это перепривяжет задачи и попытки к чужим строкам.
+    private fun Value.Obj.array(key: String): List<Value> =
+        (this[key] as? Value.Arr)?.items ?: throw IllegalArgumentException("Ожидался массив $key")
+
+    private fun Value.Obj.rows(key: String) = array(key).mapIndexed { index, value ->
+        value as? Value.Obj ?: throw IllegalArgumentException("Некорректная запись $key[$index]")
+    }
+
+    private fun Value.Obj.strings(key: String) = array(key).mapIndexed { index, value ->
+        (value as? Value.Str)?.value ?: throw IllegalArgumentException("Ожидалась строка $key[$index]")
+    }
+
+    private fun Value.Obj.nonBlankString(key: String) =
+        requireString(key).also { require(it.isNotBlank()) { "Пустое поле $key" } }
+
+    private fun Value.Obj.optionalIndex(key: String, indices: IntRange): Int? = when (this[key]) {
+        null, Value.Null -> null
+        else -> requireInt(key).also { require(it in indices) { "Некорректная ссылка $key: $it" } }
+    }
+
     private fun parsePayload(
         version: Int,
         exportedAtMs: Long,
@@ -339,19 +360,17 @@ object UserProgressBackupCodec {
             }
         )
 
-        val games = payload.arrOrEmpty("games").mapNotNull { item ->
-            val g = item as? Value.Obj ?: return@mapNotNull null
-            val pgn = g.stringOrNull("pgnData")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        val games = payload.rows("games").map { g ->
+            val pgn = g.nonBlankString("pgnData")
             val color = enumOrDefault(g.stringOrNull("playerColor"), ChessColor.WHITE)
             val rawStatus = enumOrDefault(g.stringOrNull("analysisStatus"), AnalysisStatus.PENDING)
             // Незавершённый анализ переводим в PENDING, чтобы не оставлять «зависший» статус
             val status = if (rawStatus == AnalysisStatus.IN_PROGRESS) AnalysisStatus.PENDING else rawStatus
 
-            val moves = g.arrOrEmpty("analyzedMoves").mapNotNull { mvItem ->
-                val m = mvItem as? Value.Obj ?: return@mapNotNull null
-                val san = m.stringOrNull("san")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val moves = g.rows("analyzedMoves").map { m ->
+                val san = m.nonBlankString("san")
                 AnalyzedMoveEntry(
-                    moveIndex = (m.intOrNull("moveIndex") ?: return@mapNotNull null).coerceAtLeast(0),
+                    moveIndex = m.requireInt("moveIndex").coerceAtLeast(0),
                     moveNumber = (m.intOrNull("moveNumber") ?: 1).coerceAtLeast(1),
                     color = enumOrDefault(m.stringOrNull("color"), ChessColor.WHITE),
                     quality = enumOrDefault(m.stringOrNull("quality"), MoveQuality.GOOD),
@@ -364,10 +383,9 @@ object UserProgressBackupCodec {
                 )
             }
 
-            val mistakes = g.arrOrEmpty("mistakes").mapNotNull { mkItem ->
-                val mk = mkItem as? Value.Obj ?: return@mapNotNull null
-                val best = mk.stringOrNull("bestMove")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                val userMv = mk.stringOrNull("userMove")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val mistakes = g.rows("mistakes").map { mk ->
+                val best = mk.nonBlankString("bestMove")
+                val userMv = mk.nonBlankString("userMove")
                 MistakeEntry(
                     themeId = mk.longOrNull("themeId") ?: 10L,
                     moveNumber = (mk.intOrNull("moveNumber") ?: 1).coerceAtLeast(1),
@@ -400,14 +418,12 @@ object UserProgressBackupCodec {
             )
         }
 
-        val exercises = payload.arrOrEmpty("personalExercises").mapNotNull { item ->
-            val ex = item as? Value.Obj ?: return@mapNotNull null
-            val fen = ex.stringOrNull("fenPosition")?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            val solution = ex.arrOrEmpty("solutionMoves")
-                .mapNotNull { (it as? Value.Str)?.value?.trim()?.takeIf(String::isNotEmpty) }
-            if (solution.isEmpty()) return@mapNotNull null
+        val exercises = payload.rows("personalExercises").map { ex ->
+            val fen = ex.nonBlankString("fenPosition").trim()
+            val solution = ex.strings("solutionMoves").map { it.trim() }
+            require(solution.isNotEmpty() && solution.none { it.isEmpty() }) { "Пустое решение задачи" }
             val pattern = enumOrDefault(ex.stringOrNull("tacticalPattern"), TacticalPattern.MIXED)
-            val gameIdx = ex.intOrNull("sourceGameIndex")?.takeIf { it in games.indices }
+            val gameIdx = ex.optionalIndex("sourceGameIndex", games.indices)
 
             PersonalExerciseEntry(
                 fenPosition = fen,
@@ -416,8 +432,7 @@ object UserProgressBackupCodec {
                 patternClusterId = ex.stringOrNull("patternClusterId")?.ifBlank { null }
                     ?: "${pattern.name}_RESTORED",
                 difficultyRating = (ex.intOrNull("difficultyRating") ?: 50).coerceIn(0, 100),
-                patternFeatures = ex.arrOrEmpty("patternFeatures")
-                    .mapNotNull { (it as? Value.Str)?.value },
+                patternFeatures = ex.strings("patternFeatures"),
                 theme = enumOrDefault(ex.stringOrNull("theme"), TacticalTheme.TACTIC),
                 rating = (ex.intOrNull("rating") ?: 1500).coerceIn(100, 3500),
                 createdFrom = enumOrDefault(ex.stringOrNull("createdFrom"), ExerciseSource.MISTAKE),
@@ -430,13 +445,12 @@ object UserProgressBackupCodec {
             )
         }
 
-        val attempts = payload.arrOrEmpty("attempts").mapNotNull { item ->
-            val a = item as? Value.Obj ?: return@mapNotNull null
-            val solved = a.boolOrNull("solved") ?: return@mapNotNull null
-            val pIdx = a.intOrNull("personalExerciseIndex")?.takeIf { it in exercises.indices }
+        val attempts = payload.rows("attempts").map { a ->
+            val solved = requireNotNull(a.boolOrNull("solved")) { "Отсутствует результат попытки" }
+            val pIdx = a.optionalIndex("personalExerciseIndex", exercises.indices)
             val curated = a.stringOrNull("curatedId")?.trim()?.takeIf { it.isNotEmpty() }
             val fen = a.stringOrNull("exerciseFen")?.trim()?.takeIf { it.isNotEmpty() }
-            if (pIdx == null && curated == null && fen == null) return@mapNotNull null
+            require(pIdx != null || curated != null || fen != null) { "У попытки нет ссылки на задачу" }
 
             AttemptEntry(
                 personalExerciseIndex = pIdx,
@@ -444,7 +458,7 @@ object UserProgressBackupCodec {
                 exerciseFen = fen,
                 solved = solved,
                 timeSpentSeconds = (a.intOrNull("timeSpentSeconds") ?: 0).coerceAtLeast(0),
-                movesMade = a.arrOrEmpty("movesMade").mapNotNull { (it as? Value.Str)?.value },
+                movesMade = a.strings("movesMade"),
                 attemptedAt = (a.longOrNull("attemptedAt") ?: exportedAtMs).coerceAtLeast(0L)
             )
         }
