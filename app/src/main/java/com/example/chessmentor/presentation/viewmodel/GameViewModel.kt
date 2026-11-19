@@ -13,6 +13,7 @@ import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnParser
+import com.example.chessmentor.domain.session.SessionState
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.domain.usecase.UploadGameUseCase
 import kotlinx.coroutines.CancellationException
@@ -57,7 +58,13 @@ class GameViewModel(
 
     // ==================== СОСТОЯНИЯ ====================
 
+    var sessionState = mutableStateOf<SessionState>(SessionState.Restoring)
+        private set
+
     var currentUser = mutableStateOf<User?>(null)
+
+    var lastLoginEmail = mutableStateOf(container.sessionRepository.getLastLoginEmail())
+        private set
 
     val userGames = mutableStateListOf<Game>()
 
@@ -88,21 +95,84 @@ class GameViewModel(
         _analysisProgress.asStateFlow()
 
     private var analysisJob: Job? = null
+    private var activeAnalysisGameId: Long? = null
     private var previewJob: Job? = null
     private var lastSourceFileName: String? = null
+    private var sessionRestoreStarted = false
 
     // ==================== ПУБЛИЧНЫЕ МЕТОДЫ ====================
 
     /**
-     * Установить текущего пользователя и загрузить его данные
+     * Восстанавливает сохранённую пользовательскую сессию при холодном перезапуске приложения
+     * и запускает разовую проверку согласованности БД (сброс прерванных `IN_PROGRESS` партий
+     * и очистка осиротевших персональных задач).
      */
-    fun setUser(user: User) {
+    fun restoreSessionIfNeeded() {
+        if (sessionRestoreStarted) return
+        sessionRestoreStarted = true
+
+        // Если пользователь уже успел войти вручную, просто отмечаем сессию активной
+        currentUser.value?.let { existing ->
+            sessionState.value = SessionState.Authenticated(existing)
+            return
+        }
+
+        val savedUserId = container.sessionRepository.getActiveUserId()
+        lastLoginEmail.value = container.sessionRepository.getLastLoginEmail()
+
+        if (savedUserId == null) {
+            sessionState.value = SessionState.Unauthenticated
+            viewModelScope.launch {
+                container.databaseMaintenance.runStartupChecksOnce()
+            }
+            return
+        }
+
+        sessionState.value = SessionState.Restoring
+        viewModelScope.launch {
+            try {
+                // Сначала восстанавливаем согласованность статусов партий, затем читаем профиль
+                container.databaseMaintenance.runStartupChecksOnce()
+                val restoredUser = withContext(Dispatchers.IO) {
+                    container.userRepository.findById(savedUserId)
+                }
+                if (restoredUser != null) {
+                    setUser(restoredUser, persistSession = true)
+                    Log.i(TAG, "Restored active session for user id=${restoredUser.id}")
+                } else {
+                    Log.w(TAG, "Saved session user id=$savedUserId not found in DB, clearing")
+                    container.sessionRepository.clearActiveSession()
+                    sessionState.value = SessionState.Unauthenticated
+                }
+            } catch (e: CancellationException) {
+                sessionRestoreStarted = false
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to restore session", e)
+                sessionState.value = SessionState.Unauthenticated
+            }
+        }
+    }
+
+    /**
+     * Установить текущего пользователя, сохранить сессию и загрузить его данные.
+     */
+    fun setUser(user: User, persistSession: Boolean = true) {
         val previousId = currentUser.value?.id
         currentUser.value = user
-        if (previousId != user.id || chessUsernameHint.value.isBlank()) {
-            chessUsernameHint.value = user.nickname
+        sessionState.value = SessionState.Authenticated(user)
+        lastLoginEmail.value = user.email
+
+        val uid = user.id
+        if (persistSession && uid != null) {
+            container.sessionRepository.saveActiveSession(uid, user.email)
         }
-        if (previousId != user.id || userGames.isEmpty()) {
+
+        if (previousId != uid || chessUsernameHint.value.isBlank()) {
+            val savedHint = uid?.let { container.sessionRepository.getChessUsernameHint(it) }
+            chessUsernameHint.value = savedHint ?: user.nickname
+        }
+        if (previousId != uid || userGames.isEmpty()) {
             loadUserData()
         }
     }
@@ -113,18 +183,27 @@ class GameViewModel(
     fun updateCurrentUser(user: User) {
         val oldNick = currentUser.value?.nickname
         currentUser.value = user
-        if (chessUsernameHint.value.isBlank() || chessUsernameHint.value == oldNick) {
-            chessUsernameHint.value = user.nickname
+        sessionState.value = SessionState.Authenticated(user)
+        lastLoginEmail.value = user.email
+        user.id?.let { uid ->
+            container.sessionRepository.saveActiveSession(uid, user.email)
+            if (chessUsernameHint.value.isBlank() || chessUsernameHint.value == oldNick) {
+                chessUsernameHint.value = user.nickname
+                container.sessionRepository.saveChessUsernameHint(uid, user.nickname)
+            }
         }
     }
 
     /**
-     * Выход из аккаунта с очисткой сессии
+     * Выход из аккаунта с полной очисткой активной сессии в памяти и `SharedPreferences`.
      */
     fun logout() {
         cancelAnalysis()
         previewJob?.cancel()
+        container.sessionRepository.clearActiveSession()
+        lastLoginEmail.value = container.sessionRepository.getLastLoginEmail()
         currentUser.value = null
+        sessionState.value = SessionState.Unauthenticated
         userGames.clear()
         _userMistakes.clear()
         _mistakesByGameId.value = emptyMap()
@@ -151,6 +230,9 @@ class GameViewModel(
 
     fun onChessUsernameHintChanged(hint: String) {
         chessUsernameHint.value = hint
+        currentUser.value?.id?.let { uid ->
+            container.sessionRepository.saveChessUsernameHint(uid, hint)
+        }
         if (pgnInput.value.isNotBlank()) {
             schedulePgnPreview(pgnInput.value, lastSourceFileName, autoApplyFields = true)
         }
@@ -595,6 +677,7 @@ class GameViewModel(
         }
 
         isLoading.value = true
+        activeAnalysisGameId = gameId
         analysisJob = viewModelScope.launch {
             try {
                 container.analyzeGameUseCase.executeWithProgress(
@@ -674,6 +757,10 @@ class GameViewModel(
                 )
                 message.value = "❌ Ошибка анализа: ${e.message}"
                 Log.e(TAG, "Analysis flow crashed", e)
+            } finally {
+                if (activeAnalysisGameId == gameId) {
+                    activeAnalysisGameId = null
+                }
             }
         }
     }
@@ -685,8 +772,45 @@ class GameViewModel(
         container.chessEngine.stop()
         analysisJob?.cancel()
         analysisJob = null
+        activeAnalysisGameId = null
         isLoading.value = false
         _analysisProgress.value = null
+    }
+
+    /**
+     * Повторить загрузку/инициализацию Stockfish и его нейросети NNUE в `viewModelScope`,
+     * чтобы процесс не прерывался при повороте экрана или смене вкладки.
+     */
+    fun retryEngineInit(forceRedownload: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                container.chessEngine.retryInit(forceRedownload = forceRedownload)
+            } catch (e: CancellationException) {
+                Log.i(TAG, "Engine retry cancelled")
+            } catch (e: Exception) {
+                Log.e(TAG, "Engine retry failed", e)
+            }
+        }
+    }
+
+    /**
+     * Запустить полную проверку SHA-256 установленного файла NNUE.
+     */
+    fun verifyEngineNetwork() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                container.chessEngine.verifyNetwork()
+            } catch (e: CancellationException) {
+                Log.i(TAG, "NNUE verification cancelled")
+            } catch (e: Exception) {
+                Log.e(TAG, "NNUE verification failed", e)
+            }
+        }
+    }
+
+    /** Приостановить активную загрузку нейросети NNUE. */
+    fun cancelEngineInit() {
+        container.chessEngine.cancelInit()
     }
 
     /**
@@ -777,8 +901,12 @@ class GameViewModel(
     }
 
     fun deleteGame(gameId: Long) {
+        if (activeAnalysisGameId == gameId) {
+            cancelAnalysis()
+        }
         viewModelScope.launch {
             try {
+                container.exerciseRepository.deleteBySourceGameId(gameId)
                 container.analyzedMoveRepository.deleteByGameId(gameId)
                 container.mistakeRepository.deleteByGameId(gameId)
                 container.gameRepository.deleteById(gameId)
@@ -792,7 +920,7 @@ class GameViewModel(
                 }
 
                 message.value = "✅ Партия удалена"
-                Log.d(TAG, "Game $gameId deleted")
+                Log.d(TAG, "Game $gameId and dependent data deleted")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

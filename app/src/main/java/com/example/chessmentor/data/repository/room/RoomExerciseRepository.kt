@@ -132,6 +132,10 @@ class RoomExerciseRepository(private val exerciseDao: ExerciseDao) : ExerciseRep
         exerciseDao.deleteGlobalDuplicates()
     }
 
+    override suspend fun deleteBySourceGameId(gameId: Long) = withContext(Dispatchers.IO) {
+        exerciseDao.deleteBySourceGameId(gameId)
+    }
+
     override suspend fun countExercises(): Int = withContext(Dispatchers.IO) {
         exerciseDao.countExercises()
     }

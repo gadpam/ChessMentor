@@ -8,10 +8,10 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE id = :id")
     suspend fun findById(id: Long): User?
 
-    @Query("SELECT * FROM users WHERE email = :email")
+    @Query("SELECT * FROM users WHERE email = :email COLLATE NOCASE LIMIT 1")
     suspend fun findByEmail(email: String): User?
 
-    @Query("SELECT * FROM users WHERE nickname = :nickname")
+    @Query("SELECT * FROM users WHERE nickname = :nickname COLLATE NOCASE LIMIT 1")
     suspend fun findByNickname(nickname: String): User?
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
@@ -23,9 +23,9 @@ interface UserDao {
     @Query("DELETE FROM users WHERE id = :id")
     suspend fun deleteById(id: Long)
 
-    @Query("SELECT EXISTS(SELECT * FROM users WHERE email = :email)")
+    @Query("SELECT EXISTS(SELECT 1 FROM users WHERE email = :email COLLATE NOCASE)")
     suspend fun existsByEmail(email: String): Boolean
 
-    @Query("SELECT EXISTS(SELECT * FROM users WHERE nickname = :nickname)")
+    @Query("SELECT EXISTS(SELECT 1 FROM users WHERE nickname = :nickname COLLATE NOCASE)")
     suspend fun existsByNickname(nickname: String): Boolean
 }

@@ -26,6 +26,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.chessmentor.data.engine.ChessEngine
+import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.EngineSettings
 import com.example.chessmentor.domain.entity.Game
@@ -33,6 +35,7 @@ import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.repository.EngineSettingsRepository
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.presentation.ui.components.AnalysisProgressDialog
+import com.example.chessmentor.presentation.ui.components.EngineStatusBanner
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import com.example.chessmentor.presentation.viewmodel.PgnImportPreview
 import kotlinx.coroutines.Dispatchers
@@ -50,7 +53,8 @@ fun UploadGameScreen(
     onAnalysisComplete: () -> Unit,
     onOpenEngineSettings: () -> Unit,
     onNavigateToLibrary: () -> Unit = {},
-    onOpenExistingGame: (Game) -> Unit = {}
+    onOpenExistingGame: (Game) -> Unit = {},
+    chessEngine: ChessEngine? = null
 ) {
     val pgnInput by gameViewModel.pgnInput
     val selectedColor by gameViewModel.selectedColor
@@ -108,6 +112,11 @@ fun UploadGameScreen(
     }
 
     val engineSettings = remember { engineSettingsRepository.getSettings() }
+    val engineStatus by if (chessEngine != null) {
+        chessEngine.status.collectAsState()
+    } else {
+        remember { mutableStateOf<EngineStatus>(EngineStatus.Idle) }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -125,6 +134,19 @@ fun UploadGameScreen(
                 settings = engineSettings,
                 onClick = onOpenEngineSettings
             )
+        }
+
+        // Живой прогресс/ошибка загрузки NNUE прямо перед запуском анализа партии
+        if (engineStatus !is EngineStatus.Idle && engineStatus !is EngineStatus.Ready) {
+            item {
+                EngineStatusBanner(
+                    status = engineStatus,
+                    onRetry = { gameViewModel.retryEngineInit(forceRedownload = false) },
+                    onCancel = { gameViewModel.cancelEngineInit() },
+                    onOpenSettings = onOpenEngineSettings,
+                    showWhenReady = false
+                )
+            }
         }
 
         if (message.isNotEmpty()) {

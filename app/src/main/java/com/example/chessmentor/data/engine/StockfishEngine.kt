@@ -3,23 +3,33 @@ package com.example.chessmentor.data.engine
 
 import android.content.Context
 import android.util.Log
+import com.example.chessmentor.domain.engine.EngineErrorReason
+import com.example.chessmentor.domain.engine.EngineStatus
+import com.example.chessmentor.domain.engine.NnueIntegrity
+import com.example.chessmentor.domain.entity.EngineSettings
+import com.example.chessmentor.domain.repository.EngineSettingsRepository
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Stockfish через JNI (нативная библиотека stockfish-lib, см. app/src/main/cpp).
+ * Stockfish через JNI (нативная библиотека `stockfish-lib`, см. `app/src/main/cpp`).
  *
  * Все обращения к нативному коду сериализуются через [mutex] и внутренний мьютекс
- * StockfishBridge. При отмене корутины автоматически вызывается [nativeStop], чтобы
- * не блокировать движок до окончания глубокого поиска.
+ * `StockfishBridge`. Ход проверки/скачивания нейросети NNUE и готовность движка
+ * публикуются в реальном времени через [status].
  */
 class StockfishEngine(
-    context: Context
+    context: Context,
+    private val engineSettingsRepository: EngineSettingsRepository? = null
 ) : ChessEngine {
 
     private val netDownloader = NnueDownloader(context.applicationContext)
@@ -27,6 +37,22 @@ class StockfishEngine(
 
     @Volatile
     private var isInitialized = false
+
+    @Volatile
+    private var activeInitJob: Job? = null
+
+    private val _status = MutableStateFlow<EngineStatus>(
+        if (libraryLoadError != null) {
+            EngineStatus.Error(
+                reason = EngineErrorReason.NATIVE_LIBRARY_MISSING,
+                message = EngineErrorReason.NATIVE_LIBRARY_MISSING.title,
+                canRetry = false
+            )
+        } else {
+            EngineStatus.Idle
+        }
+    )
+    override val status: StateFlow<EngineStatus> = _status.asStateFlow()
 
     companion object {
         private const val TAG = "StockfishEngine"
@@ -38,7 +64,99 @@ class StockfishEngine(
     }
 
     override suspend fun init(): Boolean = withContext(Dispatchers.Default) {
-        mutex.withLock { initLocked() }
+        mutex.withLock {
+            initLocked(forceRedownload = false)
+        }
+    }
+
+    override suspend fun retryInit(forceRedownload: Boolean): Boolean =
+        withContext(Dispatchers.Default) {
+            if (forceRedownload) {
+                cancelInit()
+                stop()
+            }
+            mutex.withLock {
+                if (forceRedownload && isInitialized && libraryLoadError == null) {
+                    isInitialized = false
+                    nativeDestroy()
+                }
+                initLocked(forceRedownload = forceRedownload)
+            }
+        }
+
+    override suspend fun verifyNetwork(): Boolean = withContext(Dispatchers.Default) {
+        mutex.withLock {
+            val callerJob = coroutineContext[Job]
+            activeInitJob = callerJob
+            try {
+                val ok = netDownloader.verifyInstalledNet { progress ->
+                    _status.value = progress
+                }
+                if (!ok) {
+                    if (isInitialized && libraryLoadError == null) {
+                        isInitialized = false
+                        nativeDestroy()
+                    }
+                    _status.value = EngineStatus.Error(
+                        reason = EngineErrorReason.INTEGRITY_MISMATCH,
+                        message = "Файл нейросети NNUE отсутствует или повреждён",
+                        canRetry = true
+                    )
+                    return@withLock false
+                }
+
+                val file = netDownloader.netFile()
+                if (!isInitialized) {
+                    return@withLock initLocked(forceRedownload = false)
+                }
+
+                _status.value = EngineStatus.Ready(
+                    netName = file.name,
+                    netSizeBytes = file.length(),
+                    hashPrefix = NnueIntegrity.EXPECTED_SHA256_PREFIX
+                )
+                true
+            } catch (e: CancellationException) {
+                if (!isInitialized) {
+                    _status.value = EngineStatus.Error(
+                        reason = EngineErrorReason.CANCELLED,
+                        message = EngineErrorReason.CANCELLED.title,
+                        canRetry = true
+                    )
+                }
+                throw e
+            } finally {
+                if (activeInitJob === callerJob) {
+                    activeInitJob = null
+                }
+            }
+        }
+    }
+
+    override suspend fun applySettings(settings: EngineSettings) =
+        withContext(Dispatchers.Default) {
+            val valid = settings.validate()
+            mutex.withLock {
+                // Применяем сразу, если движок уже запущен; иначе настройки подхватятся в initLocked()
+                if (isInitialized && libraryLoadError == null) {
+                    nativeSetOption("Threads", valid.threads.toString())
+                    nativeSetOption("Hash", valid.hashSizeMb.toString())
+                }
+            }
+        }
+
+    override fun cancelInit() {
+        val job = activeInitJob
+        if (job != null && job.isActive) {
+            job.cancel(CancellationException("NNUE initialization cancelled by user"))
+            if (!isInitialized) {
+                _status.value = EngineStatus.Error(
+                    reason = EngineErrorReason.CANCELLED,
+                    message = EngineErrorReason.CANCELLED.title,
+                    canRetry = true
+                )
+            }
+        }
     }
 
     override suspend fun evaluate(fen: String, depthLimit: Int): Int =
@@ -69,13 +187,15 @@ class StockfishEngine(
     }
 
     /**
-     * Прерывает активный поиск и безопасно освобождает нативный движок.
+     * Прерывает активный поиск/загрузку и безопасно освобождает нативный движок.
      * Следующий вызов [init] создаст движок заново.
      */
     override fun destroy() {
+        cancelInit()
         if (libraryLoadError != null) return
         isInitialized = false
         nativeDestroy()
+        _status.value = EngineStatus.Idle
     }
 
     private suspend fun <T> runCancellableSearch(block: () -> T): T =
@@ -97,30 +217,115 @@ class StockfishEngine(
         }
 
     /** Вызывать только под [mutex]. */
-    private suspend fun initLocked(): Boolean {
-        if (isInitialized) return true
+    private suspend fun initLocked(forceRedownload: Boolean): Boolean {
+        if (isInitialized && !forceRedownload) {
+            if (_status.value !is EngineStatus.Ready) {
+                val file = netDownloader.netFile()
+                _status.value = EngineStatus.Ready(
+                    netName = file.name,
+                    netSizeBytes = file.takeIf { it.isFile }?.length() ?: 0L,
+                    hashPrefix = NnueIntegrity.EXPECTED_SHA256_PREFIX
+                )
+            }
+            return true
+        }
 
         libraryLoadError?.let {
             Log.e(TAG, "Native library stockfish-lib is not available", it)
+            _status.value = EngineStatus.Error(
+                reason = EngineErrorReason.NATIVE_LIBRARY_MISSING,
+                message = EngineErrorReason.NATIVE_LIBRARY_MISSING.title,
+                canRetry = false
+            )
             return false
         }
 
-        val net = netDownloader.ensureNet()
-        if (net == null) {
-            Log.e(TAG, "Neural network file is not available")
-            return false
-        }
+        val callerJob = coroutineContext[Job]
+        activeInitJob = callerJob
+        try {
+            val netResult = netDownloader.ensureNetWithStatus(
+                forceRedownload = forceRedownload,
+                onStatus = { progress -> _status.value = progress }
+            )
 
-        coroutineContext.ensureActive()
-        isInitialized = nativeInit(net.absolutePath)
-        Log.i(TAG, "Stockfish initialized: $isInitialized")
-        return isInitialized
+            val net = when (netResult) {
+                is NnueDownloader.EnsureResult.Ready -> netResult.file
+                is NnueDownloader.EnsureResult.Failed -> {
+                    Log.e(TAG, "Neural network unavailable: ${netResult.reason} (${netResult.message})")
+                    _status.value = EngineStatus.Error(
+                        reason = netResult.reason,
+                        message = netResult.message,
+                        canRetry = true
+                    )
+                    return false
+                }
+            }
+
+            coroutineContext.ensureActive()
+            val netBytes = net.length()
+            _status.value = EngineStatus.InitializingEngine(netSizeBytes = netBytes)
+
+            val ok = nativeInit(net.absolutePath)
+            isInitialized = ok
+            if (ok) {
+                engineSettingsRepository?.let { repo ->
+                    runCatching {
+                        val settings = repo.getSettings().validate()
+                        nativeSetOption("Threads", settings.threads.toString())
+                        nativeSetOption("Hash", settings.hashSizeMb.toString())
+                    }.onFailure { err ->
+                        Log.w(TAG, "Failed to apply initial UCI settings", err)
+                    }
+                }
+                _status.value = EngineStatus.Ready(
+                    netName = net.name,
+                    netSizeBytes = netBytes,
+                    hashPrefix = NnueIntegrity.EXPECTED_SHA256_PREFIX
+                )
+            } else {
+                _status.value = EngineStatus.Error(
+                    reason = EngineErrorReason.ENGINE_INIT_FAILED,
+                    message = EngineErrorReason.ENGINE_INIT_FAILED.title,
+                    canRetry = true
+                )
+            }
+            Log.i(TAG, "Stockfish initialized: $ok")
+            return ok
+        } catch (e: CancellationException) {
+            if (!isInitialized) {
+                _status.value = EngineStatus.Error(
+                    reason = EngineErrorReason.CANCELLED,
+                    message = EngineErrorReason.CANCELLED.title,
+                    canRetry = true
+                )
+            }
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected error during Stockfish initialization", e)
+            val reason = NnueIntegrity.classifyError(e)
+            _status.value = EngineStatus.Error(
+                reason = reason,
+                message = e.message ?: reason.title,
+                canRetry = true
+            )
+            return false
+        } finally {
+            if (activeInitJob === callerJob) {
+                activeInitJob = null
+            }
+        }
     }
 
-    /** Вызывать только под [mutex]. Бросает исключение, если движок не готов. */
+    /** Вызывать только под [mutex]. Бросает понятное исключение, если движок не готов. */
     private suspend fun ensureReadyLocked() {
-        if (!isInitialized && !initLocked()) {
-            throw IllegalStateException("Шахматный движок не инициализирован")
+        if (!isInitialized && !initLocked(forceRedownload = false)) {
+            val err = _status.value as? EngineStatus.Error
+            val detailedMessage = if (err != null) {
+                "${err.message}. ${err.reason.userHint}"
+            } else {
+                "Шахматный движок Stockfish не инициализирован"
+            }
+            throw IllegalStateException(detailedMessage)
         }
     }
 

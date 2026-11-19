@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.session.SessionState
 import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.usecase.LoginUserUseCase
 import com.example.chessmentor.domain.usecase.RegisterUserUseCase
@@ -43,11 +44,15 @@ fun ChessMentorApp(
     container: AppContainer,
     gameViewModel: GameViewModel
 ) {
-    // Пользователь хранится в ViewModel, поэтому сессия сохраняется при повороте экрана
+    // Сессия сохраняется между перезапусками приложения и поворотами экрана
+    val sessionState by gameViewModel.sessionState
     val currentUser by gameViewModel.currentUser
+    val lastLoginEmail by gameViewModel.lastLoginEmail
+
     var currentScreen by rememberSaveable { mutableStateOf("home") }
     var pendingTrainingModeKey by rememberSaveable { mutableStateOf<String?>(null) }
     var trainingReturnScreen by rememberSaveable { mutableStateOf<String?>(null) }
+    var engineSettingsReturnScreen by rememberSaveable { mutableStateOf("upload") }
     var isLoading by remember { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf("") }
 
@@ -57,9 +62,19 @@ fun ChessMentorApp(
     var regPassword by remember { mutableStateOf("") }
     var regRating by rememberSaveable { mutableStateOf("1200") }
 
-    // Форма входа (без захардкоженных тестовых учётных данных)
-    var loginEmail by rememberSaveable { mutableStateOf("") }
+    // Форма входа (подставляем последний email пользователя без сохранения пароля)
+    var loginEmail by rememberSaveable { mutableStateOf(lastLoginEmail) }
     var loginPassword by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        gameViewModel.restoreSessionIfNeeded()
+    }
+
+    LaunchedEffect(lastLoginEmail, currentUser) {
+        if (currentUser == null && loginEmail.isBlank() && lastLoginEmail.isNotBlank()) {
+            loginEmail = lastLoginEmail
+        }
+    }
 
     val coroutineScope = rememberCoroutineScope()
     val viewModelFactory = remember(container) { ChessMentorViewModelFactory(container) }
@@ -85,7 +100,11 @@ fun ChessMentorApp(
                 gameViewModel.closeGameView()
                 "games"
             }
-            "engine_settings" -> "upload"
+            "engine_settings" -> {
+                engineSettingsReturnScreen
+                    .takeIf { it in setOf("upload", "settings", "home", "games") }
+                    ?: "upload"
+            }
             else -> "home"
         }
         Log.d(TAG, "Navigate back to: $currentScreen")
@@ -123,6 +142,7 @@ fun ChessMentorApp(
         NavigationHost(
             paddingValues = paddingValues,
             currentScreen = currentScreen,
+            isRestoringSession = sessionState is SessionState.Restoring && currentUser == null,
             pendingTrainingModeKey = pendingTrainingModeKey,
             currentUser = currentUser,
             gameViewModel = gameViewModel,
@@ -139,6 +159,16 @@ fun ChessMentorApp(
             onScreenChange = { next ->
                 currentScreen = next
                 Log.d(TAG, "Screen changed to: $next")
+            },
+            onOpenEngineSettings = { fromScreen ->
+                engineSettingsReturnScreen = fromScreen
+                currentScreen = "engine_settings"
+                Log.d(TAG, "Open engine settings from: $fromScreen")
+            },
+            onCloseEngineSettings = {
+                currentScreen = engineSettingsReturnScreen
+                    .takeIf { it in setOf("upload", "settings", "home", "games") }
+                    ?: "upload"
             },
             onOpenTrainingWithMode = { mode ->
                 if (mode !is TrainingMode.FromGame) {
@@ -176,13 +206,16 @@ fun ChessMentorApp(
                 gameViewModel.updateCurrentUser(updated)
             },
             onLogout = {
+                val rememberedEmail = currentUser?.email ?: gameViewModel.lastLoginEmail.value
                 boardViewModel.dismissEngineLine()
                 gameViewModel.logout()
+                loginEmail = rememberedEmail
                 loginPassword = ""
                 regPassword = ""
                 message = ""
                 pendingTrainingModeKey = null
                 trainingReturnScreen = null
+                engineSettingsReturnScreen = "upload"
                 currentScreen = "home"
             },
             onMessageDismiss = { message = "" },
@@ -352,6 +385,7 @@ private fun ChessMentorBottomBar(
 private fun NavigationHost(
     paddingValues: PaddingValues,
     currentScreen: String,
+    isRestoringSession: Boolean,
     pendingTrainingModeKey: String?,
     currentUser: User?,
     gameViewModel: GameViewModel,
@@ -366,6 +400,8 @@ private fun NavigationHost(
     loginEmail: String,
     loginPassword: String,
     onScreenChange: (String) -> Unit,
+    onOpenEngineSettings: (fromScreen: String) -> Unit,
+    onCloseEngineSettings: () -> Unit,
     onOpenTrainingWithMode: (TrainingMode) -> Unit,
     onOpenGameMistakeTraining: (fromScreen: String, gameId: Long, focusMoveNumber: Int?) -> Unit,
     onReturnToGameFromTraining: (() -> Unit)?,
@@ -382,6 +418,11 @@ private fun NavigationHost(
     onRegister: (String, String, String, Int) -> Unit,
     onLogin: (String, String) -> Unit
 ) {
+    if (isRestoringSession) {
+        SessionRestoringView(paddingValues = paddingValues)
+        return
+    }
+
     when (currentScreen) {
         "home" -> HomeScreen(
             paddingValues = paddingValues,
@@ -392,6 +433,7 @@ private fun NavigationHost(
             onNavigateToTraining = { onScreenChange("training") },
             onNavigateToDailyPuzzle = { onOpenTrainingWithMode(TrainingMode.Daily) },
             onNavigateToSmartSession = { onOpenTrainingWithMode(TrainingMode.SmartSession) },
+            onOpenEngineSettings = { onOpenEngineSettings("home") },
             onOpenGame = { game ->
                 gameViewModel.selectGame(game)
                 onScreenChange("summary")
@@ -425,7 +467,8 @@ private fun NavigationHost(
                 onScreenChange("summary")
             },
             onNavigateToUpload = { onScreenChange("upload") },
-            onAnalysisComplete = { onScreenChange("summary") }
+            onAnalysisComplete = { onScreenChange("summary") },
+            onOpenEngineSettings = { onOpenEngineSettings("games") }
         )
 
         "game_view" -> {
@@ -501,12 +544,13 @@ private fun NavigationHost(
             engineSettingsRepository = container.engineSettingsRepository,
             onGameUploaded = { },
             onAnalysisComplete = { onScreenChange("summary") },
-            onOpenEngineSettings = { onScreenChange("engine_settings") },
+            onOpenEngineSettings = { onOpenEngineSettings("upload") },
             onNavigateToLibrary = { onScreenChange("games") },
             onOpenExistingGame = { existing ->
                 gameViewModel.selectGame(existing)
                 onScreenChange("summary")
-            }
+            },
+            chessEngine = container.chessEngine
         )
 
         "training" -> {
@@ -553,7 +597,8 @@ private fun NavigationHost(
                     user = user,
                     container = container,
                     onLogout = onLogout,
-                    onUserUpdated = onUserUpdated
+                    onUserUpdated = onUserUpdated,
+                    onOpenEngineSettings = { onOpenEngineSettings("settings") }
                 )
             } ?: LaunchedEffect(Unit) {
                 onScreenChange("home")
@@ -563,7 +608,34 @@ private fun NavigationHost(
         "engine_settings" -> EngineSettingsScreen(
             paddingValues = paddingValues,
             engineSettingsRepository = container.engineSettingsRepository,
-            onBack = { onScreenChange("upload") }
+            onBack = onCloseEngineSettings,
+            chessEngine = container.chessEngine,
+            onRetryDownload = { gameViewModel.retryEngineInit(forceRedownload = false) },
+            onForceRedownload = { gameViewModel.retryEngineInit(forceRedownload = true) },
+            onVerifyNetwork = { gameViewModel.verifyEngineNetwork() },
+            onCancelDownload = { gameViewModel.cancelEngineInit() }
         )
+    }
+}
+
+@Composable
+private fun SessionRestoringView(paddingValues: PaddingValues) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(paddingValues),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            CircularProgressIndicator(strokeWidth = 3.dp)
+            Text(
+                text = "Загрузка профиля…",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
