@@ -110,10 +110,7 @@ class UserProgressBackupTest {
         assertTrue(UserProgressBackupCodec.decodeAndVerify(futureVer) is UserProgressBackupCodec.DecodeResult.Error)
     }
 
-    @Test
-    fun `full export and import restores games, moves, personal puzzles and SM2 history idempotently`() = runBlocking {
-        // 1. Исходное устройство (пользователь id=1)
-        val srcEnv = InMemoryEnv()
+    private suspend fun seedProgress(srcEnv: InMemoryEnv): User {
         val secretHash = "pbkdf2_sha256\$120000\$super_secret_salt\$super_secret_hash"
         val srcUser = srcEnv.users.save(
             User(
@@ -254,14 +251,56 @@ class UserProgressBackupTest {
             )
         )
 
-        val exportRes = srcEnv.exporter().execute(
-            ExportUserBackupUseCase.Input(userId = srcUid, nowMs = fixedNow, zoneId = ZoneOffset.UTC)
+        return srcUser
+    }
+
+    private suspend fun InMemoryEnv.export(userId: Long): ExportUserBackupUseCase.ExportedBackup {
+        val result = exporter().execute(ExportUserBackupUseCase.Input(userId, fixedNow, ZoneOffset.UTC))
+        return (result as ExportUserBackupUseCase.Result.Success).backup
+    }
+
+    private fun snapshot(json: String) =
+        (UserProgressBackupCodec.decodeAndVerify(json) as UserProgressBackupCodec.DecodeResult.Success).snapshot
+
+    @Test
+    fun `invalid imports leave populated account and preferences unchanged`() = runBlocking {
+        val env = InMemoryEnv()
+        val user = seedProgress(env)
+        val uid = requireNotNull(user.id)
+        val before = env.export(uid).jsonContent
+        val local = snapshot(before)
+        val game = local.games.single().copy(pgnData = "1. e4 e5 *")
+        val incoming = local.copy(profile = local.profile.copy(rating = 2200, appThemeMode = AppThemeMode.LIGHT),
+            games = listOf(game))
+        val valid = UserProgressBackupCodec.encode(incoming)
+        val puzzle = incoming.personalExercises.single()
+        val invalidFiles = mapOf(
+            "truncated JSON" to valid.dropLast(1),
+            "checksum mismatch" to valid.replace("2200", "2300"),
+            "invalid game before valid game" to UserProgressBackupCodec.encode(
+                incoming.copy(games = listOf(game.copy(pgnData = ""), game))),
+            "invalid exercise before valid exercise" to UserProgressBackupCodec.encode(
+                incoming.copy(personalExercises = listOf(puzzle.copy(solutionMoves = emptyList()), puzzle))),
+            "dangling reference" to UserProgressBackupCodec.encode(
+                incoming.copy(personalExercises = listOf(puzzle.copy(sourceGameIndex = 1))))
         )
-        assertTrue(exportRes is ExportUserBackupUseCase.Result.Success)
-        val exported = (exportRes as ExportUserBackupUseCase.Result.Success).backup
+        for ((description, json) in invalidFiles) {
+            val result = env.importer().execute(ImportUserBackupUseCase.Input(uid, json))
+            assertTrue(description, result is ImportUserBackupUseCase.Result.Error)
+            assertEquals(description, before, env.export(uid).jsonContent)
+            assertEquals(description, user, env.users.findById(uid))
+        }
+    }
+
+    @Test
+    fun `full export and import restores games, moves, personal puzzles and SM2 history idempotently`() = runBlocking {
+        val srcEnv = InMemoryEnv()
+        val srcUser = seedProgress(srcEnv)
+        val srcUid = requireNotNull(srcUser.id)
+        val exported = srcEnv.export(srcUid)
 
         // Пароль и хеш пароля гарантированно НЕ попадают в резервную копию
-        assertFalse(exported.jsonContent.contains(secretHash))
+        assertFalse(exported.jsonContent.contains(srcUser.passwordHash))
         assertFalse(exported.jsonContent.contains("passwordHash"))
         assertEquals(1, exported.gamesCount)
         assertEquals(1, exported.analyzedGamesCount)
@@ -303,7 +342,7 @@ class UserProgressBackupTest {
 
         // Партия получила новый ID (50), и персональная задача перепривязалась именно к нему
         val restoredGame = dstEnv.games.findByUserId(dstUid).single()
-        assertNotEquals(srcGameId, restoredGame.id)
+        assertNotEquals(srcEnv.games.findByUserId(srcUid).single().id, restoredGame.id)
         assertEquals(2, dstEnv.moves.findByGameId(restoredGame.id!!).size)
         assertEquals(1, dstEnv.mistakes.findByGameId(restoredGame.id!!).size)
 
@@ -318,6 +357,12 @@ class UserProgressBackupTest {
         val schedule = SpacedRepetitionScheduler.buildSchedule(dstAttempts, dstExMap)
         assertEquals(2, schedule.size)
         assertNotNull(schedule[restoredPersonal.id])
+
+        // Сравниваем содержимое, а не только количество записей. Локальные ID
+        // в переносимый снимок не попадают, а ник остаётся у целевого аккаунта.
+        val expected = snapshot(exported.jsonContent)
+        assertEquals(expected.copy(profile = expected.profile.copy(nickname = dstUser.nickname)),
+            snapshot(dstEnv.export(dstUid).jsonContent))
 
         // 3. Повторный импорт того же файла на 100% идемпотентен (0 дублей)
         val secondRes = dstEnv.importer().execute(
