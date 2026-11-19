@@ -42,9 +42,11 @@ object SimpleJson {
         data class Str(val value: String) : Value()
         data class Num(val raw: String) : Value() {
             fun toLongExact(): Long? = raw.toLongOrNull()
-                ?: raw.toDoubleOrNull()
-                    ?.takeIf { it.isFinite() && it % 1.0 == 0.0 && it >= Long.MIN_VALUE && it <= Long.MAX_VALUE }
-                    ?.toLong()
+                ?: try {
+                    raw.toBigDecimalOrNull()?.longValueExact()
+                } catch (_: ArithmeticException) {
+                    null // Non-integral or outside the Long range.
+                }
 
             fun toIntExact(): Int? = toLongExact()
                 ?.takeIf { it in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong() }
@@ -293,7 +295,8 @@ object SimpleJson {
                                     throw JsonFormatException("Неполная \\uXXXX-последовательность на позиции $pos")
                                 }
                                 val hex = s.substring(pos, pos + 4)
-                                val code = hex.toIntOrNull(16)
+                                val code = hex.takeIf { digits -> digits.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' } }
+                                    ?.toInt(16)
                                     ?: throw JsonFormatException("Некорректный код \\u$hex")
                                 pos += 4
                                 sb.append(code.toChar())
