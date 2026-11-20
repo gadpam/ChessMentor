@@ -190,6 +190,10 @@ private fun GameViewScreenContent(
     val currentEvaluation = boardViewModel.getCurrentEvaluation()
     val currentMistake = boardViewModel.getCurrentMistake()
     val currentAnalyzedMove = boardViewModel.getCurrentAnalyzedMove()
+    val canRetry = boardViewModel.canRetryCurrentMove()
+    var answerRevealed by remember(game.id, game.pgnData, currentMoveIndex, retryState != null) { mutableStateOf(false) }
+    val concealAnswer = canRetry && !answerRevealed
+    val revealAnswer: (() -> Unit)? = if (concealAnswer) ({ answerRevealed = true }) else null
     val displayedMoves = boardViewModel.sanMoves.toList()
     val totalMoves = boardViewModel.getTotalMoves()
     val hasRealEvaluations = boardViewModel.hasRealEvaluations() || engineLine?.evalWhiteCp != null
@@ -235,7 +239,8 @@ private fun GameViewScreenContent(
         retryState,
         engineLine,
         isInVariation,
-        fenBeforeCurrent
+        fenBeforeCurrent,
+        concealAnswer
     ) {
         val activeRetry = retryState
         if (activeRetry != null) {
@@ -260,7 +265,7 @@ private fun GameViewScreenContent(
             }
         }
 
-        if (isInVariation) return@remember emptyList()
+        if (isInVariation || concealAnswer) return@remember emptyList()
 
         val bestRaw = currentAnalyzedMove?.bestMove?.takeIf {
             currentAnalyzedMove.isMistake() && it.isNotBlank() && it != currentAnalyzedMove.san
@@ -522,7 +527,8 @@ private fun GameViewScreenContent(
                         moveQuality = currentAnalyzedMove?.quality,
                         fenBefore = fenBeforeCurrent,
                         clockSeconds = currentMoveClock,
-                        onRetryMove = if (boardViewModel.canRetryCurrentMove()) {
+                        onRevealAnswer = revealAnswer,
+                        onRetryMove = if (canRetry) {
                             { boardViewModel.startRetryCurrentMove() }
                         } else {
                             null
@@ -552,7 +558,8 @@ private fun GameViewScreenContent(
                         isPlayerMove = isPlayerMove,
                         fenBefore = fenBeforeCurrent,
                         clockSeconds = currentMoveClock,
-                        onRetryMove = if (boardViewModel.canRetryCurrentMove()) {
+                        onRevealAnswer = revealAnswer,
+                        onRetryMove = if (canRetry) {
                             { boardViewModel.startRetryCurrentMove() }
                         } else {
                             null
@@ -1248,11 +1255,12 @@ private fun EngineLineCard(
 }
 
 @Composable
-private fun AnalyzedMoveInfoCard(
+internal fun AnalyzedMoveInfoCard(
     analyzedMove: AnalyzedMove,
     isPlayerMove: Boolean,
     fenBefore: String?,
     clockSeconds: Int?,
+    onRevealAnswer: (() -> Unit)?,
     onRetryMove: (() -> Unit)?,
     onShowEngineLine: (() -> Unit)?,
     onPracticeInTrainer: (() -> Unit)?,
@@ -1322,7 +1330,7 @@ private fun AnalyzedMoveInfoCard(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
-                        if (!bestSan.isNullOrBlank() && quality.isBad() && bestSan != analyzedMove.san) {
+                        if (onRevealAnswer == null && !bestSan.isNullOrBlank() && quality.isBad() && bestSan != analyzedMove.san) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "Лучше: $bestSan",
@@ -1349,7 +1357,7 @@ private fun AnalyzedMoveInfoCard(
                 }
             }
 
-            analyzedMove.comment?.takeIf { it.isNotBlank() }?.let { comment ->
+            analyzedMove.comment?.takeIf { onRevealAnswer == null && it.isNotBlank() }?.let { comment ->
                 Text(
                     text = comment,
                     style = MaterialTheme.typography.bodySmall,
@@ -1358,40 +1366,7 @@ private fun AnalyzedMoveInfoCard(
                 )
             }
 
-            if (onRetryMove != null || onShowEngineLine != null || onPracticeInTrainer != null) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (onRetryMove != null) {
-                        FilledTonalButton(
-                            onClick = onRetryMove,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("Исправить", fontSize = 11.sp)
-                        }
-                    }
-                    if (onShowEngineLine != null) {
-                        OutlinedButton(
-                            onClick = onShowEngineLine,
-                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("Линия", fontSize = 11.sp)
-                        }
-                    }
-                    if (onPracticeInTrainer != null) {
-                        OutlinedButton(
-                            onClick = onPracticeInTrainer,
-                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("В тренажёр", fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
+            MistakeReviewActions(onRetryMove, onRevealAnswer, onShowEngineLine, onPracticeInTrainer)
         }
     }
 }

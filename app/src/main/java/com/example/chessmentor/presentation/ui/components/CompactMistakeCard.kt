@@ -33,7 +33,7 @@ import kotlin.math.abs
  * - читабельна и в светлой, и в тёмной теме;
  * - автоматически переводит UCI в SAN по [fenBefore];
  * - показывает полное тренерское пояснение и пометку о цейтноте;
- * - даёт быстрые действия: «Исправить» (на доске), «Линия» (Stockfish) и «В тренировку».
+ * - отделяет самостоятельную попытку от просмотра ответа и линии Stockfish.
  */
 @Composable
 fun CompactMistakeCard(
@@ -42,6 +42,7 @@ fun CompactMistakeCard(
     moveQuality: MoveQuality? = null,
     fenBefore: String? = mistake.fenBefore,
     clockSeconds: Int? = null,
+    onRevealAnswer: (() -> Unit)? = null,
     onRetryMove: (() -> Unit)? = null,
     onShowEngineLine: (() -> Unit)? = null,
     onPracticeInTrainer: (() -> Unit)? = null
@@ -133,21 +134,23 @@ fun CompactMistakeCard(
                     move = playedSan,
                     color = Color(0xFFE53935)
                 )
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp)
-                )
-                CompactMovePair(
-                    label = "Лучше",
-                    move = bestSan,
-                    color = Color(0xFF4CAF50)
-                )
+                if (onRevealAnswer == null) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    CompactMovePair(
+                        label = "Лучше",
+                        move = bestSan,
+                        color = Color(0xFF4CAF50)
+                    )
+                }
             }
 
             // Полное тренерское пояснение
-            val explanation = mistake.comment?.trim()?.takeIf { it.isNotEmpty() }
+            val explanation = mistake.comment?.trim()?.takeIf { onRevealAnswer == null && it.isNotEmpty() }
             if (explanation != null) {
                 Text(
                     text = explanation,
@@ -157,61 +160,30 @@ fun CompactMistakeCard(
                 )
             }
 
-            // Быстрые интерактивные действия
-            if (onRetryMove != null || onShowEngineLine != null || onPracticeInTrainer != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (onRetryMove != null) {
-                        FilledTonalButton(
-                            onClick = onRetryMove,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                            modifier = Modifier.height(30.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Replay,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Исправить", fontSize = 11.sp)
-                        }
-                    }
-                    if (onShowEngineLine != null) {
-                        OutlinedButton(
-                            onClick = onShowEngineLine,
-                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                            modifier = Modifier.height(30.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Psychology,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Линия", fontSize = 11.sp)
-                        }
-                    }
-                    if (onPracticeInTrainer != null) {
-                        OutlinedButton(
-                            onClick = onPracticeInTrainer,
-                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                            modifier = Modifier.height(30.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.FitnessCenter,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("В тренажёр", fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
+            MistakeReviewActions(onRetryMove, onRevealAnswer, onShowEngineLine, onPracticeInTrainer)
         }
+    }
+}
+
+/** Both review cards use the same order and only expose a continuation after disclosure. */
+@Composable
+internal fun MistakeReviewActions(
+    onRetryMove: (() -> Unit)?,
+    onRevealAnswer: (() -> Unit)?,
+    onShowEngineLine: (() -> Unit)?,
+    onPracticeInTrainer: (() -> Unit)?
+) {
+    val action = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+    if (onRetryMove != null) {
+        Button(onClick = onRetryMove, modifier = action) { Text("Попробовать снова") }
+    }
+    if (onRevealAnswer != null) {
+        OutlinedButton(onClick = onRevealAnswer, modifier = action) { Text("Показать лучший ход") }
+    } else if (onShowEngineLine != null) {
+        OutlinedButton(onClick = onShowEngineLine, modifier = action) { Text("Вариант до ошибки") }
+    }
+    if (onPracticeInTrainer != null) {
+        TextButton(onClick = onPracticeInTrainer, modifier = action) { Text("В тренажёр") }
     }
 }
 
