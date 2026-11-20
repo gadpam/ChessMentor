@@ -129,6 +129,8 @@ dependencies {
     implementation(libs.chesslib)
 
     testImplementation(libs.junit)
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

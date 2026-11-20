@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -45,7 +45,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -55,7 +55,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -223,30 +222,34 @@ fun TrainingScreen(
     }
 
     Scaffold(
-        modifier = Modifier.padding(paddingValues),
+        modifier = Modifier.padding(paddingValues).consumeWindowInsets(paddingValues),
         topBar = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
             ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    IconButton(onClick = onLeaveTraining) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Выйти из тренировки")
+                    }
+                    ModePicker(
+                        selectedMode = uiState.mode,
+                        dueReviewCount = uiState.dueReviewCount,
+                        enabled = !uiState.isLoading && !uiState.isAnimatingIntro && !uiState.isAnimatingPunishment,
+                        onSelectMode = { mode ->
+                            selectedSquare = null
+                            pendingPromotion = null
+                            viewModel.selectMode(mode)
+                        }
+                    )
+                }
                 SessionHeader(
                     stats = uiState.sessionStats,
                     sideToMove = uiState.playerSide,
                     hasActiveExercise = uiState.hasActiveExercise,
                     soundEnabled = soundEnabled,
                     onToggleSound = { soundEnabled = !soundEnabled }
-                )
-                ModeSelectorRow(
-                    selectedMode = uiState.mode,
-                    dueReviewCount = uiState.dueReviewCount,
-                    enabled = !uiState.isLoading && !uiState.isAnimatingIntro && !uiState.isAnimatingPunishment,
-                    onReturnToGame = onReturnToGame,
-                    onSelectMode = { mode ->
-                        selectedSquare = null
-                        pendingPromotion = null
-                        viewModel.selectMode(mode)
-                    }
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             }
@@ -478,155 +481,55 @@ fun TrainingScreen(
 }
 
 @Composable
-private fun ModeSelectorRow(
+internal fun ModePicker(
     selectedMode: TrainingMode,
     dueReviewCount: Int,
     enabled: Boolean,
-    onReturnToGame: (() -> Unit)? = null,
     onSelectMode: (TrainingMode) -> Unit
 ) {
-    var themeMenuExpanded by remember { mutableStateOf(false) }
-
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (selectedMode is TrainingMode.FromGame) {
-            if (onReturnToGame != null) {
-                item {
-                    AssistChip(
-                        onClick = onReturnToGame,
-                        label = { Text("← К партии") }
-                    )
-                }
+    var expanded by remember { mutableStateOf(false) }
+    var choosingTheme by remember { mutableStateOf(false) }
+    val choose: (TrainingMode) -> Unit = { mode ->
+        expanded = false
+        onSelectMode(mode)
+    }
+    Box {
+        TextButton(onClick = { choosingTheme = false; expanded = true }, enabled = enabled) {
+            Column {
+                Text("Режим тренировки", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(selectedMode.displayName, style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold)
             }
-            item {
-                FilterChip(
-                    selected = true,
-                    onClick = { onSelectMode(selectedMode.copy(focusMoveNumber = null)) },
-                    enabled = enabled,
-                    label = { Text("🎯 ${selectedMode.displayName}") }
-                )
+            Icon(Icons.Default.ArrowDropDown, contentDescription = "Сменить режим")
+        }
+        DropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
+            if (choosingTheme) {
+                DropdownMenuItem(text = { Text("Назад к режимам") }, onClick = { choosingTheme = false },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) })
+                HorizontalDivider()
             }
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.SmartSession,
-                onClick = { onSelectMode(TrainingMode.SmartSession) },
-                enabled = enabled,
-                label = { Text("Сессия 10") }
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.All,
-                onClick = { onSelectMode(TrainingMode.All) },
-                enabled = enabled,
-                label = { Text("Все") }
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.Daily,
-                onClick = { onSelectMode(TrainingMode.Daily) },
-                enabled = enabled,
-                label = { Text("Задача дня") }
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.PatternVision,
-                onClick = { onSelectMode(TrainingMode.PatternVision) },
-                enabled = enabled,
-                label = { Text("Зоркость") }
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.DeepCalculation,
-                onClick = { onSelectMode(TrainingMode.DeepCalculation) },
-                enabled = enabled,
-                label = { Text("Расчёт") }
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.Defense,
-                onClick = { onSelectMode(TrainingMode.Defense) },
-                enabled = enabled,
-                label = { Text("Защита") }
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.MyMistakes,
-                onClick = { onSelectMode(TrainingMode.MyMistakes) },
-                enabled = enabled,
-                label = { Text("Мои ошибки") }
-            )
-        }
-        item {
-            val reviewLabel = if (dueReviewCount > 0) {
-                "Повтор ($dueReviewCount)"
+            val modes = if (choosingTheme) {
+                TrainingMode.selectableThemes.map { TrainingMode.ByTheme(it) }
             } else {
-                "Слабые темы"
+                listOfNotNull((selectedMode as? TrainingMode.FromGame)?.copy(focusMoveNumber = null),
+                    TrainingMode.Daily, TrainingMode.SmartSession, TrainingMode.All, TrainingMode.MyMistakes,
+                    TrainingMode.WeakPatterns, TrainingMode.PatternVision, TrainingMode.DeepCalculation, TrainingMode.Defense)
             }
-            FilterChip(
-                selected = selectedMode is TrainingMode.WeakPatterns,
-                onClick = { onSelectMode(TrainingMode.WeakPatterns) },
-                enabled = enabled,
-                label = { Text(reviewLabel) }
-            )
-        }
-        item {
-            Box {
-                val isThemeMode = selectedMode is TrainingMode.ByTheme
-                val labelText = if (selectedMode is TrainingMode.ByTheme) {
-                    TrainingLabels.themeDisplayName(selectedMode.theme)
-                } else {
-                    "По теме"
-                }
-                FilterChip(
-                    selected = isThemeMode,
-                    onClick = { themeMenuExpanded = true },
-                    enabled = enabled,
-                    label = { Text(labelText) },
-                    trailingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = "Выбрать тему",
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+            modes.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(if (mode == TrainingMode.WeakPatterns && dueReviewCount > 0)
+                        "${mode.displayName} · повторить: $dueReviewCount" else mode.displayName) },
+                    trailingIcon = if (mode == selectedMode || (mode is TrainingMode.FromGame && selectedMode is TrainingMode.FromGame)) {
+                        { Icon(Icons.Default.Check, contentDescription = "Выбрано") }
+                    } else null,
+                    onClick = { choose(mode) }
                 )
-                DropdownMenu(
-                    expanded = themeMenuExpanded,
-                    onDismissRequest = { themeMenuExpanded = false }
-                ) {
-                    TrainingMode.selectableThemes.forEach { theme ->
-                        val isSelected = selectedMode is TrainingMode.ByTheme && selectedMode.theme == theme
-                        DropdownMenuItem(
-                            text = { Text(TrainingLabels.themeDisplayName(theme)) },
-                            leadingIcon = if (isSelected) {
-                                {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            } else {
-                                null
-                            },
-                            onClick = {
-                                themeMenuExpanded = false
-                                onSelectMode(TrainingMode.ByTheme(theme))
-                            }
-                        )
-                    }
-                }
+            }
+            if (!choosingTheme) {
+                HorizontalDivider()
+                DropdownMenuItem(text = { Text("По тактической теме") }, onClick = { choosingTheme = true },
+                    trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) })
             }
         }
     }
@@ -921,6 +824,7 @@ private fun EmptyTrainingState(
     showUploadButton: Boolean,
     showReturnToGameButton: Boolean = false,
     onReturnToGame: () -> Unit = {},
+    onLeaveTraining: () -> Unit,
     onNavigateToUpload: () -> Unit,
     onSwitchToAllMode: () -> Unit
 ) {

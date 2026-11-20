@@ -123,14 +123,14 @@ fun ChessMentorApp(
 
     Scaffold(
         topBar = {
-            ChessMentorTopBar(
+            if (currentScreen != "training") ChessMentorTopBar(
                 currentScreen = currentScreen,
                 currentUser = currentUser,
                 onNavigateBack = handleNavigateBack
             )
         },
         bottomBar = {
-            if (currentUser != null && currentScreen !in setOf("game_view", "engine_settings")) {
+            if (currentUser != null && currentScreen !in setOf("training", "game_view", "engine_settings")) {
                 ChessMentorBottomBar(
                     currentScreen = currentScreen,
                     onNavigate = { target ->
@@ -199,6 +199,7 @@ fun ChessMentorApp(
                 currentScreen = "training"
                 Log.d(TAG, "Open game mistake training: game=$gameId move=$focusMoveNumber from=$fromScreen")
             },
+            onLeaveTraining = handleNavigateBack,
             onReturnToGameFromTraining = if (
                 trainingReturnScreen != null && gameViewModel.selectedGame.value != null
             ) {
@@ -466,6 +467,7 @@ private fun NavigationHost(
     onCloseEngineSettings: () -> Unit,
     onOpenTrainingWithMode: (TrainingMode) -> Unit,
     onOpenGameMistakeTraining: (fromScreen: String, gameId: Long, focusMoveNumber: Int?) -> Unit,
+    onLeaveTraining: () -> Unit,
     onReturnToGameFromTraining: (() -> Unit)?,
     onTrainingModeConsumed: () -> Unit,
     onOpenGamesWithFilter: (query: String, color: ChessColor?) -> Unit,
@@ -634,6 +636,7 @@ private fun NavigationHost(
                     initialSoundEnabled = user.isSoundEnabled,
                     initialModeKey = pendingTrainingModeKey,
                     onModeConsumed = onTrainingModeConsumed,
+                    onLeaveTraining = onLeaveTraining,
                     onNavigateToUpload = { onScreenChange("upload") },
                     onReturnToGame = onReturnToGameFromTraining,
                     onUserUpdated = onUserUpdated

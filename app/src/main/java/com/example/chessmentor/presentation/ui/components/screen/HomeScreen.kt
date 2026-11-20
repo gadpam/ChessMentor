@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -675,6 +676,16 @@ fun DashboardContent(
             )
         }
 
+        item {
+            DailyPuzzleWidget(
+                puzzle = dailyPuzzle,
+                isSolved = isDailySolved,
+                preferredTheme = user.preferredTheme,
+                onClick = onNavigateToDailyPuzzle,
+                onStartSmartSession = onNavigateToSmartSession
+            )
+        }
+
         // Живой баннер загрузки/проверки или ошибки NNUE (автоматически скрывается в состоянии Ready)
         if (engineStatus !is EngineStatus.Idle && engineStatus !is EngineStatus.Ready) {
             item {
@@ -686,16 +697,6 @@ fun DashboardContent(
                     showWhenReady = false
                 )
             }
-        }
-
-        item {
-            DailyPuzzleWidget(
-                puzzle = dailyPuzzle,
-                isSolved = isDailySolved,
-                preferredTheme = user.preferredTheme,
-                onClick = onNavigateToDailyPuzzle,
-                onStartSmartSession = onNavigateToSmartSession
-            )
         }
 
         item {
@@ -808,122 +809,44 @@ fun DailyPuzzleWidget(
     }
     val sidePrompt = if (puzzle.isWhiteToMove) "Ход белых" else "Ход чёрных"
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Extension,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    ChessBoard(
+                        board = board, theme = boardTheme, flipped = !puzzle.isWhiteToMove,
+                        animateMove = false, showCoordinates = false, onSquareClick = null,
+                        modifier = Modifier.weight(1f, fill = false).widthIn(max = 172.dp).aspectRatio(1f).clip(RoundedCornerShape(6.dp))
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Задача дня", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Column(Modifier.weight(1.4f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("ЕЖЕДНЕВНАЯ ПРАКТИКА", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary)
+                        Text("Задача дня", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text(if (isSolved) puzzle.title else sidePrompt, style = MaterialTheme.typography.bodyMedium)
+                        Text(if (isSolved) "Решено · $difficultyLabel" else difficultyLabel,
+                            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
-
-                Surface(
-                    color = if (isSolved) {
-                        MaterialTheme.colorScheme.tertiaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.primaryContainer
-                    },
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        text = if (isSolved) "✓ Решено" else difficultyLabel,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (isSolved) {
-                            MaterialTheme.colorScheme.onTertiaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        }
-                    )
+                Button(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp)) {
+                    Text(if (isSolved) "Повторить задачу" else "Решить задачу дня", fontWeight = FontWeight.Bold)
                 }
             }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ChessBoard(
-                    board = board,
-                    theme = boardTheme,
-                    flipped = !puzzle.isWhiteToMove,
-                    animateMove = false,
-                    showCoordinates = false,
-                    modifier = Modifier
-                        .size(132.dp)
-                        .clip(RoundedCornerShape(8.dp)),
-                    onSquareClick = null
-                )
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = if (isSolved) puzzle.title else sidePrompt,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = if (isSolved) {
-                            puzzle.explanation ?: puzzle.subtitle
-                        } else {
-                            "Оцените позицию и найдите сильнейшее продолжение без подсказки мотива"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = if (isSolved) {
-                            "$sidePrompt • ${TrainingLabels.themeDisplayName(puzzle.theme)}"
-                        } else {
-                            val elo = com.example.chessmentor.domain.training.TrainingRatingCalculator
-                                .difficultyToElo(puzzle.difficultyRating)
-                            "Сложность: $difficultyLabel • ~$elo Эло"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Button(
-                        onClick = onClick,
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Text(if (isSolved) "Повторить" else "Решить сейчас")
+        }
+        if (onStartSmartSession != null) {
+            OutlinedCard(onClick = onStartSmartSession, modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Icon(Icons.Default.FitnessCenter, null, tint = MaterialTheme.colorScheme.primary)
+                    Column(Modifier.weight(1f)) {
+                        Text("Начать тренировку", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("10 задач · от разминки до расчёта", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    if (onStartSmartSession != null) {
-                        OutlinedButton(
-                            onClick = onStartSmartSession,
-                            modifier = Modifier.fillMaxWidth(),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Text("Сессия 10 задач", fontSize = 12.sp)
-                        }
-                    }
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
                 }
             }
         }
