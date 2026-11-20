@@ -865,8 +865,8 @@ private fun EmptyGamesCard() {
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(Icons.Default.History, null, tint = Color.Gray)
-            Text("История пуста", color = Color.Gray)
+            Icon(Icons.Default.History, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("История пуста", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

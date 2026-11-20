@@ -2,7 +2,6 @@
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 
 enum class MoveQuality {
@@ -42,20 +41,6 @@ enum class MoveQuality {
         BLUNDER -> Icons.Default.Cancel
         MISSED_WIN -> Icons.Default.HeartBroken
     }
-
-    fun getColor(): Color = when (this) {
-        BRILLIANT -> Color(0xFF26C6DA)
-        GREAT_MOVE -> Color(0xFF66BB6A)
-        BEST_MOVE -> Color(0xFF9CCC65)
-        EXCELLENT -> Color(0xFF81C784)
-        GOOD -> Color(0xFFA5D6A7)
-        BOOK -> Color(0xFFCE93D8)
-        INACCURACY -> Color(0xFFFFCA28)
-        MISTAKE -> Color(0xFFFF7043)
-        BLUNDER -> Color(0xFFEF5350)
-        MISSED_WIN -> Color(0xFFE91E63)
-    }
-
     fun isGood(): Boolean = this in listOf(BRILLIANT, GREAT_MOVE, BEST_MOVE, EXCELLENT, GOOD, BOOK)
 
     fun isBad(): Boolean = this in listOf(INACCURACY, MISTAKE, BLUNDER, MISSED_WIN)

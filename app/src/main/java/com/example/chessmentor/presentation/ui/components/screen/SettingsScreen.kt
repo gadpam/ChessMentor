@@ -4,6 +4,7 @@ package com.example.chessmentor.presentation.ui.components.screen
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -224,9 +225,7 @@ fun SettingsScreen(
                         showLogoutDialog = false
                         viewModel.logout(onLogout)
                     },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
+                    colors = ButtonDefaults.filledTonalButtonColors()
                 ) {
                     Text("Выйти")
                 }
@@ -650,7 +649,7 @@ private fun EngineShortcutCard(
     onClick: () -> Unit
 ) {
     val badgeColor = when {
-        status.isReady -> Color(0xFF4CAF50)
+        status.isReady -> LocalChessPalette.current.positive
         status.isError -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }

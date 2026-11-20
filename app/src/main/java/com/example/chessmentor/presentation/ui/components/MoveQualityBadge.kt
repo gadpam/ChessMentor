@@ -10,7 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -30,83 +30,45 @@ fun MoveQualityBadge(
     size: Dp = 24.dp,
     modifier: Modifier = Modifier
 ) {
-    // Определяем что показывать: ошибку или качество хода
-    val badgeInfo = when {
-        mistakeType == MistakeType.BLUNDER || moveQuality == MoveQuality.BLUNDER -> BadgeInfo(
-            backgroundColor = Color(0xFFE53935),
-            symbol = "??",
-            textColor = Color.White
-        )
-        moveQuality == MoveQuality.MISSED_WIN -> BadgeInfo(
-            backgroundColor = Color(0xFFE91E63),
-            symbol = "?!",
-            textColor = Color.White
-        )
-        mistakeType == MistakeType.MISTAKE || moveQuality == MoveQuality.MISTAKE -> BadgeInfo(
-            backgroundColor = Color(0xFFFF9800),
-            symbol = "?",
-            textColor = Color.White
-        )
-        mistakeType == MistakeType.INACCURACY || moveQuality == MoveQuality.INACCURACY -> BadgeInfo(
-            backgroundColor = Color(0xFFFFC107),
-            symbol = "?!",
-            textColor = Color.Black
-        )
-        moveQuality == MoveQuality.BRILLIANT -> BadgeInfo(
-            backgroundColor = Color(0xFF26C6DA),
-            symbol = "!!",
-            textColor = Color.White
-        )
-        moveQuality == MoveQuality.GREAT_MOVE -> BadgeInfo(
-            backgroundColor = Color(0xFF66BB6A),
-            symbol = "!",
-            textColor = Color.White
-        )
-        moveQuality == MoveQuality.BEST_MOVE -> BadgeInfo(
-            backgroundColor = Color(0xFF9CCC65),
-            symbol = "✓",
-            textColor = Color.White
-        )
-        moveQuality == MoveQuality.GOOD -> BadgeInfo(
-            backgroundColor = Color(0xFFAED581),
-            symbol = "○",
-            textColor = Color.White
-        )
-        moveQuality == MoveQuality.BOOK -> BadgeInfo(
-            backgroundColor = Color(0xFFCE93D8),
-            symbol = null,
-            textColor = Color.White
-        )
-        else -> null
+    val palette = LocalChessPalette.current
+    // Preserve precedence when both classifiers provide a grade for this move.
+    val quality = when {
+        mistakeType == MistakeType.BLUNDER || moveQuality == MoveQuality.BLUNDER -> MoveQuality.BLUNDER
+        moveQuality == MoveQuality.MISSED_WIN -> MoveQuality.MISSED_WIN
+        mistakeType == MistakeType.MISTAKE || moveQuality == MoveQuality.MISTAKE -> MoveQuality.MISTAKE
+        mistakeType == MistakeType.INACCURACY -> MoveQuality.INACCURACY
+        else -> moveQuality ?: return
     }
-
-    // Если нет информации — не показываем значок
-    badgeInfo ?: return
+    val symbol = when (quality) {
+        MoveQuality.BLUNDER -> "??"
+        MoveQuality.MISTAKE -> "?"
+        MoveQuality.INACCURACY, MoveQuality.MISSED_WIN -> "?!"
+        MoveQuality.BRILLIANT -> "!!"
+        MoveQuality.GREAT_MOVE -> "!"
+        MoveQuality.BEST_MOVE -> "✓"
+        MoveQuality.GOOD -> "○"
+        MoveQuality.BOOK -> null
+        MoveQuality.EXCELLENT -> return // No board marker for this grade.
+    }
 
     Box(
         modifier = modifier
             .size(size)
-            .background(badgeInfo.backgroundColor, CircleShape)
-            .border(2.dp, Color.White, CircleShape),
+            .background(palette.accent(quality), CircleShape)
+            .border(2.dp, palette.onAccent, CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        if (badgeInfo.symbol == null) {
+        if (symbol == null) {
             Icon(MoveQuality.BOOK.getIcon(), contentDescription = MoveQuality.BOOK.getDisplayName(),
-                tint = badgeInfo.textColor, modifier = Modifier.size(size * 0.6f))
+                tint = palette.onAccent, modifier = Modifier.size(size * 0.6f))
         } else Text(
-            text = badgeInfo.symbol,
+            text = symbol,
             fontSize = (size.value * 0.45).sp,
             fontWeight = FontWeight.Bold,
-            color = badgeInfo.textColor
+            color = palette.onAccent
         )
     }
 }
-
-private data class BadgeInfo(
-    val backgroundColor: Color,
-    val symbol: String?,
-    val textColor: Color
-)
 
 /**
  * Получить значок качества для отображения на доске

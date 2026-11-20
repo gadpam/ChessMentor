@@ -1,6 +1,7 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
 import android.util.Log
+import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -868,13 +869,13 @@ private fun PlayerInfoBadge(
             val trouble = GameReviewHelper.isTimeTrouble(clockSeconds)
             val low = GameReviewHelper.isLowTime(clockSeconds)
             val bg = when {
-                trouble -> Color(0xFFE53935).copy(alpha = 0.16f)
-                low -> Color(0xFFFF9800).copy(alpha = 0.16f)
+                trouble -> LocalChessPalette.current.negative.copy(alpha = 0.16f)
+                low -> LocalChessPalette.current.caution.copy(alpha = 0.16f)
                 else -> MaterialTheme.colorScheme.surfaceVariant
             }
             val fg = when {
-                trouble -> Color(0xFFE53935)
-                low -> Color(0xFFEF6C00)
+                trouble -> LocalChessPalette.current.negative
+                low -> LocalChessPalette.current.caution
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
             Surface(
@@ -975,12 +976,12 @@ private fun RetryMistakePanel(
     onCancel: () -> Unit
 ) {
     val containerColor = if (state.isSolved) {
-        Color(0xFF4CAF50).copy(alpha = 0.14f)
+        LocalChessPalette.current.positive.copy(alpha = 0.14f)
     } else {
         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
     }
     val borderColor = if (state.isSolved) {
-        Color(0xFF4CAF50).copy(alpha = 0.45f)
+        LocalChessPalette.current.positive.copy(alpha = 0.45f)
     } else {
         MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
     }
@@ -1008,7 +1009,7 @@ private fun RetryMistakePanel(
                     },
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
-                    color = if (state.isSolved) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
+                    color = if (state.isSolved) LocalChessPalette.current.positive else MaterialTheme.colorScheme.primary
                 )
                 if (state.isCheckingEngine) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -1294,7 +1295,7 @@ internal fun AnalyzedMoveInfoCard(
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = quality.getColor().copy(alpha = 0.12f)),
+        colors = CardDefaults.cardColors(containerColor = LocalChessPalette.current.accent(quality).copy(alpha = 0.12f)),
         shape = RoundedCornerShape(10.dp)
     ) {
         Column(
@@ -1313,14 +1314,14 @@ internal fun AnalyzedMoveInfoCard(
                             text = titleText,
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = quality.getColor()
+                            color = LocalChessPalette.current.accent(quality)
                         )
                         if (inTimeTrouble && clockSeconds != null) {
                             Text(
                                 text = "· Осталось: ${GameReviewHelper.formatClock(clockSeconds)}",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFFE53935)
+                                color = LocalChessPalette.current.negative
                             )
                         }
                     }
@@ -1336,7 +1337,7 @@ internal fun AnalyzedMoveInfoCard(
                                 text = "Лучше: $bestSan",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF4CAF50)
+                                color = LocalChessPalette.current.positive
                             )
                         }
                     }
@@ -1352,7 +1353,7 @@ internal fun AnalyzedMoveInfoCard(
                         text = text,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (userDelta > 0) Color(0xFF4CAF50) else Color(0xFFE53935)
+                        color = if (userDelta > 0) LocalChessPalette.current.positive else LocalChessPalette.current.negative
                     )
                 }
             }

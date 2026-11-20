@@ -1,6 +1,8 @@
 // presentation/ui/components/EvaluationGraph.kt
 package com.example.chessmentor.presentation.ui.components
 
+import com.example.chessmentor.presentation.ui.components.theme.ChessPalette
+import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -85,6 +87,7 @@ fun EvaluationGraph(
 
     val textMeasurer = rememberTextMeasurer()
 
+    val palette = LocalChessPalette.current
     val whiteAreaColor = Color(0xFFF3F5F8)
     val blackAreaColor = Color(0xFF232A34)
     val backdropColor = Color(0xFF7D8590).copy(alpha = 0.22f)
@@ -227,6 +230,7 @@ fun EvaluationGraph(
                 )
 
                 drawMomentDots(
+                    palette = palette,
                     keyMoments = keyMoments,
                     evaluations = evaluations,
                     leftPad = leftPad,
@@ -321,7 +325,7 @@ private fun SelectedMomentStrip(
     moment: KeyMoment,
     onOpenReview: (() -> Unit)?
 ) {
-    val accent = moment.quality.getColor()
+    val accent = LocalChessPalette.current.accent(moment.quality)
     val userDelta = moment.userPerspectiveDelta()
     val deltaText = GameReviewHelper.formatSignedEvalDelta(userDelta)
     val whoSuffix = if (moment.isPlayerMove) "" else " (соперник)"
@@ -367,7 +371,7 @@ private fun SelectedMomentStrip(
                             text = deltaText,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (userDelta > 0) Color(0xFF4CAF50) else Color(0xFFE53935)
+                            color = if (userDelta > 0) LocalChessPalette.current.positive else LocalChessPalette.current.negative
                         )
                     }
                 }
@@ -579,6 +583,7 @@ private fun DrawScope.drawGraphGrid(
 }
 
 private fun DrawScope.drawMomentDots(
+    palette: ChessPalette,
     keyMoments: List<KeyMoment>,
     evaluations: List<Int>,
     leftPad: Float,
@@ -597,7 +602,7 @@ private fun DrawScope.drawMomentDots(
             val y = centerY - normalizeEvaluationByWinProb(evaluations[evalIndex]) * (graphHeight / 2f)
             val isSelected = moment.moveIndex == activeMoveIndex
             val radius = if (isSelected) 9.5f else 6.5f
-            val color = moment.quality.getColor()
+            val color = palette.accent(moment.quality)
 
             if (isSelected) {
                 drawCircle(color = color.copy(alpha = 0.3f), radius = radius + 5f, center = Offset(x, y))

@@ -7,6 +7,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
@@ -35,6 +36,12 @@ private val DarkColorScheme = darkColorScheme(
     onBackground = TextPrimaryDark,
 
     surface = SurfaceDark,
+    surfaceContainerLowest = Color(0xFF131814),
+    surfaceContainerLow = Color(0xFF202721),
+    surfaceContainer = Color(0xFF282F29),
+    surfaceContainerHigh = Color(0xFF303831),
+    surfaceContainerHighest = Color(0xFF384039),
+    outlineVariant = Color(0xFF465048),
     onSurface = TextPrimaryDark,
     surfaceVariant = Color(0xFF353D36),
     onSurfaceVariant = TextSecondaryDark,
@@ -66,6 +73,12 @@ private val LightColorScheme = lightColorScheme(
     onBackground = TextPrimaryLight,
 
     surface = SurfaceLight,
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFF4F5EF),
+    surfaceContainer = Color(0xFFEEF0E9),
+    surfaceContainerHigh = Color(0xFFE8EBE4),
+    surfaceContainerHighest = Color(0xFFE2E6DD),
+    outlineVariant = Color(0xFFBFC7BC),
     onSurface = TextPrimaryLight,
     surfaceVariant = Color(0xFFE7EBE3),
     onSurfaceVariant = Color(0xFF48524A),
@@ -102,11 +115,9 @@ fun ChessMentorTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = MentorTypography,
-        content = content
-    )
+    CompositionLocalProvider(LocalChessPalette provides if (darkTheme) DarkChessPalette else LightChessPalette) {
+        MaterialTheme(colorScheme = colorScheme, typography = MentorTypography, content = content)
+    }
 }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {

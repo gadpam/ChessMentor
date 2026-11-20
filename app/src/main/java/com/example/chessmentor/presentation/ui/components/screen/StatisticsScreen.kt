@@ -1,5 +1,6 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
+import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -79,14 +80,6 @@ import com.example.chessmentor.presentation.viewmodel.StatisticsViewModel
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
-
-private val WinGreen = Color(0xFF2E7D32)
-private val DrawGray = Color(0xFF78909C)
-private val LossRed = Color(0xFFC62828)
-private val WarnAmber = Color(0xFFEF6C00)
-private val BrilliantTeal = Color(0xFF00897B)
-private val GreatBlue = Color(0xFF1E88E5)
-private val BookBrown = Color(0xFF8D6E63)
 
 @Composable
 fun StatisticsScreen(
@@ -638,7 +631,7 @@ private fun PlayerHeroSummaryCard(stats: GetUserStatisticsUseCase.UserStatistics
                             Icon(
                                 imageVector = Icons.Default.EmojiEvents,
                                 contentDescription = null,
-                                tint = WarnAmber,
+                                tint = LocalChessPalette.current.caution,
                                 modifier = Modifier.size(15.dp)
                             )
                             Text(
@@ -698,7 +691,7 @@ private fun PlayerHeroSummaryCard(stats: GetUserStatisticsUseCase.UserStatistics
                         Text(
                             text = "Победы ${overall.wins}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = WinGreen,
+                            color = LocalChessPalette.current.positive,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
@@ -709,7 +702,7 @@ private fun PlayerHeroSummaryCard(stats: GetUserStatisticsUseCase.UserStatistics
                         Text(
                             text = "Поражения ${overall.losses}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = LossRed,
+                            color = LocalChessPalette.current.negative,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
@@ -853,11 +846,12 @@ private fun AccuracyTrendCard(
 
     val primaryColor = MaterialTheme.colorScheme.primary
     val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+    val chartPalette = LocalChessPalette.current
     val highlightRing = MaterialTheme.colorScheme.onSurface
 
     val badgeColor = when (direction) {
-        TrendDirection.IMPROVING -> WinGreen
-        TrendDirection.DECLINING -> LossRed
+        TrendDirection.IMPROVING -> LocalChessPalette.current.positive
+        TrendDirection.DECLINING -> LocalChessPalette.current.negative
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 
@@ -1038,9 +1032,9 @@ private fun AccuracyTrendCard(
                         val cx = xOf(i)
                         val cy = yOf(pt.accuracy)
                         val dotColor = when (pt.outcome) {
-                            PgnParser.PlayerOutcome.WIN -> WinGreen
-                            PgnParser.PlayerOutcome.LOSS -> LossRed
-                            PgnParser.PlayerOutcome.DRAW -> DrawGray
+                            PgnParser.PlayerOutcome.WIN -> chartPalette.positive
+                            PgnParser.PlayerOutcome.LOSS -> chartPalette.negative
+                            PgnParser.PlayerOutcome.DRAW -> chartPalette.neutral
                             PgnParser.PlayerOutcome.UNKNOWN -> primaryColor
                         }
                         val isSel = i == safeIndex
@@ -1292,10 +1286,10 @@ private fun PhaseProgressRow(
     val acc = perf.accuracy
     val barColor = when {
         acc == null -> MaterialTheme.colorScheme.outline
-        isWeakest -> WarnAmber
-        acc >= 82.0 -> WinGreen
+        isWeakest -> LocalChessPalette.current.caution
+        acc >= 82.0 -> LocalChessPalette.current.positive
         acc >= 68.0 -> MaterialTheme.colorScheme.primary
-        else -> LossRed
+        else -> LocalChessPalette.current.negative
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1403,20 +1397,20 @@ private fun MoveQualityBreakdownCard(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    QualityBadgeChip(Modifier.weight(1f), "!! / !", quality.brilliant + quality.great, BrilliantTeal)
-                    QualityBadgeChip(Modifier.weight(1f), "Лучшие", quality.best, WinGreen)
-                    QualityBadgeChip(Modifier.weight(1f), "Хорошие", quality.excellent + quality.good, GreatBlue)
-                    QualityBadgeChip(Modifier.weight(1f), "Теория", quality.book, BookBrown)
+                    QualityBadgeChip(Modifier.weight(1f), "!! / !", quality.brilliant + quality.great, LocalChessPalette.current.brilliant)
+                    QualityBadgeChip(Modifier.weight(1f), "Лучшие", quality.best, LocalChessPalette.current.positive)
+                    QualityBadgeChip(Modifier.weight(1f), "Хорошие", quality.excellent + quality.good, LocalChessPalette.current.positive)
+                    QualityBadgeChip(Modifier.weight(1f), "Теория", quality.book, LocalChessPalette.current.theory)
                 }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    QualityBadgeChip(Modifier.weight(1f), "Неточн. ?!", quality.inaccuracy, DrawGray)
-                    QualityBadgeChip(Modifier.weight(1f), "Ошибки ?", quality.mistake, WarnAmber)
-                    QualityBadgeChip(Modifier.weight(1f), "Упущено", quality.missedWin, WarnAmber)
-                    QualityBadgeChip(Modifier.weight(1f), "Зевки ??", quality.blunder, LossRed)
+                    QualityBadgeChip(Modifier.weight(1f), "Неточн. ?!", quality.inaccuracy, LocalChessPalette.current.caution)
+                    QualityBadgeChip(Modifier.weight(1f), "Ошибки ?", quality.mistake, LocalChessPalette.current.caution)
+                    QualityBadgeChip(Modifier.weight(1f), "Упущено", quality.missedWin, LocalChessPalette.current.negative)
+                    QualityBadgeChip(Modifier.weight(1f), "Зевки ??", quality.blunder, LocalChessPalette.current.negative)
                 }
 
                 val punishPct = quality.opponentBlunderPunishPercent
@@ -1440,7 +1434,7 @@ private fun MoveQualityBreakdownCard(
                                 text = "$punishPct% (${quality.opponentBlundersPunished}/${quality.opponentBlundersTotal})",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold,
-                                color = if (punishPct >= 65) WinGreen else WarnAmber
+                                color = if (punishPct >= 65) LocalChessPalette.current.positive else LocalChessPalette.current.caution
                             )
                         }
                     }
@@ -1450,9 +1444,9 @@ private fun MoveQualityBreakdownCard(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    QualityBadgeChip(Modifier.weight(1f), "Зевки ??", fallbackBlunders, LossRed)
-                    QualityBadgeChip(Modifier.weight(1f), "Ошибки ?", fallbackMistakes, WarnAmber)
-                    QualityBadgeChip(Modifier.weight(1f), "Неточн. ?!", fallbackInaccuracies, DrawGray)
+                    QualityBadgeChip(Modifier.weight(1f), "Зевки ??", fallbackBlunders, LocalChessPalette.current.negative)
+                    QualityBadgeChip(Modifier.weight(1f), "Ошибки ?", fallbackMistakes, LocalChessPalette.current.caution)
+                    QualityBadgeChip(Modifier.weight(1f), "Неточн. ?!", fallbackInaccuracies, LocalChessPalette.current.caution)
                 }
             }
         }
@@ -1562,7 +1556,7 @@ private fun TimeControlsAndClockCard(
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = if ((timeTrouble.accuracyDropPercent ?: 0.0) >= 7.0) {
-                        WarnAmber.copy(alpha = 0.12f)
+                        LocalChessPalette.current.caution.copy(alpha = 0.12f)
                     } else {
                         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                     }
@@ -1592,7 +1586,7 @@ private fun TimeControlsAndClockCard(
                                 Text(
                                     text = "Частота зевков в цейтноте: ${formatPct(ttBl)}% против ${formatPct(nBl)}% в норме",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = LossRed
+                                    color = LocalChessPalette.current.negative
                                 )
                             }
                             if ((timeTrouble.accuracyDropPercent ?: 0.0) >= 7.0 && onTrainVision != null) {
@@ -1633,7 +1627,7 @@ private fun DailyActivityCard(
     val totalSolved14 = points.sumOf { it.puzzlesSolved }
     val maxDay = points.maxOfOrNull { it.totalActions }?.coerceAtLeast(1) ?: 1
     val gameColor = MaterialTheme.colorScheme.primary
-    val puzzleColor = BrilliantTeal
+    val puzzleColor = LocalChessPalette.current.brilliant
     val emptyColor = MaterialTheme.colorScheme.surfaceVariant
 
     Card(shape = RoundedCornerShape(16.dp)) {
@@ -1663,7 +1657,7 @@ private fun DailyActivityCard(
                 if (activeDaysStreak > 0) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = WarnAmber.copy(alpha = 0.15f)
+                        color = LocalChessPalette.current.caution.copy(alpha = 0.15f)
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -1673,14 +1667,14 @@ private fun DailyActivityCard(
                             Icon(
                                 imageVector = Icons.Default.LocalFireDepartment,
                                 contentDescription = null,
-                                tint = WarnAmber,
+                                tint = LocalChessPalette.current.caution,
                                 modifier = Modifier.size(15.dp)
                             )
                             Text(
                                 text = "$activeDaysStreak дн.",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = WarnAmber
+                                color = LocalChessPalette.current.caution
                             )
                         }
                     }
@@ -1859,7 +1853,7 @@ private fun OpeningSpotlightsCard(
             SpotlightOpeningBanner(
                 badge = "Коронный дебют",
                 icon = Icons.Default.EmojiEvents,
-                accent = WinGreen,
+                accent = LocalChessPalette.current.positive,
                 line = best,
                 onClick = onOpenLibrary?.let { fn -> { fn(best.searchQuery, color) } }
             )
@@ -1868,7 +1862,7 @@ private fun OpeningSpotlightsCard(
             SpotlightOpeningBanner(
                 badge = "Уязвимый дебют",
                 icon = Icons.Default.Warning,
-                accent = WarnAmber,
+                accent = LocalChessPalette.current.caution,
                 line = weakest,
                 onClick = onOpenLibrary?.let { fn -> { fn(weakest.searchQuery, color) } }
             )
@@ -2112,7 +2106,7 @@ private fun OpeningLineItem(
                     Text(
                         text = "Типичная ловушка: $tip",
                         style = MaterialTheme.typography.labelSmall,
-                        color = WarnAmber
+                        color = LocalChessPalette.current.caution
                     )
                 }
 
@@ -2317,10 +2311,10 @@ private fun TacticalOverviewCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                QualityBadgeChip(Modifier.weight(1f), "Закреплено", training.masteredExercisesCount, WinGreen)
-                QualityBadgeChip(Modifier.weight(1f), "В изучении", training.inLearningCount, GreatBlue)
-                QualityBadgeChip(Modifier.weight(1f), "К повтору", training.dueForReviewCount, WarnAmber)
-                QualityBadgeChip(Modifier.weight(1f), "Из партий", training.personalMistakeExercises, BrilliantTeal)
+                QualityBadgeChip(Modifier.weight(1f), "Закреплено", training.masteredExercisesCount, LocalChessPalette.current.positive)
+                QualityBadgeChip(Modifier.weight(1f), "В изучении", training.inLearningCount, LocalChessPalette.current.insight)
+                QualityBadgeChip(Modifier.weight(1f), "К повтору", training.dueForReviewCount, LocalChessPalette.current.caution)
+                QualityBadgeChip(Modifier.weight(1f), "Из партий", training.personalMistakeExercises, LocalChessPalette.current.brilliant)
             }
 
             if (training.totalAttempts > 0) {
@@ -2335,7 +2329,7 @@ private fun TacticalOverviewCard(
                     MetricInlineRow(
                         label = "Импульсивные ошибки",
                         value = "${training.impulsiveMistakeCount} (${training.impulsiveMistakeRatePercent}%)",
-                        valueColor = if (training.impulsiveMistakeRatePercent >= 35) LossRed else WarnAmber
+                        valueColor = if (training.impulsiveMistakeRatePercent >= 35) LocalChessPalette.current.negative else LocalChessPalette.current.caution
                     )
                 }
             } else {
@@ -2388,7 +2382,7 @@ private fun RatingTrendCard(
     val minElo = minOf(points.minOf { it.rating }, startElo)
     val maxElo = maxOf(points.maxOf { it.rating }, startElo)
     val netDelta = currentElo - startElo
-    val lineColor = if (netDelta >= 0) WinGreen else LossRed
+    val lineColor = if (netDelta >= 0) LocalChessPalette.current.positive else LocalChessPalette.current.negative
     val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
 
     Card(shape = RoundedCornerShape(16.dp)) {
@@ -2528,9 +2522,9 @@ private fun PatternMasteryCard(
 
             displayed.forEach { item ->
                 val color = when {
-                    item.masteryPercent >= 78 -> WinGreen
-                    item.masteryPercent >= 55 -> GreatBlue
-                    else -> WarnAmber
+                    item.masteryPercent >= 78 -> LocalChessPalette.current.positive
+                    item.masteryPercent >= 55 -> LocalChessPalette.current.insight
+                    else -> LocalChessPalette.current.caution
                 }
                 val mode = PlayerAnalyticsCalculator.mapPatternToTrainingMode(item)
 
@@ -2636,7 +2630,7 @@ private fun ProblemThemesCard(
                                 .fillMaxWidth()
                                 .height(6.dp)
                                 .clip(RoundedCornerShape(3.dp)),
-                            color = WarnAmber,
+                            color = LocalChessPalette.current.caution,
                             trackColor = MaterialTheme.colorScheme.surfaceVariant
                         )
                     }
@@ -2758,7 +2752,7 @@ private fun WdlStackedBar(
                 modifier = Modifier
                     .weight(wins.toFloat())
                     .fillMaxHeight()
-                    .background(WinGreen)
+                    .background(LocalChessPalette.current.positive)
             )
         }
         if (draws > 0) {
@@ -2766,7 +2760,7 @@ private fun WdlStackedBar(
                 modifier = Modifier
                     .weight(draws.toFloat())
                     .fillMaxHeight()
-                    .background(DrawGray)
+                    .background(LocalChessPalette.current.neutral)
             )
         }
         if (losses > 0) {
@@ -2774,7 +2768,7 @@ private fun WdlStackedBar(
                 modifier = Modifier
                     .weight(losses.toFloat())
                     .fillMaxHeight()
-                    .background(LossRed)
+                    .background(LocalChessPalette.current.negative)
             )
         }
     }
@@ -2808,8 +2802,8 @@ private fun MetricInlineRow(
 @Composable
 private fun scoreColor(scorePercent: Double?): Color = when {
     scorePercent == null -> MaterialTheme.colorScheme.onSurface
-    scorePercent >= 55.0 -> WinGreen
-    scorePercent <= 44.0 -> LossRed
+    scorePercent >= 55.0 -> LocalChessPalette.current.positive
+    scorePercent <= 44.0 -> LocalChessPalette.current.negative
     else -> MaterialTheme.colorScheme.onSurface
 }
 
