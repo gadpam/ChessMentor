@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +20,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -135,12 +137,8 @@ fun SummaryScreen(
         GameReviewHelper.filterKeyMoments(keyMoments, GameReviewHelper.MomentFilter.ALL)
     }
 
-    val currentMoveLabel = remember(currentMoveIndex, boardViewModel.moveNotations.size) {
-        boardViewModel.getCurrentMoveNotation()
-    }
-    val currentMoveEval = remember(currentMoveIndex, evaluations.size) {
-        evaluations.getOrNull(currentMoveIndex + 1)
-    }
+    val currentMoveLabel = boardViewModel.getCurrentMoveNotation()
+    val currentMoveEval = evaluations.getOrNull(currentMoveIndex + 1)
 
     LazyColumn(
         modifier = Modifier
@@ -199,8 +197,9 @@ fun SummaryScreen(
         }
 
         // Интерактивный график оценки (тап + скраббинг + мгновенный переход на доску)
-        item {
+        item(key = "evaluation-graph") {
             EvaluationGraphCard(
+                moveLabels = boardViewModel.moveNotations,
                 evaluations = evaluations,
                 keyMoments = graphMoments,
                 currentMoveIndex = currentMoveIndex,
@@ -221,7 +220,7 @@ fun SummaryScreen(
         }
 
         // Ключевые моменты с фильтрами, полным раскрытием и переходом в тренажёр по любому ходу
-        item {
+        item(key = "key-moments") {
             KeyMomentsCard(
                 keyMoments = keyMoments,
                 onMomentClick = { moment ->
@@ -382,6 +381,7 @@ private fun CoachSummaryCard(
  */
 @Composable
 private fun EvaluationGraphCard(
+    moveLabels: List<String>,
     evaluations: List<Int>,
     keyMoments: List<KeyMoment>,
     currentMoveIndex: Int,
@@ -455,7 +455,7 @@ private fun EvaluationGraphCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            if (evaluations.isNotEmpty()) {
+            if (hasRealData) {
                 EvaluationGraph(
                     evaluations = evaluations,
                     keyMoments = keyMoments,
@@ -473,10 +473,50 @@ private fun EvaluationGraphCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 EvaluationGraphLegend()
+                GraphMovePicker(moveLabels, evaluations, currentMoveIndex, onOpenReviewAtMove)
             } else {
                 NoEvaluationsPlaceholder()
             }
         }
+    }
+}
+
+/** Text alternative to aiming at the graph. Index 0 in evaluations is the starting position. */
+@Composable
+internal fun GraphMovePicker(
+    moveLabels: List<String>,
+    evaluations: List<Int>,
+    currentMoveIndex: Int,
+    onOpenReviewAtMove: (Int) -> Unit
+) {
+    val count = minOf(moveLabels.size, evaluations.size - 1)
+    if (count <= 0) return
+    var open by rememberSaveable { mutableStateOf(false) }
+    OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+        Text("Выбрать ход из списка")
+    }
+    if (open) {
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text("Открыть ход на доске") },
+            text = {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                    state = rememberLazyListState(initialFirstVisibleItemIndex = currentMoveIndex.coerceIn(0, count - 1))
+                ) {
+                    items(count) { index ->
+                        TextButton(
+                            onClick = { open = false; onOpenReviewAtMove(index) },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) {
+                            Text(moveLabels[index], modifier = Modifier.weight(1f), fontFamily = FontFamily.Monospace)
+                            Text(ChessEngine.formatEvaluation(evaluations[index + 1]))
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { open = false }) { Text("Закрыть") } }
+        )
     }
 }
 
@@ -1048,8 +1088,8 @@ fun KeyMomentsCard(
     onMomentClick: (KeyMoment) -> Unit,
     onPracticeMoment: ((KeyMoment) -> Unit)? = null
 ) {
-    var selectedFilter by remember { mutableStateOf(GameReviewHelper.MomentFilter.ALL) }
-    var showAllMoments by remember { mutableStateOf(false) }
+    var selectedFilter by rememberSaveable { mutableStateOf(GameReviewHelper.MomentFilter.ALL) }
+    var showAllMoments by rememberSaveable { mutableStateOf(false) }
 
     // Статистика качества считается строго по ходам игрока
     val playerMoments = keyMoments.filter { it.isPlayerMove }

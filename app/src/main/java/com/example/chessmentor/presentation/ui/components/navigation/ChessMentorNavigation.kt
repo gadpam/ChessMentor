@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -491,6 +492,13 @@ private fun NavigationHost(
         return
     }
 
+    // Keep the summary's lazy-list and filter only for the current review route.
+    val reviewGameId = when (currentScreen) {
+        "summary", "game_view", "training" -> gameViewModel.selectedGame.value?.id
+        else -> null
+    }
+    val summaryState = key(reviewGameId) { rememberSaveableStateHolder() }
+
     when (currentScreen) {
         "home" -> HomeScreen(
             paddingValues = paddingValues,
@@ -585,23 +593,25 @@ private fun NavigationHost(
                     )
                 }
 
-                val keyMoments = remember(game.id, game.analyzedAt, boardViewModel.analyzedMoves.size) {
-                    boardViewModel.getKeyMoments()
+                val keyMoments by remember(game.id, game.playerColor) {
+                    derivedStateOf { boardViewModel.getKeyMoments() }
                 }
 
-                SummaryScreen(
-                    paddingValues = paddingValues,
-                    game = game,
-                    keyMoments = keyMoments,
-                    boardViewModel = boardViewModel,
-                    gameViewModel = gameViewModel,
-                    onReviewClick = {
-                        onScreenChange("game_view")
-                    },
-                    onPracticeGameMistakes = { gameId, focusMove ->
-                        onOpenGameMistakeTraining("summary", gameId, focusMove)
-                    }
-                )
+                summaryState.SaveableStateProvider("summary") {
+                    SummaryScreen(
+                        paddingValues = paddingValues,
+                        game = game,
+                        keyMoments = keyMoments,
+                        boardViewModel = boardViewModel,
+                        gameViewModel = gameViewModel,
+                        onReviewClick = {
+                            onScreenChange("game_view")
+                        },
+                        onPracticeGameMistakes = { gameId, focusMove ->
+                            onOpenGameMistakeTraining("summary", gameId, focusMove)
+                        }
+                    )
+                }
             } else {
                 LaunchedEffect(Unit) {
                     Log.w(TAG, "SummaryScreen: No game selected")
