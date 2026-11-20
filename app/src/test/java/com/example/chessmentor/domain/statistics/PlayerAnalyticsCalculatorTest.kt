@@ -37,6 +37,25 @@ class PlayerAnalyticsCalculatorTest {
     private val fixedNow = 1_794_916_800_000L // 2026-11-17 12:00:00 UTC
 
     @Test
+    fun `accuracy sample matches the average not the number analyzed or imported`() {
+        val zero = sampleGame(1L, ChessColor.WHITE, "1-0", null, null, 1500, "600+0", fixedNow, 0.0, 20, 0)
+        val games = listOf(zero, zero.copy(id = 2, accuracy = null),
+            zero.copy(id = 3, accuracy = 60.0, playerColor = ChessColor.BLACK),
+            zero.copy(id = 4, analysisStatus = AnalysisStatus.PENDING, accuracy = 90.0),
+            zero.copy(id = 5, playedAt = fixedNow - 8 * dayMs, accuracy = 100.0))
+        val report = PlayerAnalyticsCalculator.computeGameAnalytics(games, emptyMap(), emptyMap(), StatsPeriod.LAST_7_DAYS, fixedNow)
+        assertEquals(4, report.overall.gamesCount)
+        assertEquals(3, report.overall.analyzedCount)
+        assertEquals(2, report.overall.accuracySampleSize)
+        assertEquals(30.0, report.overall.averageAccuracy!!, 0.01)
+        assertEquals(1, report.asWhite.accuracySampleSize)
+        assertEquals(0.0, report.asWhite.averageAccuracy!!, 0.01)
+        val missing = PlayerAnalyticsCalculator.computeGameAnalytics(listOf(zero.copy(accuracy = null)), emptyMap(), emptyMap()).overall
+        assertEquals(0, missing.accuracySampleSize)
+        org.junit.Assert.assertNull(missing.averageAccuracy)
+    }
+
+    @Test
     fun `color split computes WDL, chess score, accuracy, ACPL and best win Elo`() {
         val games = listOf(
             sampleGame(

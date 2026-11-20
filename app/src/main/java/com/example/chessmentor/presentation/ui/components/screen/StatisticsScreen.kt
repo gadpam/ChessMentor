@@ -540,13 +540,6 @@ private fun EmptyPeriodNoticeCard(
 @Composable
 private fun PlayerHeroSummaryCard(stats: GetUserStatisticsUseCase.UserStatistics) {
     val overall = stats.gameAnalytics.overall
-    val ratingSuffix = if (stats.training.isRatingProvisional) "?" else ""
-    val ratingDeltaText = when {
-        stats.ratingChange > 0 -> "+${stats.ratingChange}"
-        stats.ratingChange < 0 -> "${stats.ratingChange}"
-        else -> "±0"
-    }
-
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer
@@ -611,36 +604,7 @@ private fun PlayerHeroSummaryCard(stats: GetUserStatisticsUseCase.UserStatistics
                 }
             }
 
-            // 4 главных KPI
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                HeroKpiPill(
-                    modifier = Modifier.weight(1f),
-                    label = "Рейтинг",
-                    value = "${stats.currentRating}$ratingSuffix",
-                    subLabel = ratingDeltaText
-                )
-                HeroKpiPill(
-                    modifier = Modifier.weight(1f),
-                    label = "Точность",
-                    value = overall.averageAccuracy?.let { "${formatPct(it)}%" } ?: "—",
-                    subLabel = stats.accuracyTrend
-                )
-                HeroKpiPill(
-                    modifier = Modifier.weight(1f),
-                    label = "Очки",
-                    value = overall.scorePercent?.let { "${it.roundToInt()}%" } ?: "—",
-                    subLabel = if (overall.decidedGames > 0) overall.wdlSummary() else "нет итогов"
-                )
-                HeroKpiPill(
-                    modifier = Modifier.weight(1f),
-                    label = "Партии",
-                    value = "${stats.totalGames}",
-                    subLabel = "${stats.analyzedGames} разобр."
-                )
-            }
+            OverviewMetrics(stats)
 
             // Полоса W/D/L
             if (overall.decidedGames > 0) {
@@ -680,45 +644,37 @@ private fun PlayerHeroSummaryCard(stats: GetUserStatisticsUseCase.UserStatistics
 }
 
 @Composable
-private fun HeroKpiPill(
-    modifier: Modifier = Modifier,
-    label: String,
-    value: String,
-    subLabel: String
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = value,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.ExtraBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
-            )
-            Text(
-                text = subLabel,
-                fontSize = 10.sp,
-                lineHeight = 12.sp,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+internal fun OverviewMetrics(stats: GetUserStatisticsUseCase.UserStatistics) {
+    val overall = stats.gameAnalytics.overall
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SummaryMetric("Партий: ${stats.totalGames}", "Разобрано: ${stats.analyzedGames}")
+        val accuracy = overall.averageAccuracy
+        if (accuracy != null) {
+            val n = overall.accuracySampleSize
+            val noun = if (n % 10 == 1 && n % 100 != 11) "партии" else "партиям"
+            SummaryMetric("Точность: ${formatPct(accuracy)}%", "По $n $noun")
+        } else {
+            SummaryMetric("Точность не рассчитана")
         }
+        SummaryMetric(overall.scorePercent?.let { "Набрано очков: ${it.roundToInt()}%" } ?: "Нет известных исходов")
+        TrainingRatingMetric(stats.currentRating, stats.ratingChange, stats.training.isRatingProvisional)
+    }
+}
+
+@Composable
+private fun TrainingRatingMetric(current: Int, delta: Int, provisional: Boolean) {
+    val change = if (delta > 0) "+$delta" else delta.toString()
+    val basis = "$change от стартовых ${GetUserStatisticsUseCase.BASELINE_RATING}"
+    SummaryMetric("Рейтинг задач: $current", if (provisional) "Предварительный · $basis" else basis)
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SummaryMetric(label: String, detail: String? = null) {
+    FlowRow(modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(label, style = MaterialTheme.typography.titleSmall)
+        if (detail != null) Text(detail, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -2211,37 +2167,12 @@ private fun TacticalOverviewCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.FitnessCenter,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text(
-                        text = "Тактическая подготовка",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                val suffix = if (training.isRatingProvisional) "?" else ""
-                val sign = if (ratingChange >= 0) "+$ratingChange" else "$ratingChange"
-                Text(
-                    text = "$currentRating$suffix ($sign)",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.primary
-                )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.FitnessCenter, contentDescription = null, tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp))
+                Text("Тактическая подготовка", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
+            TrainingRatingMetric(currentRating, ratingChange, training.isRatingProvisional)
 
             // Прогресс банка задач
             if (training.totalAvailableExercises > 0) {

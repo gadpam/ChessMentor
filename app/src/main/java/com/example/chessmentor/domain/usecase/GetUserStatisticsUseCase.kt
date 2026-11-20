@@ -36,7 +36,7 @@ class GetUserStatisticsUseCase(
     private val analyzedMoveRepository: AnalyzedMoveRepository? = null
 ) {
     companion object {
-        private const val BASELINE_RATING = 1200
+        internal const val BASELINE_RATING = 1200
         private const val MAX_CP_LOSS_FOR_AVG = 1000
         private const val MAX_SOLVE_SECONDS_FOR_AVG = 600
     }
