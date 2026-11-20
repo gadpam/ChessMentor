@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -117,6 +118,13 @@ fun GamesListScreen(
     var activeSort by remember { mutableStateOf(LibrarySort.NEWEST) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
 
+    val focusManager = LocalFocusManager.current
+    val showAllGames = {
+        searchQuery = ""
+        activeFilter = LibraryFilter.ALL
+        focusManager.clearFocus()
+    }
+
     LaunchedEffect(initialSearchQuery, initialColorFilter) {
         if (!initialSearchQuery.isNullOrBlank() || initialColorFilter != null) {
             searchQuery = initialSearchQuery.orEmpty()
@@ -149,7 +157,7 @@ fun GamesListScreen(
             val matchesFilter = when (activeFilter) {
                 LibraryFilter.ALL -> true
                 LibraryFilter.ANALYZED -> item.game.isAnalyzed()
-                LibraryFilter.PENDING -> !item.game.isAnalyzed()
+                LibraryFilter.PENDING -> item.game.analysisStatus == AnalysisStatus.PENDING
                 LibraryFilter.WINS -> item.info.outcome == PgnParser.PlayerOutcome.WIN
                 LibraryFilter.LOSSES -> item.info.outcome == PgnParser.PlayerOutcome.LOSS
                 LibraryFilter.DRAWS -> item.info.outcome == PgnParser.PlayerOutcome.DRAW
@@ -236,17 +244,17 @@ fun GamesListScreen(
                         sortMenuExpanded = false
                     },
                     shownCount = filteredGames.size,
-                    totalCount = indexedGames.size
+                    totalCount = indexedGames.size,
+                    onShowAll = showAllGames
                 )
             }
 
             if (filteredGames.isEmpty()) {
                 item {
                     NoMatchingGamesCard(
-                        onResetFilters = {
-                            searchQuery = ""
-                            activeFilter = LibraryFilter.ALL
-                        }
+                        query = searchQuery.trim(),
+                        filter = activeFilter,
+                        onShowAll = showAllGames
                     )
                 }
             } else {
@@ -297,7 +305,7 @@ fun GamesListScreen(
 private fun GamesLibraryHeader(indexedGames: List<IndexedGame>) {
     val total = indexedGames.size
     val analyzedGames = indexedGames.filter { it.game.isAnalyzed() }
-    val pendingCount = total - analyzedGames.size
+    val pendingCount = indexedGames.count { it.game.analysisStatus == AnalysisStatus.PENDING }
     val wins = indexedGames.count { it.info.outcome == PgnParser.PlayerOutcome.WIN }
     val draws = indexedGames.count { it.info.outcome == PgnParser.PlayerOutcome.DRAW }
     val losses = indexedGames.count { it.info.outcome == PgnParser.PlayerOutcome.LOSS }
@@ -372,7 +380,8 @@ private fun LibrarySearchAndFilters(
     onSortMenuToggle: (Boolean) -> Unit,
     onSortChange: (LibrarySort) -> Unit,
     shownCount: Int,
-    totalCount: Int
+    totalCount: Int,
+    onShowAll: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -383,7 +392,8 @@ private fun LibrarySearchAndFilters(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = onSearchChange,
-                placeholder = { Text("Соперник, дебют, ECO, контроль...") },
+                label = { Text("Поиск партий") },
+                placeholder = { Text("Соперник, дебют, ECO, контроль…") },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),
@@ -448,11 +458,14 @@ private fun LibrarySearchAndFilters(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        if (shownCount > 0 && (activeFilter != LibraryFilter.ALL || searchQuery.isNotBlank())) {
+            TextButton(onClick = onShowAll) { Text("Показать все партии") }
+        }
     }
 }
 
 @Composable
-private fun NoMatchingGamesCard(onResetFilters: () -> Unit) {
+private fun NoMatchingGamesCard(query: String, filter: LibraryFilter, onShowAll: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
@@ -461,19 +474,22 @@ private fun NoMatchingGamesCard(onResetFilters: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Ничего не найдено",
+                text = "Совпадений нет",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Попробуйте изменить запрос или сбросить фильтр",
+                text = buildList {
+                    if (query.isNotEmpty()) add("Запрос: «$query»")
+                    if (filter != LibraryFilter.ALL) add("Фильтр: ${filter.label}")
+                }.joinToString("\n"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(10.dp))
-            TextButton(onClick = onResetFilters) {
-                Text("Сбросить фильтры")
+            OutlinedButton(onClick = onShowAll) {
+                Text("Показать все партии")
             }
         }
     }
