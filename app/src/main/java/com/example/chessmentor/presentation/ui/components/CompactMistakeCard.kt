@@ -1,6 +1,7 @@
 // presentation/ui/components/CompactMistakeCard.kt
 package com.example.chessmentor.presentation.ui.components
 
+import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -47,7 +48,7 @@ fun CompactMistakeCard(
     onShowEngineLine: (() -> Unit)? = null,
     onPracticeInTrainer: (() -> Unit)? = null
 ) {
-    val accentColor = moveQuality?.getColor() ?: mistake.mistakeType.getColor()
+    val accentColor = LocalChessPalette.current.run { moveQuality?.let { accent(it) } ?: accent(mistake.mistakeType) }
     val title = moveQuality?.getDisplayName() ?: mistake.mistakeType.getDisplayName()
 
     val effectiveFen = fenBefore ?: mistake.fenBefore
@@ -104,7 +105,7 @@ fun CompactMistakeCard(
                             text = "· Осталось: ${GameReviewHelper.formatClock(clockSeconds)}",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFE53935)
+                            color = LocalChessPalette.current.negative
                         )
                     }
                 }
@@ -132,7 +133,7 @@ fun CompactMistakeCard(
                 CompactMovePair(
                     label = "Сыграно",
                     move = playedSan,
-                    color = Color(0xFFE53935)
+                    color = LocalChessPalette.current.negative
                 )
                 if (onRevealAnswer == null) {
                     Icon(
@@ -144,7 +145,7 @@ fun CompactMistakeCard(
                     CompactMovePair(
                         label = "Лучше",
                         move = bestSan,
-                        color = Color(0xFF4CAF50)
+                        color = LocalChessPalette.current.positive
                     )
                 }
             }
@@ -298,52 +299,53 @@ fun CompactPositionCard(
     }
 }
 
+@Composable
 private fun getPositionInfo(playerEval: Int): Triple<ImageVector, String, Color> {
     return when {
         ChessEngine.isMateScore(playerEval) && playerEval > 0 -> Triple(
             Icons.Default.EmojiEvents,
             "Форсированный мат в вашу пользу",
-            Color(0xFF2E7D32)
+            LocalChessPalette.current.positive
         )
         ChessEngine.isMateScore(playerEval) && playerEval < 0 -> Triple(
             Icons.Default.Warning,
             "Угроза форсированного мата",
-            Color(0xFFC62828)
+            LocalChessPalette.current.negative
         )
         playerEval > 300 -> Triple(
             Icons.Default.CheckCircle,
             "Выигранная позиция",
-            Color(0xFF2E7D32)
+            LocalChessPalette.current.positive
         )
         playerEval > 100 -> Triple(
             Icons.Default.TrendingUp,
             "Устойчивый перевес",
-            Color(0xFF4CAF50)
+            LocalChessPalette.current.positive
         )
         playerEval > 35 -> Triple(
             Icons.Default.Add,
             "Небольшое преимущество",
-            Color(0xFF66BB6A)
+            LocalChessPalette.current.positive
         )
         playerEval < -300 -> Triple(
             Icons.Default.Warning,
             "Тяжёлая позиция",
-            Color(0xFFC62828)
+            LocalChessPalette.current.negative
         )
         playerEval < -100 -> Triple(
             Icons.Default.TrendingDown,
             "Перевес у соперника",
-            Color(0xFFE53935)
+            LocalChessPalette.current.negative
         )
         playerEval < -35 -> Triple(
             Icons.Default.Remove,
             "Небольшой перевес у соперника",
-            Color(0xFFFF9800)
+            LocalChessPalette.current.caution
         )
         else -> Triple(
             Icons.Default.Balance,
             "Примерное равенство",
-            Color(0xFF78909C)
+            LocalChessPalette.current.neutral
         )
     }
 }

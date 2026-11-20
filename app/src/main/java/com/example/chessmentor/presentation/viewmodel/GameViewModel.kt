@@ -222,9 +222,7 @@ class GameViewModel(
 
     internal suspend fun archiveGames(userId: Long, name: String, period: String): List<ArchiveGame> {
         val known = withContext(Dispatchers.IO) {
-            container.gameRepository.findByUserId(userId).mapNotNull {
-                PgnParser.computeFingerprintForStoredPgn(it.pgnData)
-            }.toSet()
+            indexSavedGames(container.gameRepository.findByUserId(userId)).mapValues { it.value.id!! }
         }
         return container.chessComArchive.latest(name, period, known)
     }
@@ -352,6 +350,16 @@ class GameViewModel(
         }
     }
 
+    // If multiple copies exist, link to the earliest remaining local record.
+    private fun indexSavedGames(games: List<Game>): Map<String, Game> = buildMap {
+        for (game in games) {
+            val id = game.id ?: continue
+            val fp = PgnParser.computeFingerprintForStoredPgn(game.pgnData) ?: continue
+            val previous = get(fp)?.id
+            if (previous == null || id < previous) put(fp, game)
+        }
+    }
+
     private fun buildPreviewInternal(
         rawPgn: String,
         user: User?,
@@ -371,12 +379,7 @@ class GameViewModel(
             user?.email?.substringBefore('@')?.trim()?.takeIf { it.length >= 3 }?.let(::add)
         }
 
-        val existingByFingerprint = HashMap<String, Game>()
-        for (g in existingGames) {
-            PgnParser.computeFingerprintForStoredPgn(g.pgnData)?.let { fp ->
-                existingByFingerprint.putIfAbsent(fp, g)
-            }
-        }
+        val existingByFingerprint = indexSavedGames(existingGames)
 
         if (blocks.size == 1) {
             return when (val res = PgnParser.parseAndValidate(blocks[0])) {

@@ -1,7 +1,6 @@
 // presentation/ui/screen/GamesListScreen.kt
 package com.example.chessmentor.presentation.ui.components.screen
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.verticalScroll
@@ -15,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
@@ -24,13 +24,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.AnalysisStatus
@@ -186,7 +190,7 @@ fun GamesListScreen(
     ) {
         // Сводная шапка библиотеки (всего, W/D/L, разобрано, ср. точность)
         item {
-            GamesLibraryHeader(indexedGames = indexedGames)
+            GamesLibraryHeader(indexedGames, onNavigateToUpload)
         }
 
         // Живой прогресс/ошибка загрузки NNUE (скрывается автоматически при готовности Stockfish)
@@ -305,7 +309,7 @@ internal fun LibraryAnalysisFeedback(
 }
 
 @Composable
-private fun GamesLibraryHeader(indexedGames: List<IndexedGame>) {
+private fun GamesLibraryHeader(indexedGames: List<IndexedGame>, onAdd: () -> Unit) {
     val total = indexedGames.size
     val analyzedGames = indexedGames.filter { it.game.isAnalyzed() }
     val pendingCount = indexedGames.count { it.game.analysisStatus == AnalysisStatus.PENDING }
@@ -330,29 +334,22 @@ private fun GamesLibraryHeader(indexedGames: List<IndexedGame>) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Библиотека партий",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                if (avgAccuracy != null) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            text = String.format(Locale.US, "Ср. %.1f%%", avgAccuracy),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = accuracyColor(avgAccuracy),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text("Библиотека партий", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                if (total > 0) AddGameButton(onAdd)
+            }
+            if (avgAccuracy != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = String.format(Locale.US, "Ср. %.1f%%", avgAccuracy),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
                 }
             }
 
@@ -366,9 +363,17 @@ private fun GamesLibraryHeader(indexedGames: List<IndexedGame>) {
             Text(
                 text = statsLine,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                color = MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
+    }
+}
+
+@Composable
+internal fun AddGameButton(onAdd: () -> Unit) {
+    TextButton(onClick = onAdd, modifier = Modifier.heightIn(min = 48.dp)) {
+        Icon(Icons.Default.Add, contentDescription = null)
+        Text("Добавить")
     }
 }
 
@@ -415,7 +420,8 @@ private fun LibrarySearchAndFilters(
             )
 
             Box {
-                FilledTonalIconButton(onClick = { onSortMenuToggle(true) }) {
+                FilledTonalIconButton(onClick = { onSortMenuToggle(true) },
+                    modifier = Modifier.semantics { stateDescription = activeSort.label }) {
                     Icon(Icons.Default.Sort, contentDescription = "Сортировка")
                 }
                 DropdownMenu(
@@ -424,11 +430,14 @@ private fun LibrarySearchAndFilters(
                 ) {
                     LibrarySort.entries.forEach { option ->
                         DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = option.label,
-                                    fontWeight = if (option == activeSort) FontWeight.Bold else FontWeight.Normal
-                                )
+                            modifier = Modifier.semantics {
+                                selected = option == activeSort
+                                role = Role.RadioButton
+                            },
+                            text = { Text(option.label, style = MaterialTheme.typography.bodyLarge) },
+                            trailingIcon = {
+                                if (option == activeSort) Icon(Icons.Default.Check, contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary)
                             },
                             onClick = { onSortChange(option) }
                         )
@@ -544,7 +553,7 @@ private fun EmptyGamesPlaceholder(onImportClick: () -> Unit) {
             Spacer(modifier = Modifier.height(14.dp))
             Text(
                 text = "Партий пока нет",
-                fontSize = 18.sp,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(6.dp))
@@ -563,6 +572,7 @@ private fun EmptyGamesPlaceholder(onImportClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GameCard(
     game: Game,
@@ -586,88 +596,69 @@ fun GameCard(
         onClick = onClick
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            // Верхняя строка: цвет + соперник (Эло) + результат + удаление
+            // Имени доступна вся ширина между индикатором стороны и корзиной.
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                Box(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .background(
+                            if (game.playerColor == ChessColor.WHITE) Color.White else Color.Black,
+                            RoundedCornerShape(4.dp)
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                )
+
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = info.title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (id != null) IconButton(
+                    onClick = { showDeleteDialog = true },
+                    modifier = Modifier.size(48.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(18.dp)
-                            .background(
-                                if (game.playerColor == ChessColor.WHITE) Color.White else Color.Black,
-                                RoundedCornerShape(4.dp)
-                            )
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
-                                shape = RoundedCornerShape(4.dp)
-                            )
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Удалить партию №$id",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
+                        modifier = Modifier.size(18.dp)
                     )
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = info.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
-                        // Контроль · ходы · дата · часы · платформа
-                        val subtitle = buildList {
-                            id?.let { add("№$it") }
-                            add(info.timeControlLabel)
-                            if (info.fullMoveCount > 0) add("${info.fullMoveCount} х.")
-                            if (info.dateLabel.isNotBlank()) add(info.dateLabel)
-                            if (info.hasClockData) add("С часами")
-                            if (info.platform != PgnParser.GamePlatform.OTHER) {
-                                add(info.platform.displayName)
-                            }
-                        }.joinToString(" · ")
-
-                        Text(
-                            text = subtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (info.outcome != PgnParser.PlayerOutcome.UNKNOWN) {
-                        OutcomeChip(outcome = info.outcome)
-                    } else {
-                        StatusChip(status = game.analysisStatus)
-                    }
-
-                    if (id != null) IconButton(
-                        onClick = { showDeleteDialog = true },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Удалить партию №$id",
-                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
                 }
             }
+
+            if (info.outcome != PgnParser.PlayerOutcome.UNKNOWN) {
+                OutcomeChip(info.outcome)
+            } else {
+                StatusChip(game.analysisStatus)
+            }
+            Spacer(Modifier.height(4.dp))
+            // Контроль · ходы · дата · часы · платформа
+            val subtitle = buildList {
+                id?.let { add("№$it") }
+                add(info.timeControlLabel)
+                if (info.fullMoveCount > 0) add("${info.fullMoveCount} х.")
+                if (info.dateLabel.isNotBlank()) add(info.dateLabel)
+                if (info.hasClockData) add("С часами")
+                if (info.platform != PgnParser.GamePlatform.OTHER) {
+                    add(info.platform.displayName)
+                }
+            }.joinToString(" · ")
+
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             // Строка дебюта (если определён)
             if (!info.openingLabel.isNullOrBlank()) {
@@ -697,24 +688,25 @@ fun GameCard(
                             acpl = game.averageEvaluationLoss
                         )
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             MistakeCountBadge(
                                 emoji = "??",
                                 label = "Зевки",
                                 count = game.blundersCount,
-                                activeColor = Color(0xFFD32F2F)
+                                activeColor = MaterialTheme.colorScheme.error
                             )
                             MistakeCountBadge(
                                 emoji = "?",
                                 label = "Ошибки",
                                 count = game.mistakesCount,
-                                activeColor = Color(0xFFF57C00)
+                                activeColor = MaterialTheme.colorScheme.secondary
                             )
                             MistakeCountBadge(
                                 emoji = "?!",
                                 label = "Неточн.",
                                 count = game.inaccuraciesCount,
-                                activeColor = Color(0xFFF9A825)
+                                activeColor = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -792,6 +784,7 @@ fun GameCard(
     if (showDeleteDialog && id != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
             title = { Text("Удалить партию №$id?") },
             text = {
                 Column(
@@ -801,7 +794,14 @@ fun GameCard(
                     Text(info.title, style = MaterialTheme.typography.titleMedium)
                     Text(listOf(info.dateLabel, info.timeControlLabel, info.outcome.displayName)
                         .filter { it.isNotBlank() }.joinToString(" · "))
-                    Text("Будут удалены партия и её разбор, а также связанные с ней задачи и попытки их решения. Отменить удаление нельзя.")
+                    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Отменить удаление нельзя", style = MaterialTheme.typography.titleMedium)
+                            Text("Будут удалены партия и её разбор, а также связанные с ней задачи и попытки их решения.",
+                                style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -828,48 +828,31 @@ fun GameCard(
 
 @Composable
 private fun OutcomeChip(outcome: PgnParser.PlayerOutcome) {
-    val (color, label) = when (outcome) {
-        PgnParser.PlayerOutcome.WIN -> Color(0xFF2E7D32) to "Победа"
-        PgnParser.PlayerOutcome.LOSS -> Color(0xFFC62828) to "Поражение"
-        PgnParser.PlayerOutcome.DRAW -> Color(0xFFEF6C00) to "Ничья"
-        PgnParser.PlayerOutcome.UNKNOWN -> Color(0xFF757575) to "•"
-    }
-    Surface(
-        color = color.copy(alpha = 0.14f),
-        shape = RoundedCornerShape(6.dp),
-        border = BorderStroke(1.dp, color.copy(alpha = 0.4f))
-    ) {
-        Text(
-            text = label,
-            color = color,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-        )
+    val colors = MaterialTheme.colorScheme
+    when (outcome) {
+        PgnParser.PlayerOutcome.WIN -> LibraryBadge("Победа", colors.primaryContainer, colors.onPrimaryContainer)
+        PgnParser.PlayerOutcome.LOSS -> LibraryBadge("Поражение", colors.errorContainer, colors.onErrorContainer)
+        PgnParser.PlayerOutcome.DRAW -> LibraryBadge("Ничья", colors.secondaryContainer, colors.onSecondaryContainer)
+        PgnParser.PlayerOutcome.UNKNOWN -> Unit // The card shows the analysis status instead.
     }
 }
 
 @Composable
 fun StatusChip(status: AnalysisStatus) {
-    val (color, text) = when (status) {
-        AnalysisStatus.COMPLETED -> Color(0xFF4CAF50) to "Готово"
-        AnalysisStatus.IN_PROGRESS -> Color(0xFFFFA726) to "Анализ"
-        AnalysisStatus.PENDING -> Color(0xFF9E9E9E) to "В очереди"
-        AnalysisStatus.FAILED -> Color(0xFFE53935) to "Ошибка"
+    val colors = MaterialTheme.colorScheme
+    when (status) {
+        AnalysisStatus.COMPLETED -> LibraryBadge("Готово", colors.primaryContainer, colors.onPrimaryContainer)
+        AnalysisStatus.IN_PROGRESS -> LibraryBadge("Анализ", colors.tertiaryContainer, colors.onTertiaryContainer)
+        AnalysisStatus.PENDING -> LibraryBadge("В очереди", colors.secondaryContainer, colors.onSecondaryContainer)
+        AnalysisStatus.FAILED -> LibraryBadge("Ошибка", colors.errorContainer, colors.onErrorContainer)
     }
+}
 
-    Surface(
-        color = color.copy(alpha = 0.15f),
-        shape = RoundedCornerShape(6.dp),
-        border = BorderStroke(1.dp, color.copy(alpha = 0.45f))
-    ) {
-        Text(
-            text = text,
-            color = color,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-        )
+@Composable
+private fun LibraryBadge(label: String, fill: Color, ink: Color) {
+    Surface(color = fill, contentColor = ink, shape = MaterialTheme.shapes.small) {
+        Text(label, style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
     }
 }
 
@@ -884,7 +867,7 @@ fun AccuracyBadge(
                 text = "Точность: ${formatGameAccuracy(accuracy)}",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = accuracyColor(accuracy)
+                color = MaterialTheme.colorScheme.onSurface
             )
         } else {
             Text(MISSING_ACCURACY, style = MaterialTheme.typography.bodyMedium,
@@ -895,14 +878,6 @@ fun AccuracyBadge(
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
-}
-
-private fun accuracyColor(accuracy: Double): Color = when {
-    accuracy >= 90.0 -> Color(0xFF4CAF50)
-    accuracy >= 80.0 -> Color(0xFF8BC34A)
-    accuracy >= 70.0 -> Color(0xFFFFA726)
-    accuracy >= 60.0 -> Color(0xFFFF9800)
-    else -> Color(0xFFE53935)
 }
 
 @Composable
@@ -917,13 +892,13 @@ fun MistakeCountBadge(
             text = emoji,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            color = if (count > 0) activeColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+            color = if (count > 0) activeColor else MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
             text = "$count",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            color = if (count > 0) activeColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+            color = if (count > 0) activeColor else MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
             text = label,

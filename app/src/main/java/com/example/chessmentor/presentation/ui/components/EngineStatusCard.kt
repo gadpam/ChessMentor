@@ -557,16 +557,16 @@ fun NnueManagementCard(
 @Composable
 private fun StatusPill(status: EngineStatus) {
     val (bg, fg) = when (status) {
-        is EngineStatus.Ready -> Color(0xFF2E7D32).copy(alpha = 0.16f) to Color(0xFF4CAF50)
+        is EngineStatus.Ready -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
         is EngineStatus.Error -> {
             if (status.reason == EngineErrorReason.CANCELLED) {
                 MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
             } else {
-                MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.error
+                MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
             }
         }
         EngineStatus.Idle -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
-        else -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
     }
     Surface(
         shape = RoundedCornerShape(8.dp),

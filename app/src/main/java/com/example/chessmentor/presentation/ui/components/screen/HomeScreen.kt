@@ -57,6 +57,7 @@ fun HomeScreen(
     container: AppContainer? = null,
     onNavigateToSettings: () -> Unit,
     onNavigateToTraining: () -> Unit,
+    onNavigateToUpload: () -> Unit,
     onNavigateToDailyPuzzle: () -> Unit = onNavigateToTraining,
     onNavigateToSmartSession: () -> Unit = onNavigateToTraining,
     onOpenEngineSettings: (() -> Unit)? = null,
@@ -110,6 +111,7 @@ fun HomeScreen(
             gameViewModel = gameViewModel,
             container = container,
             onLogout = onLogout,
+            onNavigateToUpload = onNavigateToUpload,
             onNavigateToDailyPuzzle = onNavigateToDailyPuzzle,
             onNavigateToSmartSession = onNavigateToSmartSession,
             onOpenEngineSettings = onOpenEngineSettings,
@@ -150,11 +152,6 @@ private fun AuthScreenContent(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Приветствие
-        item {
-            WelcomeCard()
-        }
-
         // Сообщение
         if (message.isNotEmpty()) {
             item {
@@ -202,41 +199,6 @@ private fun AuthScreenContent(
                 onLogin = onLogin,
                 onRegister = onRegister
             )
-        }
-    }
-}
-
-@Composable
-private fun WelcomeCard() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer
-        )
-    ) {
-        Row(
-            modifier = Modifier.padding(24.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.size(64.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.SportsEsports,
-                        contentDescription = null,
-                        modifier = Modifier.size(32.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column {
-                Text("Добро пожаловать!", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("Войдите, чтобы начать")
-            }
         }
     }
 }
@@ -394,12 +356,6 @@ private fun LoginForm(
     var showPassword by remember { mutableStateOf(false) }
     val canSubmit = !isLoading && email.isNotBlank() && password.isNotBlank()
 
-    Text(
-        "С возвращением!",
-        style = MaterialTheme.typography.headlineSmall,
-        fontWeight = FontWeight.Bold
-    )
-
     OutlinedTextField(
         value = email,
         onValueChange = onEmailChange,
@@ -486,16 +442,10 @@ private fun RegisterForm(
         !trimmedEmail.contains(" ")
     val isFormValid = trimmedNick.length in 3..50 && isEmailValid && password.length >= 6
 
-    Text(
-        "Создать аккаунт",
-        style = MaterialTheme.typography.headlineSmall,
-        fontWeight = FontWeight.Bold
-    )
-
     OutlinedTextField(
         value = nickname,
         onValueChange = { if (it.length <= 50) onNicknameChange(it) },
-        label = { Text("Никнейм (или ник на Lichess / Chess.com)") },
+        label = { Text("Имя в ChessMentor") },
         leadingIcon = { Icon(Icons.Default.Person, null) },
         singleLine = true,
         isError = nickname.isNotEmpty() && trimmedNick.length < 3,
@@ -634,6 +584,7 @@ fun DashboardContent(
     container: AppContainer? = null,
     @Suppress("UNUSED_PARAMETER")
     onLogout: () -> Unit,
+    onNavigateToUpload: () -> Unit,
     onNavigateToDailyPuzzle: () -> Unit,
     onNavigateToSmartSession: () -> Unit = onNavigateToDailyPuzzle,
     onOpenEngineSettings: (() -> Unit)? = null,
@@ -705,12 +656,10 @@ fun DashboardContent(
         }
 
         item {
-            Text(
-                "Недавние партии",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 8.dp)
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text("Недавние партии", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                AddGameButton(onNavigateToUpload)
+            }
         }
 
         if (recentGames.isEmpty()) {
@@ -865,8 +814,8 @@ private fun EmptyGamesCard() {
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(Icons.Default.History, null, tint = Color.Gray)
-            Text("История пуста", color = Color.Gray)
+            Icon(Icons.Default.History, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("История пуста", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

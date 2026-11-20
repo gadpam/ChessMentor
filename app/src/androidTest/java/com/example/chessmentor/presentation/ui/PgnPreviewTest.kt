@@ -8,7 +8,9 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.chessmentor.di.AppContainer
+import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.ChessColor
+import com.example.chessmentor.presentation.ui.components.screen.PgnLivePreviewCard
 import com.example.chessmentor.presentation.ui.components.screen.UploadForm
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import org.junit.Assert.*
@@ -52,6 +54,31 @@ class PgnPreviewTest {
         }
     }
 
+    @Test fun duplicateOpensEarliestSavedRecordAndCopyRequiresConfirmation() {
+        val record = Game(id = 14, userId = 1, pgnData = first, playedAt = 1, playerColor = ChessColor.BLACK)
+        val opened = mutableListOf<Long>()
+        var copies = 0
+        ui.setContent {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                vm.importPreview.value?.let {
+                    PgnLivePreviewCard(it, ChessColor.BLACK, false, false, { copies++ }, { id -> opened.add(id) })
+                }
+            }
+        }
+        ui.runOnIdle {
+            vm.userGames.addAll(listOf(record.copy(id = 99), record))
+            vm.onPgnInputChanged(first)
+        }
+        ui.waitUntil(5000) { vm.importPreview.value?.duplicateExistingGame != null }
+        ui.onNodeWithText("Открыть партию №14").performScrollTo().performClick()
+        ui.onNodeWithText("Создать отдельную копию").performScrollTo().performClick()
+        ui.onNodeWithText("Отмена").performClick()
+        ui.runOnIdle { assertEquals(listOf(14L), opened); assertEquals(0, copies) }
+        ui.onNodeWithText("Создать отдельную копию").performClick()
+        ui.onNodeWithText("Создать и разобрать").performClick()
+        ui.runOnIdle { assertEquals(1, copies) }
+    }
+
     @Test fun replacingSingleWithArchiveOnlyOffersNewGamesAndNewestAnalysis() {
         val batchActions = mutableListOf<Boolean>()
         ui.setContent {
@@ -62,6 +89,13 @@ class PgnPreviewTest {
                     { error("Одиночный анализ") }, { error("Сохранение одной партии") }, { batchActions.add(it) })
             }
         }
+        ui.onNodeWithText("Ваш цвет:").assertDoesNotExist()
+        ui.onNodeWithText("Контроль времени").assertDoesNotExist()
+        ui.onNodeWithText("Импортировать партию и разобрать").assertDoesNotExist()
+        ui.onNodeWithText("Что такое PGN?").performScrollTo().performClick()
+        ui.onNodeWithText("PGN — текстовая запись партии", substring = true).assertExists()
+        ui.onNodeWithText("Скрыть справку").performScrollTo().performClick()
+        ui.onNodeWithText("PGN — текстовая запись партии", substring = true).assertDoesNotExist()
         ui.runOnIdle { vm.onPgnInputChanged(first) }
         ui.waitUntil(5000) { vm.importPreview.value?.singleParsed != null }
         ui.onNodeWithText("Импортировать партию и разобрать").assertIsEnabled()

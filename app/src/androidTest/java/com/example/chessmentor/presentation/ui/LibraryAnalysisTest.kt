@@ -3,6 +3,8 @@ package com.example.chessmentor.presentation.ui
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -14,6 +16,8 @@ import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase.AnalysisProgres
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase.Result
 import com.example.chessmentor.presentation.ui.components.screen.GameCard
 import com.example.chessmentor.presentation.ui.components.screen.LibraryAnalysisFeedback
+import com.example.chessmentor.presentation.ui.components.AnalysisProgressDialog
+import com.example.chessmentor.presentation.ui.components.theme.ChessMentorTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -23,6 +27,21 @@ class LibraryAnalysisTest {
     private val pending = Game(id = 14, userId = 1, playedAt = 1, playerColor = ChessColor.WHITE, pgnData = "1. e4 *")
     private val failed = pending.copy(id = 15, analysisStatus = AnalysisStatus.FAILED)
     private fun success(game: Game) = AnalysisProgress.Completed(Result.Success(game, emptyList(), emptyList(), emptyList()))
+
+    @Test fun longErrorKeepsCloseAvailableWithLargeType() {
+        var closed = false
+        ui.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 1.5f)) {
+                ChessMentorTheme(darkTheme = true) {
+                    AnalysisProgressDialog(AnalysisProgress.Failed("Длинное сообщение об ошибке. ".repeat(80)),
+                        onDismiss = { closed = true }, gameId = 15)
+                }
+            }
+        }
+        ui.onNodeWithText("Ошибка анализа").assertIsDisplayed()
+        ui.onNodeWithText("Закрыть").assertIsDisplayed().performClick()
+        ui.runOnIdle { assertEquals(true, closed) }
+    }
 
     @Test fun startRetryCancelAndCompletionAreBoundToTheTappedGame() {
         val starts = mutableListOf<Pair<Long, Boolean>>()

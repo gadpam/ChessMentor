@@ -1,6 +1,7 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
 import android.util.Log
+import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -868,13 +869,13 @@ private fun PlayerInfoBadge(
             val trouble = GameReviewHelper.isTimeTrouble(clockSeconds)
             val low = GameReviewHelper.isLowTime(clockSeconds)
             val bg = when {
-                trouble -> Color(0xFFE53935).copy(alpha = 0.16f)
-                low -> Color(0xFFFF9800).copy(alpha = 0.16f)
+                trouble -> LocalChessPalette.current.negative.copy(alpha = 0.16f)
+                low -> LocalChessPalette.current.caution.copy(alpha = 0.16f)
                 else -> MaterialTheme.colorScheme.surfaceVariant
             }
             val fg = when {
-                trouble -> Color(0xFFE53935)
-                low -> Color(0xFFEF6C00)
+                trouble -> LocalChessPalette.current.negative
+                low -> LocalChessPalette.current.caution
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
             Surface(
@@ -966,7 +967,7 @@ private fun calculateBadgeOffset(square: Square, isFlipped: Boolean, boardSize: 
 }
 
 @Composable
-private fun RetryMistakePanel(
+internal fun RetryMistakePanel(
     state: RetryMistakeUiState,
     onHint: () -> Unit,
     onShowLine: (() -> Unit)?,
@@ -975,12 +976,12 @@ private fun RetryMistakePanel(
     onCancel: () -> Unit
 ) {
     val containerColor = if (state.isSolved) {
-        Color(0xFF4CAF50).copy(alpha = 0.14f)
+        LocalChessPalette.current.positive.copy(alpha = 0.14f)
     } else {
         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
     }
     val borderColor = if (state.isSolved) {
-        Color(0xFF4CAF50).copy(alpha = 0.45f)
+        LocalChessPalette.current.positive.copy(alpha = 0.45f)
     } else {
         MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
     }
@@ -1008,7 +1009,7 @@ private fun RetryMistakePanel(
                     },
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
-                    color = if (state.isSolved) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
+                    color = if (state.isSolved) LocalChessPalette.current.positive else MaterialTheme.colorScheme.primary
                 )
                 if (state.isCheckingEngine) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -1021,70 +1022,34 @@ private fun RetryMistakePanel(
                 color = MaterialTheme.colorScheme.onSurface
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (state.isSolved) {
-                    Button(
-                        onClick = onContinueGame,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier.height(30.dp)
-                    ) {
-                        Text("Дальше →", fontSize = 11.sp)
+            var more by remember(state.targetMoveIndex, state.isSolved) { mutableStateOf(false) }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                when {
+                    state.isSolved -> Button(onClick = onContinueGame, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                        Text("Дальше")
                     }
-                    if (onShowLine != null) {
-                        OutlinedButton(
-                            onClick = onShowLine,
-                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                            modifier = Modifier.height(30.dp)
-                        ) {
-                            Text("Линия", fontSize = 11.sp)
+                    state.hintLevel < 2 -> FilledTonalButton(onClick = onHint, enabled = !state.isCheckingEngine,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                        Text(if (state.hintLevel == 0) "Подсказка" else "Показать ход")
+                    }
+                    else -> TextButton(onClick = onCancel, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                        Text("К партии")
+                    }
+                }
+                val canReturn = !state.isSolved && state.hintLevel < 2
+                if (canReturn || onPracticeInTrainer != null || (state.isSolved && onShowLine != null)) {
+                    Box {
+                        IconButton(onClick = { more = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Действия разбора")
                         }
-                    }
-                    if (onPracticeInTrainer != null) {
-                        OutlinedButton(
-                            onClick = onPracticeInTrainer,
-                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                            modifier = Modifier.height(30.dp)
-                        ) {
-                            Text("В тренажёр", fontSize = 11.sp)
+                        DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                            if (canReturn) DropdownMenuItem(text = { Text("К партии") },
+                                onClick = { more = false; onCancel() })
+                            if (state.isSolved && onShowLine != null) DropdownMenuItem(text = { Text("Посмотреть вариант") },
+                                onClick = { more = false; onShowLine() })
+                            if (onPracticeInTrainer != null) DropdownMenuItem(text = { Text("В тренажёр") },
+                                onClick = { more = false; onPracticeInTrainer() })
                         }
-                    }
-                } else {
-                    FilledTonalButton(
-                        onClick = onHint,
-                        enabled = !state.isCheckingEngine,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier.height(30.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Lightbulb,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (state.hintLevel == 0) "Подсказка" else "Показать ход",
-                            fontSize = 11.sp
-                        )
-                    }
-                    if (onPracticeInTrainer != null) {
-                        OutlinedButton(
-                            onClick = onPracticeInTrainer,
-                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                            modifier = Modifier.height(30.dp)
-                        ) {
-                            Text("В тренажёр", fontSize = 11.sp)
-                        }
-                    }
-                    TextButton(
-                        onClick = onCancel,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        modifier = Modifier.height(30.dp)
-                    ) {
-                        Text("К партии", fontSize = 11.sp)
                     }
                 }
             }
@@ -1294,7 +1259,7 @@ internal fun AnalyzedMoveInfoCard(
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = quality.getColor().copy(alpha = 0.12f)),
+        colors = CardDefaults.cardColors(containerColor = LocalChessPalette.current.accent(quality).copy(alpha = 0.12f)),
         shape = RoundedCornerShape(10.dp)
     ) {
         Column(
@@ -1313,14 +1278,14 @@ internal fun AnalyzedMoveInfoCard(
                             text = titleText,
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = quality.getColor()
+                            color = LocalChessPalette.current.accent(quality)
                         )
                         if (inTimeTrouble && clockSeconds != null) {
                             Text(
                                 text = "· Осталось: ${GameReviewHelper.formatClock(clockSeconds)}",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFFE53935)
+                                color = LocalChessPalette.current.negative
                             )
                         }
                     }
@@ -1336,7 +1301,7 @@ internal fun AnalyzedMoveInfoCard(
                                 text = "Лучше: $bestSan",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF4CAF50)
+                                color = LocalChessPalette.current.positive
                             )
                         }
                     }
@@ -1352,7 +1317,7 @@ internal fun AnalyzedMoveInfoCard(
                         text = text,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (userDelta > 0) Color(0xFF4CAF50) else Color(0xFFE53935)
+                        color = if (userDelta > 0) LocalChessPalette.current.positive else LocalChessPalette.current.negative
                     )
                 }
             }

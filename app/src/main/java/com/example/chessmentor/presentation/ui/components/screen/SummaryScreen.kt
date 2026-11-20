@@ -1,6 +1,7 @@
 // presentation/ui/screen/SummaryScreen.kt
 package com.example.chessmentor.presentation.ui.components.screen
 
+import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -442,13 +443,13 @@ private fun EvaluationGraphCard(
                     }
                 } else if (hasRealData) {
                     Surface(
-                        color = Color(0xFF4CAF50).copy(alpha = 0.12f),
+                        color = LocalChessPalette.current.positive.copy(alpha = 0.12f),
                         shape = RoundedCornerShape(4.dp)
                     ) {
                         Text(
                             text = "Stockfish",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF4CAF50),
+                            color = LocalChessPalette.current.positive,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
@@ -792,9 +793,9 @@ internal fun GameMetricsCard(
                     label = "Ваших ошибок",
                     value = "${game.totalMistakes}",
                     color = when {
-                        game.totalMistakes > 5 -> Color(0xFFE53935)
-                        game.totalMistakes > 2 -> Color(0xFFFF9800)
-                        else -> Color(0xFF4CAF50)
+                        game.totalMistakes > 5 -> LocalChessPalette.current.negative
+                        game.totalMistakes > 2 -> LocalChessPalette.current.caution
+                        else -> LocalChessPalette.current.positive
                     }
                 )
             }
@@ -847,19 +848,19 @@ internal fun GameMetricsCard(
                     emoji = "??",
                     label = "Зевки",
                     count = game.blundersCount,
-                    color = Color(0xFFD32F2F)
+                    color = LocalChessPalette.current.negative
                 )
                 ErrorTypeItem(
                     emoji = "?",
                     label = "Ошибки",
                     count = game.mistakesCount,
-                    color = Color(0xFFF57C00)
+                    color = LocalChessPalette.current.caution
                 )
                 ErrorTypeItem(
                     emoji = "?!",
                     label = "Неточности",
                     count = game.inaccuraciesCount,
-                    color = Color(0xFFFBC02D)
+                    color = LocalChessPalette.current.caution
                 )
             }
         }
@@ -895,7 +896,7 @@ private fun SideComparisonStrip(
                     text = playerAccuracy?.let(::formatGameAccuracy) ?: "—",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = playerAccuracy?.let(::getAccuracyColor) ?: MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = playerAcpl?.let { "$it сП" } ?: "— сП",
@@ -921,7 +922,7 @@ private fun SideComparisonStrip(
                     text = formatGameAccuracy(opponentAccuracy),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = getAccuracyColor(opponentAccuracy)
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = "$opponentAcpl сП",
@@ -949,7 +950,7 @@ private fun PhaseAccuracyItem(
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             color = if (accuracy != null) {
-                getAccuracyColor(accuracy)
+                MaterialTheme.colorScheme.onSurface
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
             }
@@ -996,7 +997,7 @@ private fun AccuracyIndicator(accuracy: Double) {
                     text = formatGameAccuracy(accuracy),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = color
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }
@@ -1013,7 +1014,7 @@ private fun AccuracyIndicator(accuracy: Double) {
                 text = rating,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = color
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
     }
@@ -1068,7 +1069,7 @@ private fun ErrorTypeItem(
             text = "$count",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
-            color = if (count > 0) color else Color.Gray.copy(alpha = 0.5f)
+            color = if (count > 0) color else MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
             text = label,
@@ -1078,14 +1079,12 @@ private fun ErrorTypeItem(
     }
 }
 
-private fun getAccuracyColor(accuracy: Double): Color {
-    return when {
-        accuracy >= 90 -> Color(0xFF4CAF50)
-        accuracy >= 80 -> Color(0xFF8BC34A)
-        accuracy >= 70 -> Color(0xFFCDDC39)
-        accuracy >= 60 -> Color(0xFFFFEB3B)
-        accuracy >= 50 -> Color(0xFFFF9800)
-        else -> Color(0xFFE53935)
+@Composable
+private fun getAccuracyColor(accuracy: Double): Color = with(LocalChessPalette.current) {
+    when {
+        accuracy >= 80 -> positive
+        accuracy >= 60 -> caution
+        else -> negative
     }
 }
 
@@ -1332,7 +1331,7 @@ fun KeyMomentItemCompact(
             text = "$count",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
-            color = if (count > 0) quality.getColor() else Color.Gray.copy(alpha = 0.5f)
+            color = if (count > 0) LocalChessPalette.current.accent(quality) else MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         Text(
@@ -1365,7 +1364,7 @@ fun KeyMomentRow(
     onClick: (KeyMoment) -> Unit,
     onPracticeClick: (() -> Unit)? = null
 ) {
-    val accent = moment.quality.getColor()
+    val accent = LocalChessPalette.current.accent(moment.quality)
     val userDelta = moment.userPerspectiveDelta()
     val roleLabel = if (moment.isPlayerMove) {
         moment.quality.getDisplayName()
@@ -1413,7 +1412,7 @@ fun KeyMomentRow(
                             text = "→ ${moment.bestMove}",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF4CAF50)
+                            color = LocalChessPalette.current.positive
                         )
                     }
                 }
@@ -1433,7 +1432,7 @@ fun KeyMomentRow(
                     text = formatEvaluationChange(userDelta),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (userDelta > 0) Color(0xFF4CAF50) else Color(0xFFE53935)
+                    color = if (userDelta > 0) LocalChessPalette.current.positive else LocalChessPalette.current.negative
                 )
             }
 

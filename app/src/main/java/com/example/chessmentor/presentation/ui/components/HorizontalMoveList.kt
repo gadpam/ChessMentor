@@ -1,6 +1,7 @@
 // presentation/ui/components/HorizontalMoveList.kt
 package com.example.chessmentor.presentation.ui.components
 
+import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -185,7 +186,7 @@ private fun MoveQualityChip(
         MoveQuality.BLUNDER,
         MoveQuality.MISSED_WIN,
         MoveQuality.MISTAKE,
-        MoveQuality.INACCURACY -> quality.getColor()
+        MoveQuality.INACCURACY -> LocalChessPalette.current.accent(quality)
         else -> null
     }
 
@@ -197,7 +198,7 @@ private fun MoveQualityChip(
     }
 
     val textColor = when {
-        isSelected && accent != null -> Color.White
+        isSelected && accent != null -> LocalChessPalette.current.onAccent
         isSelected -> MaterialTheme.colorScheme.onPrimary
         accent != null -> accent
         else -> MaterialTheme.colorScheme.onSurface
