@@ -759,21 +759,6 @@ private fun ExerciseMetaStrip(uiState: TrainingUiState) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            uiState.reviewBox?.let { box ->
-                Surface(
-                    color = MaterialTheme.colorScheme.tertiaryContainer,
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        text = "Ур. $box/5",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-            }
-
             // Не спойлерим общее число ходов до решения: плашка появляется только при продолжении
             if (uiState.isFreeAnalysisMode) {
                 Surface(
@@ -952,7 +937,7 @@ private fun PromotionPickerDialog(
 }
 
 @Composable
-private fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
+internal fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
     val analysis = uiState.currentMistakeAnalysis
     val isFinished = uiState.isSolved || uiState.isSolutionRevealed
     val isErrorNow = !isFinished &&
@@ -970,16 +955,16 @@ private fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
     } else {
         uiState.feedbackMessage ?: uiState.exerciseSubtitle ?: if (isErrorNow) "Неверный ход" else null
     }
-    val queued = uiState.similarExercisesQueued.takeIf { it > 0 && uiState.mode is TrainingMode.All }
     val details = listOfNotNull(
         mainText,
         motifNow?.let { "Мотив: $it" },
         uiState.postSolveExplanation.takeIf { isFinished && !uiState.isFreeAnalysisMode },
-        uiState.solutionSanLine.takeIf { uiState.isSolved && !uiState.isFreeAnalysisMode },
-        queued?.let { "Закрепление темы: ещё $it шт. в очереди" }
+        uiState.solutionSanLine.takeIf { isFinished && !uiState.isFreeAnalysisMode },
+        uiState.nextReviewNote.takeIf { isFinished && !uiState.isFreeAnalysisMode }
     ).filter { it.isNotBlank() }
     if (details.isEmpty()) return
 
+    val headline = details.first().substringBefore('\n')
     val containerColor = when {
         isErrorNow -> MaterialTheme.colorScheme.errorContainer
         isFinished -> MaterialTheme.colorScheme.primaryContainer
@@ -997,7 +982,7 @@ private fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(details.first(), modifier = Modifier.weight(1f), maxLines = 2,
+            Text(headline, modifier = Modifier.weight(1f), maxLines = 2,
                 overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
             Icon(Icons.Default.Info, contentDescription = "Открыть пояснение")
         }
