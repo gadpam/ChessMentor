@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -733,59 +734,47 @@ fun DashboardContent(
 }
 
 @Composable
-private fun UserHeader(
+internal fun UserHeader(
     user: User,
     onSettingsClick: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(48.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = user.nickname.firstOrNull()?.uppercase() ?: "?",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp
-                    )
-                }
-            }
-
-            Spacer(Modifier.width(12.dp))
-
-            Column {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(48.dp).clearAndSetSemantics { }
+        ) {
+            Box(contentAlignment = Alignment.Center) {
                 Text(
-                    user.nickname,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
+                    text = user.nickname.firstOrNull()?.uppercase() ?: "?",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp
                 )
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.TrendingUp, null,
-                        modifier = Modifier.size(14.dp),
-                        tint = Color.Gray
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "${user.rating}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.Gray,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
             }
         }
 
-        IconButton(onClick = onSettingsClick) {
-            Icon(Icons.Default.Settings, null)
+        Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
+            Text(
+                user.nickname,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "Рейтинг: ${user.rating}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        IconButton(onClick = onSettingsClick, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.Default.Settings, contentDescription = "Открыть настройки")
         }
     }
 }
