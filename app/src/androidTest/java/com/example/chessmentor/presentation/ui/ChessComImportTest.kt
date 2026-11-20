@@ -30,23 +30,27 @@ class ChessComImportTest {
         } }
         assertEquals(listOf("2025/04", "2025/01"), source.months("ArchiveNick"))
         val fp = requireNotNull(PgnParser.computeFingerprintForStoredPgn(pgn(60)))
-        val rows = source.latest("ArchiveNick", "2025/04", setOf(fp))
+        val rows = source.latest("ArchiveNick", "2025/04", mapOf(fp to 37L))
         assertEquals((60L downTo 51L).toList(), rows.map { it.ended })
-        assertTrue(rows.first().inLibrary)
+        assertEquals(37L, rows.first().libraryId)
         assertEquals(ChessColor.BLACK, rows.first().side)
         assertEquals("Победа", rows.first().outcome)
     }
 
     @Test fun monthSelectionNeverImportsUntilConfirmed() {
         val submitted = mutableListOf<List<String>>()
+        val opened = mutableListOf<Long>()
         ui.setContent {
             ChessComImportDialog(savedName = "ArchiveNick", rememberSource = {}, monthsFor = { listOf("2025/04", "2025/01") },
                 gamesFor = { _, month -> listOf(
-                    ArchiveGame("old", "", 10, "Known", ChessColor.WHITE, "Ничья", true),
-                    ArchiveGame(month, "", 11, "Rival", ChessColor.BLACK, "Победа", false)) },
+                    ArchiveGame("old", "", 10, "Known", ChessColor.WHITE, "Ничья", 37L),
+                    ArchiveGame(month, "", 11, "Rival", ChessColor.BLACK, "Победа", null)) },
+                onOpenSaved = { opened.add(it) },
                 onImport = { rows -> submitted.add(rows.map { it.fingerprint }) }, onClose = {})
         }
         ui.onNodeWithText("Known").assertIsNotEnabled()
+        ui.onNodeWithText("Открыть партию №37").performScrollTo().performClick()
+        ui.runOnIdle { assertEquals(listOf(37L), opened); assertTrue(submitted.isEmpty()) }
         ui.onNodeWithText("Rival").performScrollTo().performClick()
         ui.onNodeWithText("Раньше").performScrollTo().performClick()
         ui.onNodeWithText("Импортировать выбранные (0)").assertIsNotEnabled()

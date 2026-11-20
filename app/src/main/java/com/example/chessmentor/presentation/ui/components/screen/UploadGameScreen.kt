@@ -31,7 +31,6 @@ import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.EngineSettings
-import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.repository.EngineSettingsRepository
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
@@ -54,7 +53,7 @@ fun UploadGameScreen(
     onAnalysisComplete: () -> Unit,
     onOpenEngineSettings: () -> Unit,
     onNavigateToLibrary: () -> Unit = {},
-    onOpenExistingGame: (Game) -> Unit = {},
+    onOpenExistingGame: (Long) -> Unit = {},
     chessEngine: ChessEngine? = null
 ) {
     val pgnInput by gameViewModel.pgnInput
@@ -127,6 +126,7 @@ fun UploadGameScreen(
             rememberSource = { gameViewModel.setChessComSource(userId, it) },
             monthsFor = gameViewModel::archiveMonths,
             gamesFor = { name, period -> gameViewModel.archiveGames(userId, name, period) },
+            onOpenSaved = { id -> showChessCom = false; onOpenExistingGame(id) },
             onImport = { selected ->
                 gameViewModel.importChessComGames(userId, selected)
                 showChessCom = false
@@ -191,6 +191,8 @@ fun UploadGameScreen(
                     preview = preview,
                     selectedColor = selectedColor,
                     colorAutoDetected = colorAutoDetected,
+                    isLoading = isLoading,
+                    onCopy = { gameViewModel.uploadAndAnalyzeGame(allowDuplicate = true) },
                     onOpenExistingGame = onOpenExistingGame
                 )
             }
@@ -320,11 +322,13 @@ private fun readPgnFileFromUri(context: Context, uri: Uri): Result<Pair<String, 
 }
 
 @Composable
-private fun PgnLivePreviewCard(
+internal fun PgnLivePreviewCard(
     preview: PgnImportPreview,
     selectedColor: ChessColor,
     colorAutoDetected: Boolean,
-    onOpenExistingGame: (Game) -> Unit
+    isLoading: Boolean,
+    onCopy: () -> Unit,
+    onOpenExistingGame: (Long) -> Unit
 ) {
     // 1. Ошибка разбора одиночного PGN
     if (!preview.isBatch && preview.singleError != null) {
@@ -555,45 +559,24 @@ private fun PgnLivePreviewCard(
             }
 
             // Предупреждение о дубликате с быстрым переходом к уже сохранённой партии
-            preview.duplicateExistingGame?.let { existing ->
-                Spacer(modifier = Modifier.height(2.dp))
-                Surface(
-                    color = Color(0xFFFFA000).copy(alpha = 0.16f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = null,
-                                tint = Color(0xFFEF6C00),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Эта партия уже в библиотеке",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                        TextButton(
-                            onClick = { onOpenExistingGame(existing) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                        ) {
-                            Text("Открыть", style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
+            preview.duplicateExistingGame?.id?.let { id ->
+                var confirmCopy by remember(id, parsed.fingerprint) { mutableStateOf(false) }
+                Text("Эта партия уже в библиотеке", style = MaterialTheme.typography.labelLarge)
+                Button(onClick = { onOpenExistingGame(id) }, enabled = !isLoading, modifier = Modifier.fillMaxWidth()) {
+                    Text("Открыть партию №$id")
                 }
+                TextButton(onClick = { confirmCopy = true }, enabled = !isLoading, modifier = Modifier.fillMaxWidth()) {
+                    Text("Создать отдельную копию")
+                }
+                if (confirmCopy) AlertDialog(
+                    onDismissRequest = { confirmCopy = false },
+                    title = { Text("Создать копию партии №$id?") },
+                    text = { Text("В библиотеке появится вторая запись. Stockfish разберёт копию; сохранённая партия не изменится.") },
+                    confirmButton = { TextButton(enabled = !isLoading, onClick = { confirmCopy = false; onCopy() }) {
+                        Text("Создать и разобрать")
+                    } },
+                    dismissButton = { TextButton(onClick = { confirmCopy = false }) { Text("Отмена") } }
+                )
             }
         }
     }
@@ -1000,9 +983,9 @@ internal fun UploadForm(
                         Text("Импортировать ($importableCount) и разобрать самую свежую")
                     }
                 }
-            } else {
+            } else if (!hasDuplicate) {
                 Button(
-                    onClick = { onUploadAndAnalyze(hasDuplicate) },
+                    onClick = { onUploadAndAnalyze(false) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 50.dp),
@@ -1019,14 +1002,11 @@ internal fun UploadForm(
                     } else {
                         Icon(Icons.Default.Analytics, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            if (hasDuplicate) "Загрузить копию и анализировать"
-                            else "Импортировать партию и разобрать"
-                        )
+                        Text("Импортировать партию и разобрать")
                     }
                 }
 
-                if (validSingle && !hasDuplicate) {
+                if (validSingle) {
                     OutlinedButton(
                         onClick = { onSaveToLibrary(false) },
                         modifier = Modifier

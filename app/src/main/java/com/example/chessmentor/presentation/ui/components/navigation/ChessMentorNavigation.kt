@@ -103,7 +103,7 @@ fun ChessMentorApp(
             "summary" -> {
                 boardViewModel.dismissEngineLine()
                 gameViewModel.closeGameView()
-                val target = summaryReturnScreen.takeIf { it in setOf("games", "stats", "home") } ?: "games"
+                val target = summaryReturnScreen.takeIf { it in setOf("games", "stats", "home", "upload") } ?: "games"
                 summaryReturnScreen = "games"
                 target
             }
@@ -628,10 +628,7 @@ private fun NavigationHost(
             onAnalysisComplete = { onScreenChange("summary") },
             onOpenEngineSettings = { onOpenEngineSettings("upload") },
             onNavigateToLibrary = { onScreenChange("games") },
-            onOpenExistingGame = { existing ->
-                gameViewModel.selectGame(existing)
-                onScreenChange("summary")
-            },
+            onOpenExistingGame = { id -> onOpenGameSummaryById("upload", id) },
             chessEngine = container.chessEngine
         )
 

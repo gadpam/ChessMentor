@@ -22,7 +22,7 @@ import java.time.format.DateTimeFormatter
 internal fun ChessComImportDialog(
     savedName: String?, rememberSource: (String?) -> Unit,
     monthsFor: suspend (String) -> List<String>, gamesFor: suspend (String, String) -> List<ArchiveGame>,
-    onImport: (List<ArchiveGame>) -> Unit, onClose: () -> Unit
+    onOpenSaved: (Long) -> Unit, onImport: (List<ArchiveGame>) -> Unit, onClose: () -> Unit
 ) {
     var name by remember { mutableStateOf(savedName.orEmpty()) }
     var source by remember { mutableStateOf(savedName) }
@@ -107,6 +107,9 @@ internal fun ChessComImportDialog(
                                     Text("${dateFormat.format(Instant.ofEpochSecond(game.ended))} · ${game.side.getDisplayName()} · ${game.outcome}", style = MaterialTheme.typography.bodySmall)
                                     if (game.inLibrary) Text("Уже в библиотеке", style = MaterialTheme.typography.labelMedium)
                                 }
+                            }
+                            game.libraryId?.let { id ->
+                                TextButton(onClick = { onOpenSaved(id) }) { Text("Открыть партию №$id") }
                             }
                         }
                     }

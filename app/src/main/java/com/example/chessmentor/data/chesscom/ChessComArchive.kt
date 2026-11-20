@@ -20,8 +20,10 @@ import java.util.concurrent.TimeUnit
 internal data class ArchiveGame(
     val fingerprint: String, val pgn: String, val ended: Long,
     val opponent: String, val side: ChessColor, val outcome: String,
-    val inLibrary: Boolean
-)
+    val libraryId: Long?
+) {
+    val inLibrary get() = libraryId != null
+}
 
 internal class ChessComArchive(private val get: suspend (String) -> String) {
     companion object {
@@ -41,7 +43,7 @@ internal class ChessComArchive(private val get: suspend (String) -> String) {
             .filter(month::matches).distinct().sortedDescending()
     }
 
-    suspend fun latest(user: String, period: String, known: Set<String>): List<ArchiveGame> = withContext(Dispatchers.IO) {
+    suspend fun latest(user: String, period: String, known: Map<String, Long>): List<ArchiveGame> = withContext(Dispatchers.IO) {
         require(month.matches(period)) { "Неверный месяц архива" }
         val items = JSONObject(get(base(user) + period)).getJSONArray("games")
         (0 until items.length()).asSequence().mapNotNull { items.optJSONObject(it) }
@@ -60,7 +62,7 @@ internal class ChessComArchive(private val get: suspend (String) -> String) {
                 }
                 ArchiveGame(parsed.fingerprint, pgn, game.getLong("end_time"),
                     (if (side == ChessColor.WHITE) meta.blackName else meta.whiteName) ?: "Без имени",
-                    side, meta.result.forPlayer(side).displayName, parsed.fingerprint in known)
+                    side, meta.result.forPlayer(side).displayName, known[parsed.fingerprint])
             }.distinctBy { it.fingerprint }.take(10).toList()
     }
 }
