@@ -90,6 +90,7 @@ data class TrainingUiState(
     val exerciseElo: Int = 1600,
     val sourceLabel: String = "",
     val isDailyAlreadySolved: Boolean = false,
+    val moveRevealedInExercise: Boolean = false,
     val isReviewOfFailed: Boolean = false,
     val nextReviewNote: String? = null,
     val dueReviewCount: Int = 0,
@@ -937,6 +938,7 @@ class TrainingViewModel(
             exerciseElo = TrainingRatingCalculator.effectiveExerciseElo(exercise),
             sourceLabel = TrainingLabels.sourceLabel(exercise, isDailyMode = mode is TrainingMode.Daily),
             isDailyAlreadySolved = isAlreadySolvedDaily,
+            moveRevealedInExercise = false,
             isReviewOfFailed = isReviewOfFailed,
             nextReviewNote = null,
             dueReviewCount = dueReviewCount,
@@ -1814,6 +1816,7 @@ class TrainingViewModel(
         _uiState.value = state.copy(
             arrows = listOf(arrow),
             betterMoveShown = true,
+            moveRevealedInExercise = true,
             feedbackMessage = "Лучше было: ${betterMove.explanation}"
         )
     }
@@ -1847,7 +1850,7 @@ class TrainingViewModel(
                     hintLevel = nextLevel,
                     highlights = listOf(fromSq),
                     arrows = emptyList(),
-                    feedbackMessage = "Подсказка: обратите внимание на выделенную фигуру"
+                    feedbackMessage = "Найдите ход фигурой с $fromSq"
                 )
             }
             HintLevel.FULL_SOLUTION -> {
@@ -1858,6 +1861,7 @@ class TrainingViewModel(
                     hintLevel = nextLevel,
                     highlights = emptyList(),
                     arrows = listOf(arrow),
+                    moveRevealedInExercise = true,
                     feedbackMessage = "Лучший ход: $san (без начисления рейтинга)"
                 )
             }

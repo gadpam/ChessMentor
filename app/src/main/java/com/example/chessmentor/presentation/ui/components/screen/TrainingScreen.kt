@@ -39,12 +39,9 @@ import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.FirstPage
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LastPage
-import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -1273,91 +1270,72 @@ private fun BottomControlPanel(
                     )
                 }
             } else {
-                val showBetterButton = uiState.showBetterMoveHint && !uiState.betterMoveShown
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Основная кнопка: подсказка фигуры / стрелка хода
-                    Button(
-                        onClick = if (showBetterButton) onShowBetterMove else onHint,
-                        enabled = controlsEnabled,
-                        modifier = Modifier
-                            .weight(1.35f)
-                            .height(46.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = when (uiState.hintLevel) {
-                                HintLevel.NONE -> MaterialTheme.colorScheme.primary
-                                HintLevel.PIECE_HIGHLIGHT -> MaterialTheme.colorScheme.tertiary
-                                HintLevel.FULL_SOLUTION -> MaterialTheme.colorScheme.secondary
-                            }
-                        ),
-                        contentPadding = PaddingValues(horizontal = 10.dp),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (showBetterButton) {
-                                Icons.Default.Visibility
-                            } else {
-                                Icons.AutoMirrored.Filled.HelpOutline
-                            },
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = when {
-                                showBetterButton -> "Лучший ход"
-                                uiState.hintLevel == HintLevel.NONE -> "Подсказка"
-                                else -> "Куда ходить?"
-                            },
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    // Показать полное решение (с демонстрацией комбинации)
-                    OutlinedButton(
-                        onClick = onRevealSolution,
-                        enabled = controlsEnabled,
-                        modifier = Modifier
-                            .weight(0.95f)
-                            .height(46.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Visibility,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = "Решение",
-                            fontSize = 13.sp,
-                            maxLines = 1
-                        )
-                    }
-
-                    // Пропустить задачу
-                    OutlinedButton(
-                        onClick = onSkip,
-                        enabled = !uiState.isAnimatingIntro && !uiState.isAnimatingPunishment,
-                        modifier = Modifier
-                            .height(46.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipNext,
-                            contentDescription = "Пропустить задачу",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
+                TrainingHelpControls(uiState, controlsEnabled, onHint, onShowBetterMove, onRevealSolution, onSkip)
             }
 
+        }
+    }
+}
+
+/** Opening or dismissing the chooser must never consume a hint. */
+@Composable
+internal fun TrainingHelpControls(
+    state: TrainingUiState,
+    enabled: Boolean,
+    onHint: () -> Unit,
+    onBetterMove: () -> Unit,
+    onReveal: () -> Unit,
+    onSkip: () -> Unit
+) {
+    var open by remember(enabled, state.mode, state.currentStepNumber) { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = { open = true }, enabled = enabled,
+            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+            Icon(Icons.AutoMirrored.Filled.HelpOutline, null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Помощь")
+        }
+        OutlinedButton(onClick = onSkip, enabled = enabled,
+            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+            Text(if (state.mode is TrainingMode.Daily) "К другим задачам" else "Пропустить")
+        }
+    }
+    if (!open || !enabled) return
+
+    val better = state.showBetterMoveHint && !state.betterMoveShown
+    val offerPiece = !better && state.hintLevel == HintLevel.NONE
+    val moveShown = state.betterMoveShown || state.hintLevel == HintLevel.FULL_SOLUTION
+    val replay = state.isDailyAlreadySolved
+    AlertDialog(
+        onDismissRequest = { open = false },
+        title = { Text("Помощь в задаче") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!moveShown) HelpOption(
+                    title = if (offerPiece) "Подсказать фигуру" else "Показать ход",
+                    consequence = when {
+                        replay -> "Повтор без изменения рейтинга"
+                        !offerPiece || state.moveRevealedInExercise -> "Без прибавки к рейтингу"
+                        else -> "Прибавка за решение будет меньше"
+                    },
+                    onClick = { open = false; if (better) onBetterMove() else onHint() }
+                )
+                HelpOption(if (state.currentStepNumber > 1) "Показать оставшуюся линию" else "Показать всю линию",
+                    if (replay) "Просмотр без изменения рейтинга" else "Без прибавки. Не считается решённой самостоятельно.",
+                    onClick = { open = false; onReveal() })
+            }
+        },
+        confirmButton = { TextButton(onClick = { open = false }) { Text("К доске") } }
+    )
+}
+
+@Composable
+private fun HelpOption(title: String, consequence: String, onClick: () -> Unit) {
+    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceVariant) {
+        Column(Modifier.heightIn(min = 48.dp).padding(12.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(consequence, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
