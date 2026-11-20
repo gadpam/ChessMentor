@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -30,6 +31,8 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
@@ -111,83 +114,17 @@ fun StatisticsScreen(
         statisticsViewModel.loadStatistics(user, statisticsViewModel.selectedPeriod.value)
     }
 
-    val currentStats = statistics
-    if (isLoading && currentStats == null) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                CircularProgressIndicator(strokeWidth = 3.dp)
-                Text(
-                    text = "Собираем аналитику и репертуар…",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        return
-    }
-
-    if (error != null && currentStats == null) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(24.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = error.orEmpty(),
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        textAlign = TextAlign.Center
-                    )
-                    FilledTonalButton(onClick = { statisticsViewModel.refresh() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Повторить")
-                    }
-                }
-            }
-        }
-        return
-    }
-
-    val stats = currentStats ?: return
-    val report = stats.gameAnalytics
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(paddingValues),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // ==================== ПЕРИОД + ОБНОВЛЕНИЕ ====================
-        item(key = "period_bar") {
-            PeriodSelectorRow(
-                selectedPeriod = selectedPeriod,
-                isRefreshing = isLoading,
-                onSelectPeriod = { statisticsViewModel.selectPeriod(it) },
-                onRefresh = { statisticsViewModel.refresh() }
-            )
-        }
-
+    StatisticsPeriodLayout(
+        paddingValues = paddingValues,
+        selected = selectedPeriod,
+        cached = statistics?.takeIf { it.userId == user.id },
+        refreshing = isLoading,
+        error = error,
+        select = statisticsViewModel::selectPeriod,
+        retry = statisticsViewModel::refresh
+    ) { stats ->
+        val report = stats.gameAnalytics
+        val emptyPeriod = stats.totalGames == 0 && stats.totalGamesAllTime > 0 && stats.period != StatsPeriod.ALL
         // ==================== ВКЛАДКИ РАЗДЕЛОВ ====================
         item(key = "section_tabs") {
             SectionSegmentedBar(
@@ -199,14 +136,15 @@ fun StatisticsScreen(
         }
 
         // Индикатор пустого временного окна, если в библиотеке есть более старые партии
-        if (stats.totalGames == 0 && stats.totalGamesAllTime > 0 && selectedPeriod != StatsPeriod.ALL) {
+        if (emptyPeriod && selectedSection != StatisticsSection.TACTICS) {
             item(key = "empty_period_banner") {
                 EmptyPeriodNoticeCard(
-                    period = selectedPeriod,
+                    period = stats.period,
                     totalAllTime = stats.totalGamesAllTime,
                     onShowAllTime = { statisticsViewModel.selectPeriod(StatsPeriod.ALL) }
                 )
             }
+            return@StatisticsPeriodLayout
         }
 
         when (selectedSection) {
@@ -403,6 +341,38 @@ fun StatisticsScreen(
 
 // ==================== ВЕРХНЯЯ ПАНЕЛЬ ПЕРИОДА И РАЗДЕЛОВ ====================
 
+/** Never render a cached report under a different period's controls. */
+@Composable
+internal fun StatisticsPeriodLayout(
+    paddingValues: PaddingValues,
+    selected: StatsPeriod,
+    cached: GetUserStatisticsUseCase.UserStatistics?,
+    refreshing: Boolean,
+    error: String?,
+    select: (StatsPeriod) -> Unit,
+    retry: () -> Unit,
+    content: LazyListScope.(GetUserStatisticsUseCase.UserStatistics) -> Unit
+) {
+    val report = cached?.takeIf { it.period == selected }
+    LazyColumn(Modifier.fillMaxSize().padding(paddingValues),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item(key = "period_bar") { PeriodSelectorRow(selected, refreshing, select, retry) }
+        if (error != null) item(key = "refresh_error") {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(if (report == null) "Не удалось загрузить отчёт: ${selected.displayName}"
+                         else "Отчёт не обновлён: ${selected.displayName}", style = MaterialTheme.typography.titleMedium)
+                    Text(error, style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = retry) { Text("Повторить") }
+                }
+            }
+        }
+        if (report != null) content(report)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PeriodSelectorRow(
     selectedPeriod: StatsPeriod,
@@ -415,10 +385,7 @@ private fun PeriodSelectorRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        FlowRow(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             StatsPeriod.entries.forEach { period ->
                 FilterChip(
                     selected = selectedPeriod == period,
@@ -437,10 +404,10 @@ private fun PeriodSelectorRow(
         IconButton(
             onClick = onRefresh,
             enabled = !isRefreshing,
-            modifier = Modifier.size(36.dp)
+            modifier = Modifier.size(48.dp)
         ) {
             if (isRefreshing) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                CircularProgressIndicator(modifier = Modifier.size(18.dp).semantics { contentDescription = "Загружаем статистику" }, strokeWidth = 2.dp)
             } else {
                 Icon(
                     imageVector = Icons.Default.Refresh,
