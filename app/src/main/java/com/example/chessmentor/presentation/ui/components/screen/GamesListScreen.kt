@@ -33,6 +33,8 @@ import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.presentation.ui.components.util.MISSING_ACCURACY
+import com.example.chessmentor.presentation.ui.components.util.formatGameAccuracy
 import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
@@ -665,13 +667,12 @@ fun GameCard(
             // Нижний блок: метрики анализа либо кнопка запуска анализа в 1 нажатие
             when (game.analysisStatus) {
                 AnalysisStatus.COMPLETED -> {
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         AccuracyBadge(
-                            accuracy = game.accuracy ?: 0.0,
+                            accuracy = game.accuracy,
                             acpl = game.averageEvaluationLoss
                         )
 
@@ -847,21 +848,25 @@ fun StatusChip(status: AnalysisStatus) {
 
 @Composable
 fun AccuracyBadge(
-    accuracy: Double,
+    accuracy: Double?,
     acpl: Int? = null
 ) {
     Column(horizontalAlignment = Alignment.Start) {
-        Text(
-            text = String.format(Locale.US, "%.1f%%", accuracy),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = accuracyColor(accuracy)
-        )
-        Text(
-            text = if (acpl != null) "Точность · $acpl сП" else "Точность",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        if (accuracy != null) {
+            Text(
+                text = "Точность: ${formatGameAccuracy(accuracy)}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = accuracyColor(accuracy)
+            )
+        } else {
+            Text(MISSING_ACCURACY, style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (acpl != null) {
+            Text("Ср. потеря: $acpl сП", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

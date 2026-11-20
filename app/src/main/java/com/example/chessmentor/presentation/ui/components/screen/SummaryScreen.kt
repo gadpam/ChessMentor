@@ -35,6 +35,8 @@ import com.example.chessmentor.domain.analysis.GameMoveClassifier
 import com.example.chessmentor.domain.analysis.GameReviewHelper
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.presentation.ui.components.util.MISSING_ACCURACY
+import com.example.chessmentor.presentation.ui.components.util.formatGameAccuracy
 import com.example.chessmentor.domain.entity.KeyMoment
 import com.example.chessmentor.domain.entity.MoveQuality
 import com.example.chessmentor.domain.pgn.PgnParser
@@ -732,12 +734,12 @@ private fun SummaryHeader(
 }
 
 @Composable
-private fun GameMetricsCard(
+internal fun GameMetricsCard(
     game: Game,
     opponentSummary: GameMoveClassifier.SideAnalysisSummary? = null,
     phaseAccuracy: GameMoveClassifier.PhaseAccuracyBreakdown? = null
 ) {
-    val accuracy = game.accuracy ?: 0.0
+    val accuracy = game.accuracy
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -754,14 +756,19 @@ private fun GameMetricsCard(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Точность игрока — главный круговой индикатор
-            AccuracyIndicator(accuracy = accuracy)
+            if (accuracy != null) {
+                AccuracyIndicator(accuracy = accuracy)
+            } else {
+                Text(MISSING_ACCURACY, style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
 
             // Сравнение точности и средней потери: Вы vs Соперник
             if (opponentSummary != null) {
                 Spacer(modifier = Modifier.height(14.dp))
                 SideComparisonStrip(
                     playerAccuracy = accuracy,
-                    playerAcpl = game.averageEvaluationLoss ?: 0,
+                    playerAcpl = game.averageEvaluationLoss,
                     opponentAccuracy = opponentSummary.accuracy,
                     opponentAcpl = opponentSummary.averageCpLoss
                 )
@@ -776,7 +783,7 @@ private fun GameMetricsCard(
                 // Средняя потеря (ACPL)
                 MetricItem(
                     label = "Ср. потеря (сП)",
-                    value = "${game.averageEvaluationLoss ?: 0}",
+                    value = game.averageEvaluationLoss?.toString() ?: "—",
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
@@ -861,8 +868,8 @@ private fun GameMetricsCard(
 
 @Composable
 private fun SideComparisonStrip(
-    playerAccuracy: Double,
-    playerAcpl: Int,
+    playerAccuracy: Double?,
+    playerAcpl: Int?,
     opponentAccuracy: Double,
     opponentAcpl: Int
 ) {
@@ -885,13 +892,13 @@ private fun SideComparisonStrip(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = String.format(java.util.Locale.US, "%.1f%%", playerAccuracy),
+                    text = playerAccuracy?.let(::formatGameAccuracy) ?: "—",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = getAccuracyColor(playerAccuracy)
+                    color = playerAccuracy?.let(::getAccuracyColor) ?: MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = "$playerAcpl сП",
+                    text = playerAcpl?.let { "$it сП" } ?: "— сП",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -911,7 +918,7 @@ private fun SideComparisonStrip(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = String.format(java.util.Locale.US, "%.1f%%", opponentAccuracy),
+                    text = formatGameAccuracy(opponentAccuracy),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = getAccuracyColor(opponentAccuracy)
@@ -986,8 +993,8 @@ private fun AccuracyIndicator(accuracy: Double) {
             )
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "${accuracy.toInt()}%",
-                    style = MaterialTheme.typography.headlineLarge,
+                    text = formatGameAccuracy(accuracy),
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = color
                 )

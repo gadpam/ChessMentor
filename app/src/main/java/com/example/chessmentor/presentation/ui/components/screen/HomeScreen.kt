@@ -37,6 +37,8 @@ import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.presentation.ui.components.util.MISSING_ACCURACY
+import com.example.chessmentor.presentation.ui.components.util.formatGameAccuracy
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.training.CuratedExerciseBank
@@ -879,8 +881,8 @@ fun MiniGameCard(game: Game, onOpen: (Game) -> Unit) {
         AnalysisStatus.IN_PROGRESS -> "Идёт анализ"
         AnalysisStatus.FAILED -> "Ошибка анализа"
         AnalysisStatus.COMPLETED -> game.accuracy?.let {
-            "Точность: ${String.format(java.util.Locale.US, "%.0f%%", it)}"
-        } ?: "Точность не рассчитана"
+            "Точность: ${formatGameAccuracy(it)}"
+        } ?: MISSING_ACCURACY
     }
 
     Card(onClick = { onOpen(game) }, modifier = Modifier.fillMaxWidth()) {
