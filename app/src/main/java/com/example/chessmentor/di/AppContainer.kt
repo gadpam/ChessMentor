@@ -68,6 +68,8 @@ class AppContainer private constructor(private val context: Context) {
         )
     }
 
+    internal val testerProfiles by lazy { com.example.chessmentor.data.local.TesterProfiles(database) }
+
     // DAO
     private val userDao by lazy { database.userDao() }
     private val gameDao by lazy { database.gameDao() }

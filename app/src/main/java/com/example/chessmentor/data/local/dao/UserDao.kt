@@ -5,6 +5,12 @@ import com.example.chessmentor.domain.entity.User
 
 @Dao
 interface UserDao {
+    @Query("SELECT EXISTS(SELECT 1 FROM users)")
+    suspend fun hasUsers(): Boolean
+
+    @Query("SELECT * FROM users WHERE passwordHash = :marker LIMIT 1")
+    suspend fun findPasswordlessProfile(marker: String): User?
+
     @Query("SELECT * FROM users WHERE id = :id")
     suspend fun findById(id: Long): User?
 

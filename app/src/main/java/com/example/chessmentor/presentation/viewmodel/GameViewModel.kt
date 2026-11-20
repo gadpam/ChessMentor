@@ -120,19 +120,15 @@ class GameViewModel(
         val savedUserId = container.sessionRepository.getActiveUserId()
         lastLoginEmail.value = container.sessionRepository.getLastLoginEmail()
 
-        if (savedUserId == null) {
-            sessionState.value = SessionState.Unauthenticated
-            viewModelScope.launch {
-                container.databaseMaintenance.runStartupChecksOnce()
-            }
-            return
-        }
-
         sessionState.value = SessionState.Restoring
         viewModelScope.launch {
             try {
-                // Сначала восстанавливаем согласованность статусов партий, затем читаем профиль
                 container.databaseMaintenance.runStartupChecksOnce()
+                if (savedUserId == null) {
+                    val tester = if (lastLoginEmail.value.isBlank()) container.testerProfiles.open(onlyIfEmpty = true) else null
+                    if (tester == null) sessionState.value = SessionState.Unauthenticated else setUser(tester)
+                    return@launch
+                }
                 val restoredUser = withContext(Dispatchers.IO) {
                     container.userRepository.findById(savedUserId)
                 }

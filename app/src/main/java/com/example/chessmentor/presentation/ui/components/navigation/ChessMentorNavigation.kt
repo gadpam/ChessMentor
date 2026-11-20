@@ -266,6 +266,25 @@ fun ChessMentorApp(
             onRegRatingChange = { regRating = it },
             onLoginEmailChange = { loginEmail = it },
             onLoginPasswordChange = { loginPassword = it },
+            onOpenTester = if (com.example.chessmentor.BuildConfig.DEBUG) ({
+                if (!isLoading) {
+                    isLoading = true
+                    coroutineScope.launch {
+                        try {
+                            container.testerProfiles.open(onlyIfEmpty = false)?.let { gameViewModel.setUser(it) }
+                            regPassword = ""
+                            loginPassword = ""
+                            message = ""
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            message = "Не удалось открыть тестовый профиль"
+                        } finally {
+                            isLoading = false
+                        }
+                    }
+                }
+            }) else null,
             onRegister = { nick, email, pass, rating ->
                 coroutineScope.launch {
                     isLoading = true
@@ -461,6 +480,7 @@ private fun NavigationHost(
     onRegRatingChange: (String) -> Unit,
     onLoginEmailChange: (String) -> Unit,
     onLoginPasswordChange: (String) -> Unit,
+    onOpenTester: (() -> Unit)?,
     onRegister: (String, String, String, Int) -> Unit,
     onLogin: (String, String) -> Unit
 ) {
@@ -488,6 +508,7 @@ private fun NavigationHost(
             isLoading = isLoading,
             onMessageDismiss = onMessageDismiss,
             onLogout = onLogout,
+            onOpenTester = onOpenTester,
             onRegister = onRegister,
             onLogin = onLogin,
             regNickname = regNickname,

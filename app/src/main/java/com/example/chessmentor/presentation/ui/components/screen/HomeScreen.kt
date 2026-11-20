@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,6 +58,7 @@ fun HomeScreen(
     isLoading: Boolean,
     onMessageDismiss: () -> Unit,
     onLogout: () -> Unit,
+    onOpenTester: (() -> Unit)?,
     onRegister: (String, String, String, Int) -> Unit,
     onLogin: (String, String) -> Unit,
     regNickname: String,
@@ -78,6 +80,7 @@ fun HomeScreen(
             message = message,
             isLoading = isLoading,
             onMessageDismiss = onMessageDismiss,
+            onOpenTester = onOpenTester,
             onRegister = onRegister,
             onLogin = onLogin,
             regNickname = regNickname,
@@ -115,6 +118,7 @@ private fun AuthScreenContent(
     message: String,
     isLoading: Boolean,
     onMessageDismiss: () -> Unit,
+    onOpenTester: (() -> Unit)?,
     onRegister: (String, String, String, Int) -> Unit,
     onLogin: (String, String) -> Unit,
     regNickname: String,
@@ -130,7 +134,7 @@ private fun AuthScreenContent(
     onLoginEmailChange: (String) -> Unit,
     onLoginPasswordChange: (String) -> Unit
 ) {
-    var currentTab by remember { mutableStateOf("login") }
+    var currentTab by rememberSaveable { mutableStateOf("login") }
 
     LazyColumn(
         modifier = Modifier
@@ -154,12 +158,20 @@ private fun AuthScreenContent(
             }
         }
 
+        if (onOpenTester != null) {
+            item {
+                OutlinedButton(onClick = onOpenTester, enabled = !isLoading, modifier = Modifier.fillMaxWidth()) {
+                    Text("Войти как тестировщик")
+                }
+            }
+        }
+
         // Табы
         item {
             AuthTabs(
                 currentTab = currentTab,
                 isLoading = isLoading,
-                onTabChange = { currentTab = it }
+                onTabChange = { currentTab = it; onMessageDismiss() }
             )
         }
 
@@ -534,47 +546,54 @@ private fun RegisterForm(
         enabled = !isLoading
     )
 
-    OutlinedTextField(
-        value = rating,
-        onValueChange = { value ->
-            if (value.length <= 4 && value.all { it.isDigit() }) {
-                onRatingChange(value)
-            }
-        },
-        label = { Text("Примерный рейтинг (0–3500)") },
-        leadingIcon = { Icon(Icons.Default.Star, null) },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = KeyboardType.Number,
-            imeAction = ImeAction.Done
-        ),
-        keyboardActions = KeyboardActions(
-            onDone = {
-                if (!isLoading && isFormValid) {
-                    val parsedRating = (rating.toIntOrNull() ?: 1200).coerceIn(0, 3500)
-                    onRegister(trimmedNick, trimmedEmail, password, parsedRating)
+    var adjustRating by rememberSaveable { mutableStateOf(false) }
+    TextButton(onClick = { adjustRating = !adjustRating }, enabled = !isLoading) {
+        Text(if (adjustRating) "Скрыть выбор рейтинга" else "Стартовый рейтинг: ${rating.ifBlank { "1200" }} · изменить")
+    }
+    if (adjustRating) {
+        OutlinedTextField(
+            value = rating,
+            onValueChange = { value ->
+                if (value.length <= 4 && value.all { it.isDigit() }) {
+                    onRatingChange(value)
                 }
-            }
-        ),
-        modifier = Modifier.fillMaxWidth(),
-        enabled = !isLoading
-    )
+            },
+            label = { Text("Примерный рейтинг (0–3500)") },
+            leadingIcon = { Icon(Icons.Default.Star, null) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = {
+                    if (!isLoading && isFormValid) {
+                        val parsedRating = (rating.toIntOrNull() ?: 1200).coerceIn(0, 3500)
+                        onRegister(trimmedNick, trimmedEmail, password, parsedRating)
+                    }
+                }
+            ),
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
+        )
 
-    // Быстрый выбор стартового уровня
-    val presets = remember { listOf("800", "1200", "1500", "1800") }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        presets.forEach { preset ->
-            FilterChip(
-                selected = rating == preset,
-                onClick = { onRatingChange(preset) },
-                label = { Text(preset, fontSize = 12.sp) },
-                enabled = !isLoading,
-                modifier = Modifier.weight(1f)
-            )
+        // Быстрый выбор стартового уровня
+        val presets = remember { listOf("800", "1200", "1500", "1800") }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            presets.forEach { preset ->
+                FilterChip(
+                    selected = rating == preset,
+                    onClick = { onRatingChange(preset) },
+                    label = { Text(preset, fontSize = 12.sp) },
+                    enabled = !isLoading,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
+
     }
 
     Button(

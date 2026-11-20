@@ -1,11 +1,7 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -452,8 +448,7 @@ fun TrainingScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 44.dp, max = 148.dp)
-                            .padding(vertical = 6.dp),
+                            .height(52.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         UnifiedFeedbackPanel(uiState = uiState)
@@ -1051,17 +1046,6 @@ private fun PromotionPickerDialog(
     )
 }
 
-private data class FeedbackSnapshot(
-    val text: String?,
-    val motif: String?,
-    val explanation: String?,
-    val sanLine: String?,
-    val isSolved: Boolean,
-    val isRevealed: Boolean,
-    val isError: Boolean,
-    val isFreeAnalysis: Boolean
-)
-
 @Composable
 private fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
     val analysis = uiState.currentMistakeAnalysis
@@ -1081,132 +1065,45 @@ private fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
     } else {
         uiState.feedbackMessage ?: uiState.exerciseSubtitle ?: if (isErrorNow) "Неверный ход" else null
     }
-    val snapshot = FeedbackSnapshot(
-        text = mainText,
-        motif = motifNow,
-        explanation = if (isFinished && !uiState.isFreeAnalysisMode) uiState.postSolveExplanation else null,
-        sanLine = if (uiState.isSolved && !uiState.isFreeAnalysisMode) uiState.solutionSanLine else null,
-        isSolved = uiState.isSolved && !uiState.isFreeAnalysisMode,
-        isRevealed = uiState.isSolutionRevealed && !uiState.isFreeAnalysisMode,
-        isError = isErrorNow,
-        isFreeAnalysis = uiState.isFreeAnalysisMode && isFinished
-    )
+    val queued = uiState.similarExercisesQueued.takeIf { it > 0 && uiState.mode is TrainingMode.All }
+    val details = listOfNotNull(
+        mainText,
+        motifNow?.let { "Мотив: $it" },
+        uiState.postSolveExplanation.takeIf { isFinished && !uiState.isFreeAnalysisMode },
+        uiState.solutionSanLine.takeIf { uiState.isSolved && !uiState.isFreeAnalysisMode },
+        queued?.let { "Закрепление темы: ещё $it шт. в очереди" }
+    ).filter { it.isNotBlank() }
+    if (details.isEmpty()) return
 
-    AnimatedContent(
-        targetState = snapshot,
-        transitionSpec = {
-            fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(220))
-        },
-        label = "FeedbackTransition"
-    ) { state ->
-        if (state.text != null) {
-            // Семантические цвета Material 3 — корректно читаются и в светлой, и в тёмной теме
-            val (containerColor, contentColor, icon) = when {
-                state.isFreeAnalysis -> Triple(
-                    MaterialTheme.colorScheme.secondaryContainer,
-                    MaterialTheme.colorScheme.onSecondaryContainer,
-                    Icons.Default.Analytics
-                )
-                state.isSolved -> Triple(
-                    MaterialTheme.colorScheme.primaryContainer,
-                    MaterialTheme.colorScheme.onPrimaryContainer,
-                    Icons.Default.EmojiEvents
-                )
-                state.isError -> Triple(
-                    MaterialTheme.colorScheme.errorContainer,
-                    MaterialTheme.colorScheme.onErrorContainer,
-                    Icons.Default.Warning
-                )
-                state.isRevealed -> Triple(
-                    MaterialTheme.colorScheme.tertiaryContainer,
-                    MaterialTheme.colorScheme.onTertiaryContainer,
-                    Icons.Default.Lightbulb
-                )
-                else -> Triple(
-                    MaterialTheme.colorScheme.surfaceVariant,
-                    MaterialTheme.colorScheme.onSurfaceVariant,
-                    Icons.Default.Info
-                )
-            }
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = containerColor),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = contentColor,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = state.text,
-                            color = contentColor,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-
-                    if (!state.motif.isNullOrBlank() || !state.explanation.isNullOrBlank() || !state.sanLine.isNullOrBlank()) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                            color = contentColor.copy(alpha = 0.2f)
-                        )
-                        if (!state.motif.isNullOrBlank()) {
-                            val motifLine = if (!state.sanLine.isNullOrBlank()) {
-                                "Мотив: ${state.motif} • ${state.sanLine}"
-                            } else {
-                                "Мотив: ${state.motif}"
-                            }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Lightbulb,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(15.dp),
-                                    tint = contentColor.copy(alpha = 0.85f)
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = motifLine,
-                                    color = contentColor.copy(alpha = 0.94f),
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 12.sp,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
-                        if (!state.explanation.isNullOrBlank()) {
-                            Text(
-                                text = state.explanation,
-                                color = contentColor.copy(alpha = 0.88f),
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                }
-            }
+    val containerColor = when {
+        isErrorNow -> MaterialTheme.colorScheme.errorContainer
+        isFinished -> MaterialTheme.colorScheme.primaryContainer
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    var showDetails by remember { mutableStateOf(false) }
+    Surface(
+        onClick = { showDetails = true },
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = containerColor
+    ) {
+        Row(
+            modifier = Modifier.height(48.dp).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(details.first(), modifier = Modifier.weight(1f), maxLines = 2,
+                overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+            Icon(Icons.Default.Info, contentDescription = "Открыть пояснение")
         }
+    }
+    if (showDetails) {
+        AlertDialog(
+            onDismissRequest = { showDetails = false },
+            title = { Text("Пояснение к задаче") },
+            text = { Text(details.joinToString("\n\n"), modifier = Modifier.verticalScroll(rememberScrollState())) },
+            confirmButton = { TextButton(onClick = { showDetails = false }) { Text("К доске") } }
+        )
     }
 }
 
@@ -1575,14 +1472,6 @@ private fun BottomControlPanel(
                 }
             }
 
-            if (uiState.similarExercisesQueued > 0 && uiState.mode is TrainingMode.All) {
-                Text(
-                    text = "Закрепление темы: ещё ${uiState.similarExercisesQueued} шт. в очереди",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
-            }
         }
     }
 }
