@@ -597,7 +597,7 @@ fun GameCard(
                 }
             }
             if (onDelete != null && id != null) Box {
-                IconButton(onClick = { menuOpen = true }) {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Default.MoreVert, contentDescription = "Действия партии №$id")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
