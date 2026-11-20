@@ -21,6 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -807,6 +810,8 @@ fun DailyPuzzleWidget(
         TrainingLabels.difficultyLabel(puzzle.difficultyRating)
     }
     val sidePrompt = if (puzzle.isWhiteToMove) "Ход белых" else "Ход чёрных"
+    val dailyAction = if (isSolved) "Повторить задачу" else "Решить задачу дня"
+
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Card(
@@ -819,7 +824,10 @@ fun DailyPuzzleWidget(
                     ChessBoard(
                         board = board, theme = boardTheme, flipped = !puzzle.isWhiteToMove,
                         animateMove = false, showCoordinates = false, onSquareClick = null,
-                        modifier = Modifier.weight(1f, fill = false).widthIn(max = 172.dp).aspectRatio(1f).clip(RoundedCornerShape(6.dp))
+                        modifier = Modifier.weight(1f, fill = false).widthIn(max = 172.dp).aspectRatio(1f)
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable(role = Role.Button, onClickLabel = dailyAction, onClick = onClick)
+                            .semantics { contentDescription = "Позиция задачи дня. $sidePrompt" }
                     )
                     Column(Modifier.weight(1.4f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("ЕЖЕДНЕВНАЯ ПРАКТИКА", style = MaterialTheme.typography.labelSmall,
@@ -831,7 +839,7 @@ fun DailyPuzzleWidget(
                     }
                 }
                 Button(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp)) {
-                    Text(if (isSolved) "Повторить задачу" else "Решить задачу дня", fontWeight = FontWeight.Bold)
+                    Text(dailyAction, fontWeight = FontWeight.Bold)
                 }
             }
         }

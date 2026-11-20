@@ -4,6 +4,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -20,15 +23,21 @@ import org.junit.Test
 class TrainingEntryTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun dashboardHasIndependentDailyAndSessionActions() {
+    @Test fun previewAndButtonOpenUnsolvedDailyNotSession() = checkDailyEntries(isSolved = false)
+
+    @Test fun previewAndButtonReplaySolvedDailyNotSession() = checkDailyEntries(isSolved = true)
+
+    private fun checkDailyEntries(isSolved: Boolean) {
         val opened = mutableListOf<TrainingMode>()
         compose.setContent {
-            DailyPuzzleWidget(onClick = { opened.add(TrainingMode.Daily) },
+            DailyPuzzleWidget(isSolved = isSolved, onClick = { opened.add(TrainingMode.Daily) },
                 onStartSmartSession = { opened.add(TrainingMode.SmartSession) })
         }
-        compose.onNodeWithText("Решить задачу дня").performClick()
+        compose.onNodeWithContentDescription("Позиция задачи дня.", substring = true)
+            .assertHasClickAction().performTouchInput { click(center) }
+        compose.onNodeWithText(if (isSolved) "Повторить задачу" else "Решить задачу дня").performClick()
         compose.onNodeWithText("Начать тренировку").performClick()
-        compose.runOnIdle { assertEquals(listOf(TrainingMode.Daily, TrainingMode.SmartSession), opened) }
+        compose.runOnIdle { assertEquals(listOf(TrainingMode.Daily, TrainingMode.Daily, TrainingMode.SmartSession), opened) }
     }
 
     @Test fun topicSelectionChangesModeAndClosesMenu() {
