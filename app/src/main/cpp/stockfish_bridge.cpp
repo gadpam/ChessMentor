@@ -87,6 +87,11 @@ bool StockfishBridge::init(const std::string& netPath) {
     engine_ = std::make_unique<Stockfish::Engine>(std::nullopt);
 
     // Коллбэки вызываются из потоков поиска, но читаем мы их только после wait_for_search_finished().
+    // Stockfish calls these notifications unconditionally (even on the first go).
+    // An empty std::function aborts this -fno-exceptions Android process.
+    engine_->set_on_verify_network([](std::string_view) {});
+    engine_->set_on_start([]() {});
+    engine_->set_on_iter([](const Stockfish::Engine::InfoIter&) {});
     engine_->set_on_update_full([this](const Stockfish::Engine::InfoFull& info) {
         if (info.multiPV != 1)
             return;
