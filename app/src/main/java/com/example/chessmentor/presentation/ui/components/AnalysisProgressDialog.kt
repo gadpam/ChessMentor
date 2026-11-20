@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,11 +92,8 @@ fun AnalysisProgressDialog(
 
 @Composable
 private fun StartingContent() {
-    Text(
-        text = "🏁",
-        fontSize = 48.sp,
-        modifier = Modifier.padding(bottom = 16.dp)
-    )
+    Icon(Icons.Default.Flag, contentDescription = null,
+        modifier = Modifier.padding(bottom = 16.dp).size(48.dp))
 
     Text(
         text = "Запуск анализа",
@@ -217,11 +217,8 @@ private fun FailedContent(
     error: String,
     onDismiss: () -> Unit
 ) {
-    Text(
-        text = "❌",
-        fontSize = 48.sp,
-        modifier = Modifier.padding(bottom = 16.dp)
-    )
+    Icon(Icons.Default.ErrorOutline, contentDescription = null,
+        modifier = Modifier.padding(bottom = 16.dp).size(48.dp))
 
     Text(
         text = "Ошибка анализа",

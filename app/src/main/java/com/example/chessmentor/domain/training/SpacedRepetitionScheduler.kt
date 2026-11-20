@@ -561,22 +561,22 @@ object SpacedRepetitionScheduler {
     fun formatReviewBanner(state: ReviewCardState): String = when (state.lastQuality) {
         AttemptQuality.FAILED ->
             if (state.isLeech) {
-                "🔁 Сложный для вас мотив (срывов: ${state.lapses}) — посчитайте до конца"
+                "Сложный для вас мотив (срывов: ${state.lapses}) — посчитайте до конца"
             } else {
-                "🔁 Повтор задачи после ошибки — найдите решение с 1-й попытки"
+                "Повтор задачи после ошибки — найдите решение с 1-й попытки"
             }
 
         AttemptQuality.RETRY_SOLVE ->
-            "🔁 Закрепление: в прошлый раз решено со 2-й попытки — теперь с первого хода"
+            "Закрепление: в прошлый раз решено со 2-й попытки — теперь с первого хода"
 
         AttemptQuality.HINT_SOLVE ->
-            "🔁 Закрепление: решите эту позицию самостоятельно без подсказки"
+            "Закрепление: решите эту позицию самостоятельно без подсказки"
 
         AttemptQuality.SLOW_CLEAN_SOLVE ->
-            "📅 Повтор на скорость распознавания (уровень ${state.box}/$MAX_BOX)"
+            "Повтор на скорость распознавания (уровень ${state.box}/$MAX_BOX)"
 
         AttemptQuality.CLEAN_FAST_SOLVE ->
-            "📅 Интервальное повторение (уровень ${state.box}/$MAX_BOX)"
+            "Интервальное повторение (уровень ${state.box}/$MAX_BOX)"
     }
 
     /**
@@ -586,22 +586,22 @@ object SpacedRepetitionScheduler {
         val intervalText = formatDurationShort(state.intervalMs)
         return when (state.lastQuality) {
             AttemptQuality.FAILED ->
-                "📅 Вернёмся к задаче через $intervalText"
+                "Вернёмся к задаче через $intervalText"
 
             AttemptQuality.RETRY_SOLVE ->
-                "📅 Повтор через $intervalText (закрепить с 1-й попытки)"
+                "Повтор через $intervalText (закрепить с 1-й попытки)"
 
             AttemptQuality.HINT_SOLVE ->
-                "📅 Повтор через $intervalText (без подсказки)"
+                "Повтор через $intervalText (без подсказки)"
 
             AttemptQuality.SLOW_CLEAN_SOLVE ->
-                "📅 Уровень ${state.box}/$MAX_BOX • повтор через $intervalText (тренируем беглость)"
+                "Уровень ${state.box}/$MAX_BOX • повтор через $intervalText (тренируем беглость)"
 
             AttemptQuality.CLEAN_FAST_SOLVE ->
                 if (state.isMastered) {
-                    "🏅 Закреплено (уровень ${state.box}/$MAX_BOX) • повтор через $intervalText"
+                    "Закреплено (уровень ${state.box}/$MAX_BOX) • повтор через $intervalText"
                 } else {
-                    "📅 Уровень ${state.box}/$MAX_BOX • повтор через $intervalText"
+                    "Уровень ${state.box}/$MAX_BOX • повтор через $intervalText"
                 }
         }
     }

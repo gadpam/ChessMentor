@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
@@ -47,8 +48,8 @@ private enum class LibraryFilter(val label: String) {
     WINS("Победы"),
     LOSSES("Поражения"),
     DRAWS("Ничьи"),
-    WHITE("⚪ Белые"),
-    BLACK("⚫ Чёрные")
+    WHITE("Белые"),
+    BLACK("Чёрные")
 }
 
 private enum class LibrarySort(val label: String) {
@@ -322,7 +323,7 @@ private fun GamesLibraryHeader(indexedGames: List<IndexedGame>) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "📋 Библиотека партий",
+                    text = "Библиотека партий",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -481,7 +482,7 @@ private fun GamesListMessage(
     message: String,
     onDismiss: () -> Unit
 ) {
-    val isError = message.startsWith("❌")
+    val isError = message.startsWith("Ошибка")
     Card(
         colors = CardDefaults.cardColors(
             containerColor = if (isError) MaterialTheme.colorScheme.errorContainer
@@ -503,7 +504,7 @@ private fun GamesListMessage(
                 else MaterialTheme.colorScheme.onTertiaryContainer
             )
             TextButton(onClick = onDismiss) {
-                Text("✕")
+                Icon(Icons.Default.Clear, contentDescription = "Закрыть сообщение")
             }
         }
     }
@@ -518,7 +519,7 @@ private fun EmptyGamesPlaceholder(onImportClick: () -> Unit) {
                 .padding(32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("📭", fontSize = 48.sp)
+            Icon(Icons.Default.Inbox, null, modifier = Modifier.size(48.dp))
             Spacer(modifier = Modifier.height(14.dp))
             Text(
                 text = "Партий пока нет",
@@ -603,7 +604,7 @@ fun GameCard(
                             add(info.timeControlLabel)
                             if (info.fullMoveCount > 0) add("${info.fullMoveCount} х.")
                             if (info.dateLabel.isNotBlank()) add(info.dateLabel)
-                            if (info.hasClockData) add("🕒")
+                            if (info.hasClockData) add("С часами")
                             if (info.platform != PgnParser.GamePlatform.OTHER) {
                                 add(info.platform.displayName)
                             }
@@ -649,7 +650,7 @@ fun GameCard(
             if (!info.openingLabel.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "📖 ${info.openingLabel}",
+                    text = "Дебют: ${info.openingLabel}",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -823,8 +824,8 @@ private fun OutcomeChip(outcome: PgnParser.PlayerOutcome) {
 @Composable
 fun StatusChip(status: AnalysisStatus) {
     val (color, text) = when (status) {
-        AnalysisStatus.COMPLETED -> Color(0xFF4CAF50) to "✓ Готово"
-        AnalysisStatus.IN_PROGRESS -> Color(0xFFFFA726) to "⏳ Анализ"
+        AnalysisStatus.COMPLETED -> Color(0xFF4CAF50) to "Готово"
+        AnalysisStatus.IN_PROGRESS -> Color(0xFFFFA726) to "Анализ"
         AnalysisStatus.PENDING -> Color(0xFF9E9E9E) to "В очереди"
         AnalysisStatus.FAILED -> Color(0xFFE53935) to "Ошибка"
     }

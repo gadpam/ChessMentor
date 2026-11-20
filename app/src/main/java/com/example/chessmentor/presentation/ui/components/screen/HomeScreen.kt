@@ -240,8 +240,7 @@ private fun MessageCard(
     message: String,
     onDismiss: () -> Unit
 ) {
-    val isError = message.startsWith("❌") || message.startsWith("Ошибка")
-    val cleanMessage = message.replace("✅ ", "").replace("❌ ", "")
+    val isError = message.startsWith("Ошибка")
 
     Card(
         colors = CardDefaults.cardColors(
@@ -263,7 +262,7 @@ private fun MessageCard(
             )
             Spacer(modifier = Modifier.width(12.dp))
             Text(
-                cleanMessage,
+                message,
                 modifier = Modifier.weight(1f),
                 color = if (isError) MaterialTheme.colorScheme.onErrorContainer
                 else MaterialTheme.colorScheme.onTertiaryContainer

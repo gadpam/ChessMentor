@@ -1074,9 +1074,9 @@ private fun AccuracyTrendCard(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        val colorGlyph = if (selected.playerColor == ChessColor.WHITE) "⚪" else "⚫"
+                        val playerColor = selected.playerColor.getDisplayName()
                         Text(
-                            text = "$colorGlyph vs ${selected.opponentLabel} · ${selected.outcome.displayName}",
+                            text = "$playerColor против ${selected.opponentLabel} · ${selected.outcome.displayName}",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -1535,7 +1535,7 @@ private fun TimeControlsAndClockCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "${timeControlGlyph(tc.category)} ${tc.category.displayName} (${tc.gamesCount})",
+                            text = "${tc.category.displayName} (${tc.gamesCount})",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -2813,14 +2813,6 @@ private fun scoreColor(scorePercent: Double?): Color = when {
     else -> MaterialTheme.colorScheme.onSurface
 }
 
-private fun timeControlGlyph(category: PgnParser.TimeControlCategory): String = when (category) {
-    PgnParser.TimeControlCategory.BULLET -> "⚡"
-    PgnParser.TimeControlCategory.BLITZ -> "🔥"
-    PgnParser.TimeControlCategory.RAPID -> "⏱"
-    PgnParser.TimeControlCategory.CLASSICAL -> "🏛"
-    PgnParser.TimeControlCategory.CORRESPONDENCE -> "✉"
-    PgnParser.TimeControlCategory.UNKNOWN -> "♟"
-}
 
 private fun formatPct(value: Double): String {
     val rounded = (value * 10.0).roundToInt() / 10.0

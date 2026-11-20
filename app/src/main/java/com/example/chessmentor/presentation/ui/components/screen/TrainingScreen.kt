@@ -652,7 +652,7 @@ private fun SessionSummaryCard(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "⚡ Поспешных первых ходов: ${summary.impulsiveMistakeCount}",
+                            text = "Поспешных первых ходов: ${summary.impulsiveMistakeCount}",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onErrorContainer,
@@ -1030,18 +1030,14 @@ private fun SessionHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = "✔ ${stats.solved}",
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 15.sp
-            )
-            Text(
-                text = "✖ ${stats.failed}",
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.error,
-                fontSize = 15.sp
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Check, contentDescription = "Решено", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                Text(stats.solved.toString(), fontWeight = FontWeight.Bold)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Close, contentDescription = "Ошибки", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                Text(stats.failed.toString(), fontWeight = FontWeight.Bold)
+            }
             if (stats.currentStreak > 0) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -1087,7 +1083,7 @@ private fun SessionHeader(
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                 ) {
                     Text(
-                        text = if (isWhite) "♔ Ход белых" else "♚ Ход чёрных",
+                        text = if (isWhite) "Ход белых" else "Ход чёрных",
                         color = if (isWhite) {
                             MaterialTheme.colorScheme.onSurface
                         } else {

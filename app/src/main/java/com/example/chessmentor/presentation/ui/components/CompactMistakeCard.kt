@@ -100,7 +100,7 @@ fun CompactMistakeCard(
                     )
                     if (inTimeTrouble && clockSeconds != null) {
                         Text(
-                            text = "· 🕒 ${GameReviewHelper.formatClock(clockSeconds)}",
+                            text = "· Осталось: ${GameReviewHelper.formatClock(clockSeconds)}",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFFE53935)
@@ -296,7 +296,7 @@ fun CompactPositionCard(
                     fontWeight = FontWeight.SemiBold,
                     color = color
                 )
-                val infoLine = openingLabel?.let { "📖 $it" } ?: subtitle
+                val infoLine = openingLabel?.let { "Дебют: $it" } ?: subtitle
                 if (!infoLine.isNullOrBlank()) {
                     Text(
                         text = infoLine,

@@ -413,7 +413,7 @@ class GameViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                message.value = "❌ Ошибка загрузки данных: ${e.message}"
+                message.value = "Ошибка загрузки данных: ${e.message}"
                 Log.e(TAG, "Error loading user data", e)
             }
         }
@@ -432,7 +432,7 @@ class GameViewModel(
     fun uploadAndAnalyzeGame(allowDuplicate: Boolean = false) {
         val userId = currentUser.value?.id
         if (userId == null) {
-            message.value = "❌ Необходимо войти в систему"
+            message.value = "Ошибка: Необходимо войти в систему"
             return
         }
 
@@ -442,7 +442,7 @@ class GameViewModel(
         val hint = chessUsernameHint.value.trim().ifEmpty { null }
 
         if (pgn.isBlank()) {
-            message.value = "❌ Введите или вставьте PGN партии"
+            message.value = "Ошибка: Введите или вставьте PGN партии"
             return
         }
 
@@ -469,7 +469,7 @@ class GameViewModel(
                     is UploadGameUseCase.Result.Success -> {
                         val gameId = uploadResult.game.id
                         if (gameId == null) {
-                            message.value = "❌ Не удалось сохранить партию"
+                            message.value = "Ошибка: Не удалось сохранить партию"
                             isLoading.value = false
                             return@launch
                         }
@@ -479,12 +479,12 @@ class GameViewModel(
                     }
 
                     is UploadGameUseCase.Result.Duplicate -> {
-                        message.value = "❌ Эта партия уже есть в вашей библиотеке"
+                        message.value = "Ошибка: Эта партия уже есть в вашей библиотеке"
                         isLoading.value = false
                     }
 
                     is UploadGameUseCase.Result.Error -> {
-                        message.value = "❌ ${uploadResult.message}"
+                        message.value = "Ошибка: ${uploadResult.message}"
                         isLoading.value = false
                     }
                 }
@@ -492,7 +492,7 @@ class GameViewModel(
                 isLoading.value = false
                 throw e
             } catch (e: Exception) {
-                message.value = "❌ Ошибка: ${e.message}"
+                message.value = "Ошибка: ${e.message}"
                 isLoading.value = false
                 Log.e(TAG, "Error uploading game", e)
             }
@@ -508,13 +508,13 @@ class GameViewModel(
     ) {
         val userId = currentUser.value?.id
         if (userId == null) {
-            message.value = "❌ Необходимо войти в систему"
+            message.value = "Ошибка: Необходимо войти в систему"
             return
         }
 
         val pgn = pgnInput.value.trim()
         if (pgn.isBlank()) {
-            message.value = "❌ Введите или вставьте PGN партии"
+            message.value = "Ошибка: Введите или вставьте PGN партии"
             return
         }
 
@@ -545,14 +545,14 @@ class GameViewModel(
                     is UploadGameUseCase.Result.Success -> {
                         clearImportForm()
                         loadUserData()
-                        message.value = "✅ Партия добавлена в библиотеку (можно разобрать в любой момент)"
+                        message.value = "Партия добавлена в библиотеку (можно разобрать в любой момент)"
                         onSavedToLibrary()
                     }
                     is UploadGameUseCase.Result.Duplicate -> {
-                        message.value = "❌ Эта партия уже есть в вашей библиотеке"
+                        message.value = "Ошибка: Эта партия уже есть в вашей библиотеке"
                     }
                     is UploadGameUseCase.Result.Error -> {
-                        message.value = "❌ ${res.message}"
+                        message.value = "Ошибка: ${res.message}"
                     }
                 }
             } catch (e: CancellationException) {
@@ -560,7 +560,7 @@ class GameViewModel(
                 throw e
             } catch (e: Exception) {
                 isLoading.value = false
-                message.value = "❌ Ошибка сохранения: ${e.message}"
+                message.value = "Ошибка сохранения: ${e.message}"
                 Log.e(TAG, "Error saving game without analysis", e)
             }
         }
@@ -575,13 +575,13 @@ class GameViewModel(
     ) {
         val userId = currentUser.value?.id
         if (userId == null) {
-            message.value = "❌ Необходимо войти в систему"
+            message.value = "Ошибка: Необходимо войти в систему"
             return
         }
 
         val rawArchive = pgnInput.value.trim()
         if (rawArchive.isBlank()) {
-            message.value = "❌ Вставьте PGN или выберите файл .pgn"
+            message.value = "Ошибка: Вставьте PGN или выберите файл .pgn"
             return
         }
 
@@ -613,7 +613,7 @@ class GameViewModel(
                         val importedCount = batchRes.importedGames.size
                         if (importedCount == 0) {
                             isLoading.value = false
-                            message.value = "ℹ️ Все партии из файла (${batchRes.skippedDuplicates}) уже есть в библиотеке"
+                            message.value = "Все партии из файла (${batchRes.skippedDuplicates}) уже есть в библиотеке"
                             return@launch
                         }
 
@@ -638,18 +638,18 @@ class GameViewModel(
                             ?.id
 
                         if (analyzeNewest && newestId != null) {
-                            message.value = "✅ Пакет загружен ($details). Запускаем анализ последней партии..."
+                            message.value = "Пакет загружен ($details). Запускаем анализ последней партии..."
                             analyzeGameWithProgress(newestId)
                         } else {
                             isLoading.value = false
-                            message.value = "✅ Готово — $details"
+                            message.value = "Готово — $details"
                             onImportedToLibrary()
                         }
                     }
 
                     is UploadGameUseCase.BatchResult.Error -> {
                         isLoading.value = false
-                        message.value = "❌ ${batchRes.message}"
+                        message.value = "Ошибка: ${batchRes.message}"
                     }
                 }
             } catch (e: CancellationException) {
@@ -657,7 +657,7 @@ class GameViewModel(
                 throw e
             } catch (e: Exception) {
                 isLoading.value = false
-                message.value = "❌ Ошибка импорта: ${e.message}"
+                message.value = "Ошибка импорта: ${e.message}"
                 Log.e(TAG, "Error importing PGN batch", e)
             }
         }
@@ -716,9 +716,9 @@ class GameViewModel(
                                         ""
                                     }
                                     message.value = if (playerAcc != null) {
-                                        "✅ Точность: ${String.format(java.util.Locale.US, "%.1f", playerAcc)}%$oppAccText (ошибок: $errorsCount)"
+                                        "Точность: ${String.format(java.util.Locale.US, "%.1f", playerAcc)}%$oppAccText (ошибок: $errorsCount)"
                                     } else {
-                                        "✅ Анализ завершён! Ошибок: $errorsCount"
+                                        "Анализ завершён! Ошибок: $errorsCount"
                                     }
 
                                     Log.i(
@@ -728,7 +728,7 @@ class GameViewModel(
                                 }
 
                                 is AnalyzeGameUseCase.Result.Error -> {
-                                    message.value = "❌ ${result.message}"
+                                    message.value = "Ошибка: ${result.message}"
                                 }
                             }
                         }
@@ -736,7 +736,7 @@ class GameViewModel(
                         is AnalyzeGameUseCase.AnalysisProgress.Failed -> {
                             isLoading.value = false
                             loadUserData()
-                            message.value = "❌ ${progress.error}"
+                            message.value = "Ошибка: ${progress.error}"
                             Log.e(TAG, "Analysis failed: ${progress.error}")
                         }
                     }
@@ -751,7 +751,7 @@ class GameViewModel(
                 _analysisProgress.value = AnalyzeGameUseCase.AnalysisProgress.Failed(
                     e.message ?: "Неизвестная ошибка"
                 )
-                message.value = "❌ Ошибка анализа: ${e.message}"
+                message.value = "Ошибка анализа: ${e.message}"
                 Log.e(TAG, "Analysis flow crashed", e)
             } finally {
                 if (activeAnalysisGameId == gameId) {
@@ -915,12 +915,12 @@ class GameViewModel(
                     closeGameView()
                 }
 
-                message.value = "✅ Партия удалена"
+                message.value = "Партия удалена"
                 Log.d(TAG, "Game $gameId and dependent data deleted")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                message.value = "❌ Ошибка удаления: ${e.message}"
+                message.value = "Ошибка удаления: ${e.message}"
                 Log.e(TAG, "Error deleting game", e)
             }
         }

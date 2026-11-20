@@ -93,7 +93,7 @@ fun UploadGameScreen(
                     )
                 },
                 onFailure = { err ->
-                    gameViewModel.message.value = "❌ ${err.message ?: "Не удалось прочитать файл"}"
+                    gameViewModel.message.value = "Ошибка: ${err.message ?: "Не удалось прочитать файл"}"
                 }
             )
         }
@@ -184,7 +184,7 @@ fun UploadGameScreen(
                 onPasteFromClipboard = {
                     val clipText = clipboardManager.getText()?.text?.trim().orEmpty()
                     if (clipText.isEmpty()) {
-                        gameViewModel.message.value = "❌ Буфер обмена пуст — скопируйте PGN из Lichess или Chess.com"
+                        gameViewModel.message.value = "Ошибка: Буфер обмена пуст — скопируйте PGN из Lichess или Chess.com"
                     } else {
                         gameViewModel.clearMessage()
                         gameViewModel.onPgnInputChanged(
@@ -484,7 +484,7 @@ private fun PgnLivePreviewCard(
                 val wText = formatSidePreview(meta.whiteTitle, meta.whiteName ?: "Белые", meta.whiteElo)
                 val bText = formatSidePreview(meta.blackTitle, meta.blackName ?: "Чёрные", meta.blackElo)
                 Text(
-                    text = "⚪ $wText  —  ⚫ $bText",
+                    text = "Белые: $wText · Чёрные: $bText",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
@@ -495,7 +495,7 @@ private fun PgnLivePreviewCard(
             // Дебют
             parsed.openingLabel?.let { opening ->
                 Text(
-                    text = "📖 $opening",
+                    text = "Дебют: $opening",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -506,11 +506,11 @@ private fun PgnLivePreviewCard(
             // Ходы, контроль, дата, часы, причина окончания
             val details = buildList {
                 add("${parsed.fullMoveCount} х.")
-                meta.timeControl?.fullLabel?.let { add("⏱ $it") }
+                meta.timeControl?.fullLabel?.let { add(it) }
                 meta.dateLabel?.let { add(it) }
                 if (parsed.clocks.hasData) {
                     val trouble = parsed.clocks.timeTroubleMovesFor(selectedColor)
-                    if (trouble > 0) add("🕒 часы (цейтнот: $trouble х.)") else add("🕒 с часами")
+                    if (trouble > 0) add("часы (цейтнот: $trouble х.)") else add("с часами")
                 }
                 meta.terminationRu?.let { add(it) }
             }.joinToString(" · ")
@@ -523,7 +523,7 @@ private fun PgnLivePreviewCard(
 
             if (colorAutoDetected) {
                 Text(
-                    text = "✓ Ваш цвет (${selectedColor.getDisplayName().lowercase()}) определён автоматически по нику",
+                    text = "Ваш цвет (${selectedColor.getDisplayName().lowercase()}) определён автоматически по нику",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -685,11 +685,7 @@ private fun UploadMessage(
     isLoading: Boolean,
     onDismiss: () -> Unit
 ) {
-    val isError = message.startsWith("❌") || message.startsWith("Ошибка")
-    val cleanMessage = message
-        .removePrefix("✅ ")
-        .removePrefix("❌ ")
-        .removePrefix("ℹ️ ")
+    val isError = message.startsWith("Ошибка")
 
     Card(
         colors = CardDefaults.cardColors(
@@ -716,7 +712,7 @@ private fun UploadMessage(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = cleanMessage,
+                    text = message,
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (isError) MaterialTheme.colorScheme.onErrorContainer
                     else MaterialTheme.colorScheme.onTertiaryContainer

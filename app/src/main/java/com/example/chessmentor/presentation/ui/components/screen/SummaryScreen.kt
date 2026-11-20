@@ -407,7 +407,7 @@ private fun EvaluationGraphCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "📈 График оценки",
+                    text = "График оценки",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -659,7 +659,7 @@ private fun SummaryHeader(
 
                 if (!openingLabel.isNullOrBlank()) {
                     Text(
-                        text = "📖 $openingLabel",
+                        text = "Дебют: $openingLabel",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -670,7 +670,7 @@ private fun SummaryHeader(
 
                 if (cardInfo.playerTimeTroubleMoves > 0) {
                     Text(
-                        text = "🕒 Ходов в цейтноте (<20 с): ${cardInfo.playerTimeTroubleMoves}",
+                        text = "Ходов в цейтноте (<20 с): ${cardInfo.playerTimeTroubleMoves}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
                     )
@@ -706,7 +706,7 @@ private fun GameMetricsCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "📈 Статистика партии",
+                text = "Статистика партии",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -1081,7 +1081,7 @@ fun KeyMomentsCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "⭐ Качество ваших ходов",
+                text = "Качество ваших ходов",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -1279,11 +1279,7 @@ fun KeyMomentItemCompact(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.width(70.dp)
     ) {
-        Text(
-            text = quality.getEmoji(),
-            fontSize = 24.sp,
-            modifier = Modifier.padding(bottom = 2.dp)
-        )
+        Icon(quality.getIcon(), contentDescription = null, modifier = Modifier.size(24.dp))
 
         Text(
             text = "$count",
@@ -1345,10 +1341,7 @@ fun KeyMomentRow(
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = moment.quality.getEmoji(),
-                fontSize = 22.sp
-            )
+            Icon(moment.quality.getIcon(), contentDescription = null, modifier = Modifier.size(22.dp))
 
             Spacer(modifier = Modifier.width(10.dp))
 

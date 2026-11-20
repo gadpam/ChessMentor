@@ -796,8 +796,8 @@ private fun ReviewBottomPlayerStrip(
         )
 
         val statusText = when {
-            isRetryMode -> "🎯 Исправление"
-            variationDepth > 0 -> "🌿 Ветка (+$variationDepth)"
+            isRetryMode -> "Исправление"
+            variationDepth > 0 -> "Ветка (+$variationDepth)"
             !hasRealEvaluations -> "Без анализа"
             else -> null
         }
@@ -997,7 +997,7 @@ private fun RetryMistakePanel(
                     text = if (state.isSolved) {
                         "Ошибка на ${state.moveNumber}-м ходу исправлена!"
                     } else {
-                        "🎯 Исправьте ход ${state.moveNumber}"
+                        "Исправьте ход ${state.moveNumber}"
                     },
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
@@ -1106,7 +1106,7 @@ private fun VariationSandboxPanel(
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Text(
-                text = "🌿 Своя ветка: $lineText",
+                text = "Своя ветка: $lineText",
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -1294,7 +1294,7 @@ private fun AnalyzedMoveInfoCard(
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = quality.getEmoji(), style = MaterialTheme.typography.headlineSmall)
+                Icon(quality.getIcon(), contentDescription = null, modifier = Modifier.size(24.dp))
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Row(
@@ -1309,7 +1309,7 @@ private fun AnalyzedMoveInfoCard(
                         )
                         if (inTimeTrouble && clockSeconds != null) {
                             Text(
-                                text = "· 🕒 ${GameReviewHelper.formatClock(clockSeconds)}",
+                                text = "· Осталось: ${GameReviewHelper.formatClock(clockSeconds)}",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFFE53935)

@@ -25,14 +25,7 @@ data class Theme(
         }
     }
 
-    /**
-     * Получить полное отображаемое имя
-     * Например: "⚔️ Вилка"
-     */
-    fun getDisplayName(): String {
-        val emoji = category.getIcon()
-        return "$emoji $description"
-    }
+    fun getDisplayName(): String = description
 
     /**
      * Получить название категории на русском

@@ -299,13 +299,13 @@ fun ChessMentorApp(
                                 gameViewModel.setUser(result.user)
                             }
                             is RegisterUserUseCase.Result.Error -> {
-                                message = "❌ ${result.message}"
+                                message = "Ошибка: ${result.message}"
                             }
                         }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        message = "❌ Ошибка: ${e.message}"
+                        message = "Ошибка: ${e.message}"
                     } finally {
                         isLoading = false
                     }
@@ -324,13 +324,13 @@ fun ChessMentorApp(
                                 gameViewModel.setUser(result.user)
                             }
                             is LoginUserUseCase.Result.Error -> {
-                                message = "❌ ${result.message}"
+                                message = "Ошибка: ${result.message}"
                             }
                         }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        message = "❌ Ошибка: ${e.message}"
+                        message = "Ошибка: ${e.message}"
                     } finally {
                         isLoading = false
                     }

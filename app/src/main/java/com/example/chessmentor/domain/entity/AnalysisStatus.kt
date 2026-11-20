@@ -20,16 +20,6 @@ enum class AnalysisStatus {
     }
 
     /**
-     * Иконка статуса
-     */
-    fun getIcon(): String = when (this) {
-        PENDING -> "⏳"
-        IN_PROGRESS -> "⚙️"
-        COMPLETED -> "✅"
-        FAILED -> "❌"
-    }
-
-    /**
      * Можно ли просматривать результаты
      */
     fun isViewable(): Boolean = this == COMPLETED

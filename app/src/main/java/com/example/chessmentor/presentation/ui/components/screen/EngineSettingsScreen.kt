@@ -191,7 +191,7 @@ private fun ProfilesSection(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 ProfileChip(
-                    name = "⚡ Быстрый",
+                    name = "Быстрый",
                     description = "Глубина 12",
                     isSelected = currentSettings.depth <= 12,
                     onClick = { onProfileSelected(EngineSettings.fast()) },
@@ -199,7 +199,7 @@ private fun ProfilesSection(
                 )
 
                 ProfileChip(
-                    name = "⚖️ Стандарт",
+                    name = "Стандарт",
                     description = "Глубина 15",
                     isSelected = currentSettings.depth in 13..17,
                     onClick = {
@@ -210,7 +210,7 @@ private fun ProfilesSection(
                 )
 
                 ProfileChip(
-                    name = "🔬 Глубокий",
+                    name = "Глубокий",
                     description = "Глубина 22",
                     isSelected = currentSettings.depth >= 18,
                     onClick = {

@@ -115,17 +115,17 @@ object TrainingSessionPlanner {
             TrainingMode.PatternVision -> {
                 val target = visionTargetSeconds(exercise)
                 if (solveTimeSeconds <= target) {
-                    "⚡ Мгновенное распознавание (${solveTimeSeconds} с, ориентир ≤ $target с)"
+                    "Мгновенное распознавание (${solveTimeSeconds} с, ориентир ≤ $target с)"
                 } else {
-                    "👁 Решено чисто за ${solveTimeSeconds} с (ориентир беглости ≤ $target с)"
+                    "Решено чисто за ${solveTimeSeconds} с (ориентир беглости ≤ $target с)"
                 }
             }
             TrainingMode.DeepCalculation -> {
                 val playerMoves = ((exercise.solutionMoves.size + 1) / 2).coerceAtLeast(1)
                 if (playerMoves >= 2) {
-                    "🧠 Точный расчёт на $playerMoves хода с 1-й попытки (${solveTimeSeconds} с)"
+                    "Точный расчёт на $playerMoves хода с 1-й попытки (${solveTimeSeconds} с)"
                 } else {
-                    "🧠 Точный расчёт с 1-й попытки (${solveTimeSeconds} с)"
+                    "Точный расчёт с 1-й попытки (${solveTimeSeconds} с)"
                 }
             }
             else -> null
