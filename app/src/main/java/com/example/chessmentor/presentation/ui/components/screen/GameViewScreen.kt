@@ -1397,7 +1397,7 @@ private fun AnalyzedMoveInfoCard(
 }
 
 @Composable
-private fun ReviewNavigationBar(
+internal fun ReviewNavigationBar(
     currentMoveIndex: Int,
     totalMoves: Int,
     isInOverlay: Boolean,
@@ -1410,79 +1410,38 @@ private fun ReviewNavigationBar(
     onNextKeyMoment: () -> Unit,
     onGoToEnd: () -> Unit
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val canGoBack = currentMoveIndex > -1 || isInOverlay
+    val canGoForward = currentMoveIndex < totalMoves - 1 || isInOverlay
     Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
-                onClick = onGoToStart,
-                enabled = currentMoveIndex > -1 || isInOverlay,
-                modifier = Modifier.size(38.dp)
-            ) {
-                Icon(Icons.Default.FirstPage, contentDescription = "В начало")
-            }
-            IconButton(
-                onClick = onPreviousKeyMoment,
-                enabled = hasPreviousKeyMoment,
-                modifier = Modifier.size(38.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.SkipPrevious,
-                    contentDescription = "Предыдущий ключевой момент",
-                    tint = if (hasPreviousKeyMoment) {
-                        Color(0xFFEF6C00)
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                    }
-                )
-            }
-            IconButton(
-                onClick = onGoToPrevious,
-                enabled = currentMoveIndex > -1 || isInOverlay,
-                modifier = Modifier.size(40.dp)
-            ) {
+            IconButton(onClick = onGoToPrevious, enabled = canGoBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий ход")
             }
-
-            Text(
-                text = "${(currentMoveIndex + 1).coerceAtLeast(0)}/$totalMoves",
-                style = MaterialTheme.typography.labelLarge,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold
-            )
-
-            IconButton(
-                onClick = onGoToNext,
-                enabled = currentMoveIndex < totalMoves - 1 || isInOverlay,
-                modifier = Modifier.size(40.dp)
-            ) {
+            Text("${(currentMoveIndex + 1).coerceAtLeast(0)}/$totalMoves",
+                style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace)
+            IconButton(onClick = onGoToNext, enabled = canGoForward) {
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий ход")
             }
-            IconButton(
-                onClick = onNextKeyMoment,
-                enabled = hasNextKeyMoment,
-                modifier = Modifier.size(38.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.SkipNext,
-                    contentDescription = "Следующий ключевой момент",
-                    tint = if (hasNextKeyMoment) {
-                        Color(0xFFEF6C00)
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                    }
-                )
+            Button(onClick = onNextKeyMoment, enabled = hasNextKeyMoment,
+                modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 6.dp)) {
+                Text("К моменту", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
-            IconButton(
-                onClick = onGoToEnd,
-                enabled = currentMoveIndex < totalMoves - 1 || isInOverlay,
-                modifier = Modifier.size(38.dp)
-            ) {
-                Icon(Icons.Default.LastPage, contentDescription = "В конец")
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Другие переходы")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("Предыдущий ключевой момент") }, enabled = hasPreviousKeyMoment,
+                        onClick = { menuOpen = false; onPreviousKeyMoment() })
+                    DropdownMenuItem(text = { Text("В начало партии") }, enabled = canGoBack,
+                        onClick = { menuOpen = false; onGoToStart() })
+                    DropdownMenuItem(text = { Text("В конец партии") }, enabled = canGoForward,
+                        onClick = { menuOpen = false; onGoToEnd() })
+                }
             }
         }
     }
