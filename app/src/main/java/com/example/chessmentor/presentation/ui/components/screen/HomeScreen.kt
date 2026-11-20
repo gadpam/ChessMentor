@@ -2,7 +2,6 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.engine.EngineStatus
+import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.User
@@ -722,7 +722,7 @@ fun DashboardContent(
             ) { game ->
                 MiniGameCard(
                     game = game,
-                    onClick = { onOpenGame(game) }
+                    onOpen = onOpenGame
                 )
             }
         }
@@ -870,84 +870,45 @@ private fun EmptyGamesCard() {
 }
 
 @Composable
-fun MiniGameCard(
-    game: Game,
-    onClick: () -> Unit = {}
-) {
-    val info = remember(game.id, game.pgnData, game.playerColor, game.timeControl) {
+fun MiniGameCard(game: Game, onOpen: (Game) -> Unit) {
+    val info = remember(game.id, game.pgnData, game.playerColor, game.timeControl, game.playedAt) {
         PgnParser.extractGameCardInfo(game)
     }
+    val analysisLabel = when (game.analysisStatus) {
+        AnalysisStatus.PENDING -> "Ожидает анализа"
+        AnalysisStatus.IN_PROGRESS -> "Идёт анализ"
+        AnalysisStatus.FAILED -> "Ошибка анализа"
+        AnalysisStatus.COMPLETED -> game.accuracy?.let {
+            "Точность: ${String.format(java.util.Locale.US, "%.0f%%", it)}"
+        } ?: "Точность не рассчитана"
+    }
 
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(14.dp)
-                        .background(
-                            color = if (game.playerColor == ChessColor.WHITE) Color.White else Color.Black,
-                            shape = RoundedCornerShape(3.dp)
-                        )
-                        .border(1.dp, Color.Gray, RoundedCornerShape(3.dp))
-                )
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = info.title,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    val metaLine = buildList {
-                        if (info.outcome != PgnParser.PlayerOutcome.UNKNOWN) {
-                            add(info.outcome.displayName)
-                        }
-                        add(info.timeControlLabel)
-                        info.eco?.let { add(it) }
-                        if (info.dateLabel.isNotBlank()) add(info.dateLabel)
-                    }.joinToString(" · ")
-                    Text(
-                        text = metaLine,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Spacer(Modifier.width(8.dp))
-
-            if (game.isAnalyzed()) {
-                val acc = game.accuracy ?: 0.0
+    Card(onClick = { onOpen(game) }, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = String.format(java.util.Locale.US, "%.0f%%", acc),
-                    fontWeight = FontWeight.Bold,
-                    color = when {
-                        acc >= 80.0 -> Color(0xFF4CAF50)
-                        acc >= 65.0 -> Color(0xFFFFA726)
-                        else -> Color(0xFFE53935)
-                    }
+                    info.title, modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
-            } else {
-                Text(
-                    text = "В очереди",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
             }
+            Text(
+                "${info.outcome.displayName} · ${if (game.playerColor == ChessColor.WHITE) "Вы белыми" else "Вы чёрными"}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(analysisLabel, style = MaterialTheme.typography.labelLarge,
+                color = if (game.analysisStatus == AnalysisStatus.FAILED) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurface)
+            Text(
+                buildList {
+                    game.id?.let { add("№$it") }
+                    if (info.dateLabel.isNotBlank()) add(info.dateLabel)
+                    add(info.timeControlLabel)
+                    info.eco?.let { add(it) }
+                }.joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
