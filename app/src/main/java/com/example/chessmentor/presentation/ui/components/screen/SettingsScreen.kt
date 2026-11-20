@@ -126,11 +126,11 @@ fun SettingsScreen(
             writeResult.fold(
                 onSuccess = {
                     viewModel.message.value =
-                        "✅ Копия сохранена (партий: ${backup.gamesCount}, задач: ${backup.personalExercisesCount}, попыток: ${backup.attemptsCount})"
+                        "Копия сохранена (партий: ${backup.gamesCount}, задач: ${backup.personalExercisesCount}, попыток: ${backup.attemptsCount})"
                 },
                 onFailure = { err ->
                     viewModel.message.value =
-                        "❌ Ошибка записи копии: ${err.message ?: "неизвестная ошибка"}"
+                        "Ошибка записи копии: ${err.message ?: "неизвестная ошибка"}"
                 }
             )
         }
@@ -173,7 +173,7 @@ fun SettingsScreen(
                 },
                 onFailure = { err ->
                     viewModel.message.value =
-                        "❌ Ошибка чтения файла: ${err.message ?: "неизвестная ошибка"}"
+                        "Ошибка чтения файла: ${err.message ?: "неизвестная ошибка"}"
                 }
             )
         }
@@ -199,11 +199,11 @@ fun SettingsScreen(
             writeResult.fold(
                 onSuccess = {
                     viewModel.message.value =
-                        "✅ Экспортировано партий: ${archive.gamesCount} (в файл PGN)"
+                        "Экспортировано партий: ${archive.gamesCount} (в файл PGN)"
                 },
                 onFailure = { err ->
                     viewModel.message.value =
-                        "❌ Ошибка записи файла: ${err.message ?: "неизвестная ошибка"}"
+                        "Ошибка записи файла: ${err.message ?: "неизвестная ошибка"}"
                 }
             )
         }
@@ -385,8 +385,7 @@ private fun SettingsMessage(
     message: String,
     onDismiss: () -> Unit
 ) {
-    val isError = message.startsWith("❌") || message.startsWith("Ошибка")
-    val cleanMessage = message.replace("✅ ", "").replace("❌ ", "")
+    val isError = message.startsWith("Ошибка")
 
     Card(
         colors = CardDefaults.cardColors(
@@ -419,7 +418,7 @@ private fun SettingsMessage(
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    text = cleanMessage,
+                    text = message,
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (isError) {
                         MaterialTheme.colorScheme.onErrorContainer

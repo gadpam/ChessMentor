@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -93,7 +94,7 @@ fun UploadGameScreen(
                     )
                 },
                 onFailure = { err ->
-                    gameViewModel.message.value = "❌ ${err.message ?: "Не удалось прочитать файл"}"
+                    gameViewModel.message.value = "Ошибка: ${err.message ?: "Не удалось прочитать файл"}"
                 }
             )
         }
@@ -118,6 +119,22 @@ fun UploadGameScreen(
         remember { mutableStateOf<EngineStatus>(EngineStatus.Idle) }
     }
 
+    val userId = gameViewModel.currentUser.value?.id
+    var showChessCom by rememberSaveable(userId) { mutableStateOf(false) }
+    if (showChessCom && userId != null) {
+        ChessComImportDialog(
+            savedName = gameViewModel.savedChessComSource(userId),
+            rememberSource = { gameViewModel.setChessComSource(userId, it) },
+            monthsFor = gameViewModel::archiveMonths,
+            gamesFor = { name, period -> gameViewModel.archiveGames(userId, name, period) },
+            onImport = { selected ->
+                gameViewModel.importChessComGames(userId, selected)
+                showChessCom = false
+            },
+            onClose = { showChessCom = false }
+        )
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -127,6 +144,13 @@ fun UploadGameScreen(
     ) {
         item {
             UploadHeader()
+        }
+
+        if (userId != null) item {
+            OutlinedButton(onClick = { showChessCom = true }, enabled = !isLoading,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                Text("С Chess.com")
+            }
         }
 
         item {
@@ -162,7 +186,7 @@ fun UploadGameScreen(
         // Живой предпросмотр распознанной партии или мульти-PGN пакета
         val preview = importPreview
         if (preview != null) {
-            item {
+            item(key = "preview") {
                 PgnLivePreviewCard(
                     preview = preview,
                     selectedColor = selectedColor,
@@ -172,19 +196,18 @@ fun UploadGameScreen(
             }
         }
 
-        item {
+        item(key = "pgn-form") {
             UploadForm(
                 pgnInput = pgnInput,
                 preview = preview,
                 selectedColor = selectedColor,
-                colorAutoDetected = colorAutoDetected,
                 timeControl = timeControl,
                 usernameHint = usernameHint,
                 isLoading = isLoading,
                 onPasteFromClipboard = {
                     val clipText = clipboardManager.getText()?.text?.trim().orEmpty()
                     if (clipText.isEmpty()) {
-                        gameViewModel.message.value = "❌ Буфер обмена пуст — скопируйте PGN из Lichess или Chess.com"
+                        gameViewModel.message.value = "Ошибка: Буфер обмена пуст — скопируйте PGN из Lichess или Chess.com"
                     } else {
                         gameViewModel.clearMessage()
                         gameViewModel.onPgnInputChanged(
@@ -211,7 +234,7 @@ fun UploadGameScreen(
                 },
                 onPgnChange = { gameViewModel.onPgnInputChanged(it) },
                 onColorChange = { gameViewModel.selectPlayerColorManually(it) },
-                onTimeControlChange = { gameViewModel.timeControl.value = it },
+                onTimeControlChange = gameViewModel::setImportTimeControl,
                 onUsernameHintChange = { gameViewModel.onChessUsernameHintChanged(it) },
                 onUploadAndAnalyze = { allowDuplicate ->
                     gameViewModel.uploadAndAnalyzeGame(allowDuplicate = allowDuplicate)
@@ -364,7 +387,7 @@ private fun PgnLivePreviewCard(
                     Spacer(modifier = Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Пакет PGN: найдено партий — ${preview.totalGames}",
+                            text = "Архив PGN: найдено партий — ${preview.totalGames}",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -381,13 +404,15 @@ private fun PgnLivePreviewCard(
                 val metaSummary = buildList {
                     add("новых к импорту: ${preview.validGamesCount}")
                     if (preview.batchDuplicatesCount > 0) {
-                        add("уже в библиотеке: ${preview.batchDuplicatesCount}")
+                        add("повторов: ${preview.batchDuplicatesCount}")
                     }
                     if (preview.validGamesCount > 0) {
                         add("цвет определён по нику: ${preview.batchAutoColorCount}/${preview.validGamesCount}")
                     }
+                    val invalid = preview.totalGames - preview.validGamesCount - preview.batchDuplicatesCount - preview.truncatedCount
+                    if (invalid > 0) add("с ошибками: $invalid")
                     if (preview.truncatedCount > 0) {
-                        add("будут загружены первые ${PgnParser.MAX_BATCH_GAMES}")
+                        add("сверх лимита: ${preview.truncatedCount}")
                     }
                 }.joinToString(" · ")
 
@@ -447,7 +472,7 @@ private fun PgnLivePreviewCard(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = buildString {
-                            append("Партия распознана")
+                            append("Распознана одна партия")
                             if (meta.platform != PgnParser.GamePlatform.OTHER) {
                                 append(" · ${meta.platform.displayName}")
                             }
@@ -484,7 +509,7 @@ private fun PgnLivePreviewCard(
                 val wText = formatSidePreview(meta.whiteTitle, meta.whiteName ?: "Белые", meta.whiteElo)
                 val bText = formatSidePreview(meta.blackTitle, meta.blackName ?: "Чёрные", meta.blackElo)
                 Text(
-                    text = "⚪ $wText  —  ⚫ $bText",
+                    text = "Белые: $wText · Чёрные: $bText",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
@@ -495,7 +520,7 @@ private fun PgnLivePreviewCard(
             // Дебют
             parsed.openingLabel?.let { opening ->
                 Text(
-                    text = "📖 $opening",
+                    text = "Дебют: $opening",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -506,11 +531,11 @@ private fun PgnLivePreviewCard(
             // Ходы, контроль, дата, часы, причина окончания
             val details = buildList {
                 add("${parsed.fullMoveCount} х.")
-                meta.timeControl?.fullLabel?.let { add("⏱ $it") }
+                meta.timeControl?.fullLabel?.let { add(it) }
                 meta.dateLabel?.let { add(it) }
                 if (parsed.clocks.hasData) {
                     val trouble = parsed.clocks.timeTroubleMovesFor(selectedColor)
-                    if (trouble > 0) add("🕒 часы (цейтнот: $trouble х.)") else add("🕒 с часами")
+                    if (trouble > 0) add("часы (цейтнот: $trouble х.)") else add("с часами")
                 }
                 meta.terminationRu?.let { add(it) }
             }.joinToString(" · ")
@@ -523,7 +548,7 @@ private fun PgnLivePreviewCard(
 
             if (colorAutoDetected) {
                 Text(
-                    text = "✓ Ваш цвет (${selectedColor.getDisplayName().lowercase()}) определён автоматически по нику",
+                    text = "Ваш цвет (${selectedColor.getDisplayName().lowercase()}) определён автоматически по нику",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -685,11 +710,7 @@ private fun UploadMessage(
     isLoading: Boolean,
     onDismiss: () -> Unit
 ) {
-    val isError = message.startsWith("❌") || message.startsWith("Ошибка")
-    val cleanMessage = message
-        .removePrefix("✅ ")
-        .removePrefix("❌ ")
-        .removePrefix("ℹ️ ")
+    val isError = message.startsWith("Ошибка")
 
     Card(
         colors = CardDefaults.cardColors(
@@ -716,7 +737,7 @@ private fun UploadMessage(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = cleanMessage,
+                    text = message,
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (isError) MaterialTheme.colorScheme.onErrorContainer
                     else MaterialTheme.colorScheme.onTertiaryContainer
@@ -732,11 +753,10 @@ private fun UploadMessage(
 }
 
 @Composable
-private fun UploadForm(
+internal fun UploadForm(
     pgnInput: String,
     preview: PgnImportPreview?,
     selectedColor: ChessColor,
-    colorAutoDetected: Boolean,
     timeControl: String,
     usernameHint: String,
     isLoading: Boolean,
@@ -752,7 +772,7 @@ private fun UploadForm(
     onImportBatch: (analyzeNewest: Boolean) -> Unit
 ) {
     val isBatch = preview?.isBatch == true
-    val hasSingleError = preview != null && !preview.isBatch && preview.singleError != null
+    val validSingle = preview?.singleParsed != null
     val hasDuplicate = preview?.duplicateExistingGame != null
     val isHugeFileLoaded = pgnInput.length > MAX_INLINE_TEXTFIELD_CHARS
 
@@ -830,14 +850,14 @@ private fun UploadForm(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = preview?.sourceFileName ?: "Загружен крупный PGN-архив",
+                                text = preview?.sourceFileName ?: "Текст PGN",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "Объём: ${pgnInput.length / 1024} КБ · готов к пакетному импорту",
+                                text = "Объём: ${pgnInput.length / 1024} КБ",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -858,14 +878,8 @@ private fun UploadForm(
                 )
             }
 
-            // Поле ника на Lichess / Chess.com — показываем при пакетном импорте или если в PGN есть имена игроков,
-            // но цвет не совпал с текущим ником
-            val showUsernameField = isBatch || (
-                preview?.singleParsed != null &&
-                    (whitePlayerName != null || blackPlayerName != null) &&
-                    !colorAutoDetected
-                )
-            if (showUsernameField) {
+            // Keep this field mounted while a nickname edit triggers a fresh preview.
+            if (pgnInput.isNotBlank()) {
                 OutlinedTextField(
                     value = usernameHint,
                     onValueChange = onUsernameHintChange,
@@ -901,7 +915,7 @@ private fun UploadForm(
                         },
                         pieceColor = Color.White,
                         selected = selectedColor == ChessColor.WHITE,
-                        enabled = !isLoading,
+                        enabled = !isLoading && preview != null,
                         onClick = { onColorChange(ChessColor.WHITE) },
                         modifier = Modifier.weight(1f)
                     )
@@ -913,7 +927,7 @@ private fun UploadForm(
                         },
                         pieceColor = Color.Black,
                         selected = selectedColor == ChessColor.BLACK,
-                        enabled = !isLoading,
+                        enabled = !isLoading && preview != null,
                         onClick = { onColorChange(ChessColor.BLACK) },
                         modifier = Modifier.weight(1f)
                     )
@@ -929,7 +943,7 @@ private fun UploadForm(
                     placeholder = { Text("3+2, 5+3, 10+0, 15+10") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !isLoading,
+                    enabled = !isLoading && validSingle,
                     leadingIcon = {
                         Icon(Icons.Default.Timer, contentDescription = null)
                     }
@@ -937,13 +951,15 @@ private fun UploadForm(
             }
 
             // Кнопки действия: одиночный режим vs пакетный мульти-PGN
-            if (isBatch) {
+            if (pgnInput.isNotBlank() && preview == null) {
+                Text("Проверяем PGN…", style = MaterialTheme.typography.bodyMedium)
+            } else if (isBatch) {
                 val importableCount = preview?.validGamesCount ?: 0
                 Button(
                     onClick = { onImportBatch(false) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp),
+                        .heightIn(min = 50.dp),
                     enabled = !isLoading && importableCount > 0
                 ) {
                     if (isLoading) {
@@ -972,7 +988,7 @@ private fun UploadForm(
                         onClick = { onImportBatch(true) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(46.dp),
+                            .heightIn(min = 48.dp),
                         enabled = !isLoading
                     ) {
                         Icon(
@@ -981,7 +997,7 @@ private fun UploadForm(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Импортировать все и разобрать последнюю")
+                        Text("Импортировать ($importableCount) и разобрать самую свежую")
                     }
                 }
             } else {
@@ -989,8 +1005,8 @@ private fun UploadForm(
                     onClick = { onUploadAndAnalyze(hasDuplicate) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp),
-                    enabled = !isLoading && pgnInput.isNotBlank() && !hasSingleError
+                        .heightIn(min = 50.dp),
+                    enabled = !isLoading && validSingle
                 ) {
                     if (isLoading) {
                         CircularProgressIndicator(
@@ -1005,17 +1021,17 @@ private fun UploadForm(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             if (hasDuplicate) "Загрузить копию и анализировать"
-                            else "Загрузить и анализировать"
+                            else "Импортировать партию и разобрать"
                         )
                     }
                 }
 
-                if (pgnInput.isNotBlank() && !hasSingleError && !hasDuplicate) {
+                if (validSingle && !hasDuplicate) {
                     OutlinedButton(
                         onClick = { onSaveToLibrary(false) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(44.dp),
+                            .heightIn(min = 48.dp),
                         enabled = !isLoading
                     ) {
                         Icon(

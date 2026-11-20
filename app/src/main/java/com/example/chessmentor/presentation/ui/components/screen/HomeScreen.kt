@@ -2,7 +2,6 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,14 +10,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -29,8 +34,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.engine.EngineStatus
+import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.presentation.ui.components.util.MISSING_ACCURACY
+import com.example.chessmentor.presentation.ui.components.util.formatGameAccuracy
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.training.CuratedExerciseBank
@@ -57,6 +65,7 @@ fun HomeScreen(
     isLoading: Boolean,
     onMessageDismiss: () -> Unit,
     onLogout: () -> Unit,
+    onOpenTester: (() -> Unit)?,
     onRegister: (String, String, String, Int) -> Unit,
     onLogin: (String, String) -> Unit,
     regNickname: String,
@@ -78,6 +87,7 @@ fun HomeScreen(
             message = message,
             isLoading = isLoading,
             onMessageDismiss = onMessageDismiss,
+            onOpenTester = onOpenTester,
             onRegister = onRegister,
             onLogin = onLogin,
             regNickname = regNickname,
@@ -115,6 +125,7 @@ private fun AuthScreenContent(
     message: String,
     isLoading: Boolean,
     onMessageDismiss: () -> Unit,
+    onOpenTester: (() -> Unit)?,
     onRegister: (String, String, String, Int) -> Unit,
     onLogin: (String, String) -> Unit,
     regNickname: String,
@@ -130,7 +141,7 @@ private fun AuthScreenContent(
     onLoginEmailChange: (String) -> Unit,
     onLoginPasswordChange: (String) -> Unit
 ) {
-    var currentTab by remember { mutableStateOf("login") }
+    var currentTab by rememberSaveable { mutableStateOf("login") }
 
     LazyColumn(
         modifier = Modifier
@@ -154,12 +165,20 @@ private fun AuthScreenContent(
             }
         }
 
+        if (onOpenTester != null) {
+            item {
+                OutlinedButton(onClick = onOpenTester, enabled = !isLoading, modifier = Modifier.fillMaxWidth()) {
+                    Text("Войти как тестировщик")
+                }
+            }
+        }
+
         // Табы
         item {
             AuthTabs(
                 currentTab = currentTab,
                 isLoading = isLoading,
-                onTabChange = { currentTab = it }
+                onTabChange = { currentTab = it; onMessageDismiss() }
             )
         }
 
@@ -227,8 +246,7 @@ private fun MessageCard(
     message: String,
     onDismiss: () -> Unit
 ) {
-    val isError = message.startsWith("❌") || message.startsWith("Ошибка")
-    val cleanMessage = message.replace("✅ ", "").replace("❌ ", "")
+    val isError = message.startsWith("Ошибка")
 
     Card(
         colors = CardDefaults.cardColors(
@@ -250,7 +268,7 @@ private fun MessageCard(
             )
             Spacer(modifier = Modifier.width(12.dp))
             Text(
-                cleanMessage,
+                message,
                 modifier = Modifier.weight(1f),
                 color = if (isError) MaterialTheme.colorScheme.onErrorContainer
                 else MaterialTheme.colorScheme.onTertiaryContainer
@@ -534,47 +552,54 @@ private fun RegisterForm(
         enabled = !isLoading
     )
 
-    OutlinedTextField(
-        value = rating,
-        onValueChange = { value ->
-            if (value.length <= 4 && value.all { it.isDigit() }) {
-                onRatingChange(value)
-            }
-        },
-        label = { Text("Примерный рейтинг (0–3500)") },
-        leadingIcon = { Icon(Icons.Default.Star, null) },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = KeyboardType.Number,
-            imeAction = ImeAction.Done
-        ),
-        keyboardActions = KeyboardActions(
-            onDone = {
-                if (!isLoading && isFormValid) {
-                    val parsedRating = (rating.toIntOrNull() ?: 1200).coerceIn(0, 3500)
-                    onRegister(trimmedNick, trimmedEmail, password, parsedRating)
+    var adjustRating by rememberSaveable { mutableStateOf(false) }
+    TextButton(onClick = { adjustRating = !adjustRating }, enabled = !isLoading) {
+        Text(if (adjustRating) "Скрыть выбор рейтинга" else "Стартовый рейтинг: ${rating.ifBlank { "1200" }} · изменить")
+    }
+    if (adjustRating) {
+        OutlinedTextField(
+            value = rating,
+            onValueChange = { value ->
+                if (value.length <= 4 && value.all { it.isDigit() }) {
+                    onRatingChange(value)
                 }
-            }
-        ),
-        modifier = Modifier.fillMaxWidth(),
-        enabled = !isLoading
-    )
+            },
+            label = { Text("Примерный рейтинг (0–3500)") },
+            leadingIcon = { Icon(Icons.Default.Star, null) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = {
+                    if (!isLoading && isFormValid) {
+                        val parsedRating = (rating.toIntOrNull() ?: 1200).coerceIn(0, 3500)
+                        onRegister(trimmedNick, trimmedEmail, password, parsedRating)
+                    }
+                }
+            ),
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
+        )
 
-    // Быстрый выбор стартового уровня
-    val presets = remember { listOf("800", "1200", "1500", "1800") }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        presets.forEach { preset ->
-            FilterChip(
-                selected = rating == preset,
-                onClick = { onRatingChange(preset) },
-                label = { Text(preset, fontSize = 12.sp) },
-                enabled = !isLoading,
-                modifier = Modifier.weight(1f)
-            )
+        // Быстрый выбор стартового уровня
+        val presets = remember { listOf("800", "1200", "1500", "1800") }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            presets.forEach { preset ->
+                FilterChip(
+                    selected = rating == preset,
+                    onClick = { onRatingChange(preset) },
+                    label = { Text(preset, fontSize = 12.sp) },
+                    enabled = !isLoading,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
+
     }
 
     Button(
@@ -656,6 +681,16 @@ fun DashboardContent(
             )
         }
 
+        item {
+            DailyPuzzleWidget(
+                puzzle = dailyPuzzle,
+                isSolved = isDailySolved,
+                preferredTheme = user.preferredTheme,
+                onClick = onNavigateToDailyPuzzle,
+                onStartSmartSession = onNavigateToSmartSession
+            )
+        }
+
         // Живой баннер загрузки/проверки или ошибки NNUE (автоматически скрывается в состоянии Ready)
         if (engineStatus !is EngineStatus.Idle && engineStatus !is EngineStatus.Ready) {
             item {
@@ -667,16 +702,6 @@ fun DashboardContent(
                     showWhenReady = false
                 )
             }
-        }
-
-        item {
-            DailyPuzzleWidget(
-                puzzle = dailyPuzzle,
-                isSolved = isDailySolved,
-                preferredTheme = user.preferredTheme,
-                onClick = onNavigateToDailyPuzzle,
-                onStartSmartSession = onNavigateToSmartSession
-            )
         }
 
         item {
@@ -699,7 +724,7 @@ fun DashboardContent(
             ) { game ->
                 MiniGameCard(
                     game = game,
-                    onClick = { onOpenGame(game) }
+                    onOpen = onOpenGame
                 )
             }
         }
@@ -711,59 +736,47 @@ fun DashboardContent(
 }
 
 @Composable
-private fun UserHeader(
+internal fun UserHeader(
     user: User,
     onSettingsClick: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(48.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = user.nickname.firstOrNull()?.uppercase() ?: "?",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp
-                    )
-                }
-            }
-
-            Spacer(Modifier.width(12.dp))
-
-            Column {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(48.dp).clearAndSetSemantics { }
+        ) {
+            Box(contentAlignment = Alignment.Center) {
                 Text(
-                    user.nickname,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
+                    text = user.nickname.firstOrNull()?.uppercase() ?: "?",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp
                 )
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.TrendingUp, null,
-                        modifier = Modifier.size(14.dp),
-                        tint = Color.Gray
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "${user.rating}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.Gray,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
             }
         }
 
-        IconButton(onClick = onSettingsClick) {
-            Icon(Icons.Default.Settings, null)
+        Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
+            Text(
+                user.nickname,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "Рейтинг: ${user.rating}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        IconButton(onClick = onSettingsClick, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.Default.Settings, contentDescription = "Открыть настройки")
         }
     }
 }
@@ -788,123 +801,50 @@ fun DailyPuzzleWidget(
         TrainingLabels.difficultyLabel(puzzle.difficultyRating)
     }
     val sidePrompt = if (puzzle.isWhiteToMove) "Ход белых" else "Ход чёрных"
+    val dailyAction = if (isSolved) "Повторить задачу" else "Решить задачу дня"
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Extension,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    ChessBoard(
+                        board = board, theme = boardTheme, flipped = !puzzle.isWhiteToMove,
+                        animateMove = false, showCoordinates = false, onSquareClick = null,
+                        modifier = Modifier.weight(1f, fill = false).widthIn(max = 172.dp).aspectRatio(1f)
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable(role = Role.Button, onClickLabel = dailyAction, onClick = onClick)
+                            .semantics { contentDescription = "Позиция задачи дня. $sidePrompt" }
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Задача дня", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Column(Modifier.weight(1.4f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("ЕЖЕДНЕВНАЯ ПРАКТИКА", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary)
+                        Text("Задача дня", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text(if (isSolved) puzzle.title else sidePrompt, style = MaterialTheme.typography.bodyMedium)
+                        Text(if (isSolved) "Решено · $difficultyLabel" else difficultyLabel,
+                            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
-
-                Surface(
-                    color = if (isSolved) {
-                        MaterialTheme.colorScheme.tertiaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.primaryContainer
-                    },
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        text = if (isSolved) "✓ Решено" else difficultyLabel,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (isSolved) {
-                            MaterialTheme.colorScheme.onTertiaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        }
-                    )
+                Button(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp)) {
+                    Text(dailyAction, fontWeight = FontWeight.Bold)
                 }
             }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ChessBoard(
-                    board = board,
-                    theme = boardTheme,
-                    flipped = !puzzle.isWhiteToMove,
-                    animateMove = false,
-                    showCoordinates = false,
-                    modifier = Modifier
-                        .size(132.dp)
-                        .clip(RoundedCornerShape(8.dp)),
-                    onSquareClick = null
-                )
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = if (isSolved) puzzle.title else sidePrompt,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = if (isSolved) {
-                            puzzle.explanation ?: puzzle.subtitle
-                        } else {
-                            "Оцените позицию и найдите сильнейшее продолжение без подсказки мотива"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = if (isSolved) {
-                            "$sidePrompt • ${TrainingLabels.themeDisplayName(puzzle.theme)}"
-                        } else {
-                            val elo = com.example.chessmentor.domain.training.TrainingRatingCalculator
-                                .difficultyToElo(puzzle.difficultyRating)
-                            "Сложность: $difficultyLabel • ~$elo Эло"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Button(
-                        onClick = onClick,
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Text(if (isSolved) "Повторить" else "Решить сейчас")
+        }
+        if (onStartSmartSession != null) {
+            OutlinedCard(onClick = onStartSmartSession, modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Icon(Icons.Default.FitnessCenter, null, tint = MaterialTheme.colorScheme.primary)
+                    Column(Modifier.weight(1f)) {
+                        Text("Начать тренировку", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("10 задач · от разминки до расчёта", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    if (onStartSmartSession != null) {
-                        OutlinedButton(
-                            onClick = onStartSmartSession,
-                            modifier = Modifier.fillMaxWidth(),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Text("Сессия 10 задач", fontSize = 12.sp)
-                        }
-                    }
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
                 }
             }
         }
@@ -932,84 +872,45 @@ private fun EmptyGamesCard() {
 }
 
 @Composable
-fun MiniGameCard(
-    game: Game,
-    onClick: () -> Unit = {}
-) {
-    val info = remember(game.id, game.pgnData, game.playerColor, game.timeControl) {
+fun MiniGameCard(game: Game, onOpen: (Game) -> Unit) {
+    val info = remember(game.id, game.pgnData, game.playerColor, game.timeControl, game.playedAt) {
         PgnParser.extractGameCardInfo(game)
     }
+    val analysisLabel = when (game.analysisStatus) {
+        AnalysisStatus.PENDING -> "Ожидает анализа"
+        AnalysisStatus.IN_PROGRESS -> "Идёт анализ"
+        AnalysisStatus.FAILED -> "Ошибка анализа"
+        AnalysisStatus.COMPLETED -> game.accuracy?.let {
+            "Точность: ${formatGameAccuracy(it)}"
+        } ?: MISSING_ACCURACY
+    }
 
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(14.dp)
-                        .background(
-                            color = if (game.playerColor == ChessColor.WHITE) Color.White else Color.Black,
-                            shape = RoundedCornerShape(3.dp)
-                        )
-                        .border(1.dp, Color.Gray, RoundedCornerShape(3.dp))
-                )
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = info.title,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    val metaLine = buildList {
-                        if (info.outcome != PgnParser.PlayerOutcome.UNKNOWN) {
-                            add(info.outcome.displayName)
-                        }
-                        add(info.timeControlLabel)
-                        info.eco?.let { add(it) }
-                        if (info.dateLabel.isNotBlank()) add(info.dateLabel)
-                    }.joinToString(" · ")
-                    Text(
-                        text = metaLine,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Spacer(Modifier.width(8.dp))
-
-            if (game.isAnalyzed()) {
-                val acc = game.accuracy ?: 0.0
+    Card(onClick = { onOpen(game) }, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = String.format(java.util.Locale.US, "%.0f%%", acc),
-                    fontWeight = FontWeight.Bold,
-                    color = when {
-                        acc >= 80.0 -> Color(0xFF4CAF50)
-                        acc >= 65.0 -> Color(0xFFFFA726)
-                        else -> Color(0xFFE53935)
-                    }
+                    info.title, modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
-            } else {
-                Text(
-                    text = "В очереди",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
             }
+            Text(
+                "${info.outcome.displayName} · ${if (game.playerColor == ChessColor.WHITE) "Вы белыми" else "Вы чёрными"}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(analysisLabel, style = MaterialTheme.typography.labelLarge,
+                color = if (game.analysisStatus == AnalysisStatus.FAILED) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurface)
+            Text(
+                buildList {
+                    game.id?.let { add("№$it") }
+                    if (info.dateLabel.isNotBlank()) add(info.dateLabel)
+                    add(info.timeControlLabel)
+                    info.eco?.let { add(it) }
+                }.joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

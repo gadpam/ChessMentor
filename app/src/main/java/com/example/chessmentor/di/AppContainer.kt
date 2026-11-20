@@ -45,6 +45,11 @@ class AppContainer private constructor(private val context: Context) {
         }
     }
 
+    internal val chessComArchive by lazy {
+        val http = com.example.chessmentor.data.chesscom.ChessComHttp(context.cacheDir)
+        com.example.chessmentor.data.chesscom.ChessComArchive(http::get)
+    }
+
     // База данных
     private val database: AppDatabase by lazy {
         AppDatabase.getInstance(context)
@@ -67,6 +72,8 @@ class AppContainer private constructor(private val context: Context) {
             engineSettingsRepository = engineSettingsRepository
         )
     }
+
+    internal val testerProfiles by lazy { com.example.chessmentor.data.local.TesterProfiles(database) }
 
     // DAO
     private val userDao by lazy { database.userDao() }

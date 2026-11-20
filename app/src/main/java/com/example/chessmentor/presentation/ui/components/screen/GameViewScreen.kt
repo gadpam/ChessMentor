@@ -190,6 +190,10 @@ private fun GameViewScreenContent(
     val currentEvaluation = boardViewModel.getCurrentEvaluation()
     val currentMistake = boardViewModel.getCurrentMistake()
     val currentAnalyzedMove = boardViewModel.getCurrentAnalyzedMove()
+    val canRetry = boardViewModel.canRetryCurrentMove()
+    var answerRevealed by remember(game.id, game.pgnData, currentMoveIndex, retryState != null) { mutableStateOf(false) }
+    val concealAnswer = canRetry && !answerRevealed
+    val revealAnswer: (() -> Unit)? = if (concealAnswer) ({ answerRevealed = true }) else null
     val displayedMoves = boardViewModel.sanMoves.toList()
     val totalMoves = boardViewModel.getTotalMoves()
     val hasRealEvaluations = boardViewModel.hasRealEvaluations() || engineLine?.evalWhiteCp != null
@@ -235,7 +239,8 @@ private fun GameViewScreenContent(
         retryState,
         engineLine,
         isInVariation,
-        fenBeforeCurrent
+        fenBeforeCurrent,
+        concealAnswer
     ) {
         val activeRetry = retryState
         if (activeRetry != null) {
@@ -260,7 +265,7 @@ private fun GameViewScreenContent(
             }
         }
 
-        if (isInVariation) return@remember emptyList()
+        if (isInVariation || concealAnswer) return@remember emptyList()
 
         val bestRaw = currentAnalyzedMove?.bestMove?.takeIf {
             currentAnalyzedMove.isMistake() && it.isNotBlank() && it != currentAnalyzedMove.san
@@ -522,7 +527,8 @@ private fun GameViewScreenContent(
                         moveQuality = currentAnalyzedMove?.quality,
                         fenBefore = fenBeforeCurrent,
                         clockSeconds = currentMoveClock,
-                        onRetryMove = if (boardViewModel.canRetryCurrentMove()) {
+                        onRevealAnswer = revealAnswer,
+                        onRetryMove = if (canRetry) {
                             { boardViewModel.startRetryCurrentMove() }
                         } else {
                             null
@@ -552,7 +558,8 @@ private fun GameViewScreenContent(
                         isPlayerMove = isPlayerMove,
                         fenBefore = fenBeforeCurrent,
                         clockSeconds = currentMoveClock,
-                        onRetryMove = if (boardViewModel.canRetryCurrentMove()) {
+                        onRevealAnswer = revealAnswer,
+                        onRetryMove = if (canRetry) {
                             { boardViewModel.startRetryCurrentMove() }
                         } else {
                             null
@@ -796,8 +803,8 @@ private fun ReviewBottomPlayerStrip(
         )
 
         val statusText = when {
-            isRetryMode -> "🎯 Исправление"
-            variationDepth > 0 -> "🌿 Ветка (+$variationDepth)"
+            isRetryMode -> "Исправление"
+            variationDepth > 0 -> "Ветка (+$variationDepth)"
             !hasRealEvaluations -> "Без анализа"
             else -> null
         }
@@ -997,7 +1004,7 @@ private fun RetryMistakePanel(
                     text = if (state.isSolved) {
                         "Ошибка на ${state.moveNumber}-м ходу исправлена!"
                     } else {
-                        "🎯 Исправьте ход ${state.moveNumber}"
+                        "Исправьте ход ${state.moveNumber}"
                     },
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
@@ -1106,7 +1113,7 @@ private fun VariationSandboxPanel(
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Text(
-                text = "🌿 Своя ветка: $lineText",
+                text = "Своя ветка: $lineText",
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -1248,11 +1255,12 @@ private fun EngineLineCard(
 }
 
 @Composable
-private fun AnalyzedMoveInfoCard(
+internal fun AnalyzedMoveInfoCard(
     analyzedMove: AnalyzedMove,
     isPlayerMove: Boolean,
     fenBefore: String?,
     clockSeconds: Int?,
+    onRevealAnswer: (() -> Unit)?,
     onRetryMove: (() -> Unit)?,
     onShowEngineLine: (() -> Unit)?,
     onPracticeInTrainer: (() -> Unit)?,
@@ -1294,7 +1302,7 @@ private fun AnalyzedMoveInfoCard(
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = quality.getEmoji(), style = MaterialTheme.typography.headlineSmall)
+                Icon(quality.getIcon(), contentDescription = null, modifier = Modifier.size(24.dp))
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Row(
@@ -1309,7 +1317,7 @@ private fun AnalyzedMoveInfoCard(
                         )
                         if (inTimeTrouble && clockSeconds != null) {
                             Text(
-                                text = "· 🕒 ${GameReviewHelper.formatClock(clockSeconds)}",
+                                text = "· Осталось: ${GameReviewHelper.formatClock(clockSeconds)}",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFFE53935)
@@ -1322,7 +1330,7 @@ private fun AnalyzedMoveInfoCard(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
-                        if (!bestSan.isNullOrBlank() && quality.isBad() && bestSan != analyzedMove.san) {
+                        if (onRevealAnswer == null && !bestSan.isNullOrBlank() && quality.isBad() && bestSan != analyzedMove.san) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "Лучше: $bestSan",
@@ -1349,7 +1357,7 @@ private fun AnalyzedMoveInfoCard(
                 }
             }
 
-            analyzedMove.comment?.takeIf { it.isNotBlank() }?.let { comment ->
+            analyzedMove.comment?.takeIf { onRevealAnswer == null && it.isNotBlank() }?.let { comment ->
                 Text(
                     text = comment,
                     style = MaterialTheme.typography.bodySmall,
@@ -1358,46 +1366,13 @@ private fun AnalyzedMoveInfoCard(
                 )
             }
 
-            if (onRetryMove != null || onShowEngineLine != null || onPracticeInTrainer != null) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (onRetryMove != null) {
-                        FilledTonalButton(
-                            onClick = onRetryMove,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("Исправить", fontSize = 11.sp)
-                        }
-                    }
-                    if (onShowEngineLine != null) {
-                        OutlinedButton(
-                            onClick = onShowEngineLine,
-                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("Линия", fontSize = 11.sp)
-                        }
-                    }
-                    if (onPracticeInTrainer != null) {
-                        OutlinedButton(
-                            onClick = onPracticeInTrainer,
-                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("В тренажёр", fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
+            MistakeReviewActions(onRetryMove, onRevealAnswer, onShowEngineLine, onPracticeInTrainer)
         }
     }
 }
 
 @Composable
-private fun ReviewNavigationBar(
+internal fun ReviewNavigationBar(
     currentMoveIndex: Int,
     totalMoves: Int,
     isInOverlay: Boolean,
@@ -1410,79 +1385,38 @@ private fun ReviewNavigationBar(
     onNextKeyMoment: () -> Unit,
     onGoToEnd: () -> Unit
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val canGoBack = currentMoveIndex > -1 || isInOverlay
+    val canGoForward = currentMoveIndex < totalMoves - 1 || isInOverlay
     Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
-                onClick = onGoToStart,
-                enabled = currentMoveIndex > -1 || isInOverlay,
-                modifier = Modifier.size(38.dp)
-            ) {
-                Icon(Icons.Default.FirstPage, contentDescription = "В начало")
-            }
-            IconButton(
-                onClick = onPreviousKeyMoment,
-                enabled = hasPreviousKeyMoment,
-                modifier = Modifier.size(38.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.SkipPrevious,
-                    contentDescription = "Предыдущий ключевой момент",
-                    tint = if (hasPreviousKeyMoment) {
-                        Color(0xFFEF6C00)
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                    }
-                )
-            }
-            IconButton(
-                onClick = onGoToPrevious,
-                enabled = currentMoveIndex > -1 || isInOverlay,
-                modifier = Modifier.size(40.dp)
-            ) {
+            IconButton(onClick = onGoToPrevious, enabled = canGoBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий ход")
             }
-
-            Text(
-                text = "${(currentMoveIndex + 1).coerceAtLeast(0)}/$totalMoves",
-                style = MaterialTheme.typography.labelLarge,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold
-            )
-
-            IconButton(
-                onClick = onGoToNext,
-                enabled = currentMoveIndex < totalMoves - 1 || isInOverlay,
-                modifier = Modifier.size(40.dp)
-            ) {
+            Text("${(currentMoveIndex + 1).coerceAtLeast(0)}/$totalMoves",
+                style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace)
+            IconButton(onClick = onGoToNext, enabled = canGoForward) {
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий ход")
             }
-            IconButton(
-                onClick = onNextKeyMoment,
-                enabled = hasNextKeyMoment,
-                modifier = Modifier.size(38.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.SkipNext,
-                    contentDescription = "Следующий ключевой момент",
-                    tint = if (hasNextKeyMoment) {
-                        Color(0xFFEF6C00)
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                    }
-                )
+            Button(onClick = onNextKeyMoment, enabled = hasNextKeyMoment,
+                modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 6.dp)) {
+                Text("К моменту", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
-            IconButton(
-                onClick = onGoToEnd,
-                enabled = currentMoveIndex < totalMoves - 1 || isInOverlay,
-                modifier = Modifier.size(38.dp)
-            ) {
-                Icon(Icons.Default.LastPage, contentDescription = "В конец")
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Другие переходы")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("Предыдущий ключевой момент") }, enabled = hasPreviousKeyMoment,
+                        onClick = { menuOpen = false; onPreviousKeyMoment() })
+                    DropdownMenuItem(text = { Text("В начало партии") }, enabled = canGoBack,
+                        onClick = { menuOpen = false; onGoToStart() })
+                    DropdownMenuItem(text = { Text("В конец партии") }, enabled = canGoForward,
+                        onClick = { menuOpen = false; onGoToEnd() })
+                }
             }
         }
     }

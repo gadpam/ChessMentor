@@ -23,11 +23,4 @@ enum class ChessColor {
         BLACK -> WHITE
     }
 
-    /**
-     * Символ для отображения
-     */
-    fun getSymbol(): String = when (this) {
-        WHITE -> "⚪"
-        BLACK -> "⚫"
-    }
 }

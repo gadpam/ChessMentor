@@ -94,6 +94,7 @@ object PgnArchiveExporter {
                 .format(PGN_DATE_FORMAT)
             val white = if (game.playerColor == ChessColor.WHITE) safePlayer else "Opponent"
             val black = if (game.playerColor == ChessColor.BLACK) safePlayer else "Opponent"
+            val result = RESULT_END_REGEX.find(normalized)?.value?.trim() ?: "*"
             buildString {
                 appendLine("""[Event "ChessMentor Game"]""")
                 appendLine("""[Date "$dateStr"]""")
@@ -102,7 +103,7 @@ object PgnArchiveExporter {
                 PgnParser.toCanonicalPgnTimeControl(game.timeControl)?.let { tc ->
                     appendLine("""[TimeControl "${escapePgnTagValue(tc)}"]""")
                 }
-                appendLine("""[Result "*"]""")
+                appendLine("""[Result "$result"]""")
                 appendLine()
                 append(normalized)
             }
@@ -122,5 +123,5 @@ object PgnArchiveExporter {
     }
 
     private fun escapePgnTagValue(value: String): String =
-        value.replace("\\", "\\\\").replace("\"", "\\\"").replace('\n', ' ').trim()
+        value.replace("\\", "\\\\").replace("\"", "\\\"").replace('\r', ' ').replace('\n', ' ').trim()
 }

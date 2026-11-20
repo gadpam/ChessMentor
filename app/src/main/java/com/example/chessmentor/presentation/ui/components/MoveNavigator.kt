@@ -1,6 +1,8 @@
 package com.example.chessmentor.presentation.ui.components
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.filled.FirstPage
+import androidx.compose.material.icons.filled.LastPage
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -77,7 +79,7 @@ fun MoveNavigator(
                     enabled = currentMoveIndex > 0,
                     modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
                 ) {
-                    Text("⏮", fontSize = 20.sp)
+                    Icon(Icons.Default.FirstPage, contentDescription = "В начало партии")
                 }
 
                 // Назад
@@ -112,7 +114,7 @@ fun MoveNavigator(
                     enabled = currentMoveIndex < totalMoves - 1,
                     modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
                 ) {
-                    Text("⏭", fontSize = 20.sp)
+                    Icon(Icons.Default.LastPage, contentDescription = "В конец партии")
                 }
             }
         }

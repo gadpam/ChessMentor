@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.chessmentor.data.chesscom.ArchiveGame
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
@@ -97,6 +98,7 @@ class GameViewModel(
     private var analysisJob: Job? = null
     private var activeAnalysisGameId: Long? = null
     private var previewJob: Job? = null
+    private var manualTimeControl = false
     private var lastSourceFileName: String? = null
     private var sessionRestoreStarted = false
 
@@ -120,19 +122,15 @@ class GameViewModel(
         val savedUserId = container.sessionRepository.getActiveUserId()
         lastLoginEmail.value = container.sessionRepository.getLastLoginEmail()
 
-        if (savedUserId == null) {
-            sessionState.value = SessionState.Unauthenticated
-            viewModelScope.launch {
-                container.databaseMaintenance.runStartupChecksOnce()
-            }
-            return
-        }
-
         sessionState.value = SessionState.Restoring
         viewModelScope.launch {
             try {
-                // Сначала восстанавливаем согласованность статусов партий, затем читаем профиль
                 container.databaseMaintenance.runStartupChecksOnce()
+                if (savedUserId == null) {
+                    val tester = if (lastLoginEmail.value.isBlank()) container.testerProfiles.open(onlyIfEmpty = true) else null
+                    if (tester == null) sessionState.value = SessionState.Unauthenticated else setUser(tester)
+                    return@launch
+                }
                 val restoredUser = withContext(Dispatchers.IO) {
                     container.userRepository.findById(savedUserId)
                 }
@@ -214,13 +212,75 @@ class GameViewModel(
         isLoading.value = false
     }
 
+    internal fun savedChessComSource(userId: Long) = container.sessionRepository.getChessComSource(userId)
+
+    internal fun setChessComSource(userId: Long, name: String?) {
+        if (currentUser.value?.id == userId) container.sessionRepository.setChessComSource(userId, name)
+    }
+
+    internal suspend fun archiveMonths(name: String) = container.chessComArchive.months(name)
+
+    internal suspend fun archiveGames(userId: Long, name: String, period: String): List<ArchiveGame> {
+        val known = withContext(Dispatchers.IO) {
+            container.gameRepository.findByUserId(userId).mapNotNull {
+                PgnParser.computeFingerprintForStoredPgn(it.pgnData)
+            }.toSet()
+        }
+        return container.chessComArchive.latest(name, period, known)
+    }
+
+    internal fun importChessComGames(userId: Long, selection: List<ArchiveGame>) {
+        if (isLoading.value || currentUser.value?.id != userId || selection.isEmpty()) return
+        isLoading.value = true
+        message.value = "Сохраняем выбранные партии…"
+        viewModelScope.launch {
+            var saved = 0
+            var duplicates = 0
+            var invalid = 0
+            try {
+                // Per-side batches use the archive identity, never the unrelated local nickname.
+                for ((side, games) in selection.groupBy { it.side }) {
+                    val result = withContext(Dispatchers.IO) {
+                        container.uploadGameUseCase.executeBatch(UploadGameUseCase.BatchInput(
+                            userId = userId, rawPgnArchive = games.joinToString("\n\n") { it.pgn },
+                            fallbackColor = side, autoDetectColor = false
+                        ))
+                    }
+                    when (result) {
+                        is UploadGameUseCase.BatchResult.Success -> {
+                            saved += result.importedGames.size
+                            duplicates += result.skippedDuplicates
+                            invalid += result.failedCount
+                        }
+                        is UploadGameUseCase.BatchResult.Error -> error(result.message)
+                    }
+                }
+                message.value = "Chess.com → библиотека: добавлено $saved, повторов $duplicates, ошибок $invalid."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = "Ошибка импорта Chess.com: ${e.localizedMessage}"
+            } finally {
+                isLoading.value = false
+                if (currentUser.value?.id == userId) loadUserData()
+            }
+        }
+    }
+
     fun clearImportForm() {
         previewJob?.cancel()
         pgnInput.value = ""
+        selectedColor.value = ChessColor.WHITE
+        manualTimeControl = false
         timeControl.value = ""
         colorAutoDetected.value = false
         importPreview.value = null
         lastSourceFileName = null
+    }
+
+    fun setImportTimeControl(value: String) {
+        manualTimeControl = true
+        timeControl.value = value
     }
 
     fun selectPlayerColorManually(color: ChessColor) {
@@ -234,7 +294,7 @@ class GameViewModel(
             container.sessionRepository.saveChessUsernameHint(uid, hint)
         }
         if (pgnInput.value.isNotBlank()) {
-            schedulePgnPreview(pgnInput.value, lastSourceFileName, autoApplyFields = true)
+            schedulePgnPreview(pgnInput.value, lastSourceFileName, debounce = true)
         }
     }
 
@@ -249,48 +309,46 @@ class GameViewModel(
     ) {
         val wasBlank = pgnInput.value.isBlank()
         pgnInput.value = newPgn
-        if (sourceFileName != null || newPgn.isBlank()) {
-            lastSourceFileName = sourceFileName
-        }
+        lastSourceFileName = sourceFileName
+        manualTimeControl = false
+        timeControl.value = ""
         if (newPgn.isBlank()) {
-            previewJob?.cancel()
-            importPreview.value = null
-            colorAutoDetected.value = false
+            clearImportForm()
             return
         }
-        val shouldAutoApply = forceAutoApply || wasBlank || sourceFileName != null
-        schedulePgnPreview(newPgn, lastSourceFileName, autoApplyFields = shouldAutoApply)
+        schedulePgnPreview(newPgn, sourceFileName, debounce = !wasBlank && !forceAutoApply && sourceFileName == null)
     }
 
     private fun schedulePgnPreview(
         rawPgn: String,
         sourceFileName: String?,
-        autoApplyFields: Boolean
+        debounce: Boolean
     ) {
         previewJob?.cancel()
+        importPreview.value = null
+        selectedColor.value = ChessColor.WHITE
+        colorAutoDetected.value = false
         val userSnapshot = currentUser.value
         val hintSnapshot = chessUsernameHint.value
         val existingSnapshot = userGames.toList()
 
         previewJob = viewModelScope.launch {
-            if (!autoApplyFields) {
+            if (debounce) {
                 delay(180L)
             }
             val preview = withContext(Dispatchers.Default) {
                 buildPreviewInternal(rawPgn, userSnapshot, hintSnapshot, existingSnapshot, sourceFileName)
             }
-            importPreview.value = preview
-
-            if (autoApplyFields && preview != null && !preview.isBatch) {
+            if (preview != null && !preview.isBatch) {
                 preview.autoDetectedColor?.let { detected ->
                     selectedColor.value = detected
                     colorAutoDetected.value = true
                 }
-                val parsedTc = preview.singleParsed?.metadata?.timeControl?.fullLabel
-                if (!parsedTc.isNullOrBlank()) {
-                    timeControl.value = parsedTc
+                if (!manualTimeControl) {
+                    timeControl.value = preview.singleParsed?.metadata?.timeControl?.fullLabel.orEmpty()
                 }
             }
+            importPreview.value = preview
         }
     }
 
@@ -305,7 +363,7 @@ class GameViewModel(
         if (trimmed.isEmpty()) return null
 
         val blocks = PgnParser.splitGames(trimmed)
-        if (blocks.isEmpty()) return null
+        if (blocks.isEmpty()) return PgnImportPreview(0, 0, singleError = "В тексте не найдена партия")
 
         val candidateNames = buildList {
             usernameHint.trim().takeIf { it.isNotEmpty() }?.let(::add)
@@ -417,7 +475,7 @@ class GameViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                message.value = "❌ Ошибка загрузки данных: ${e.message}"
+                message.value = "Ошибка загрузки данных: ${e.message}"
                 Log.e(TAG, "Error loading user data", e)
             }
         }
@@ -436,7 +494,7 @@ class GameViewModel(
     fun uploadAndAnalyzeGame(allowDuplicate: Boolean = false) {
         val userId = currentUser.value?.id
         if (userId == null) {
-            message.value = "❌ Необходимо войти в систему"
+            message.value = "Ошибка: Необходимо войти в систему"
             return
         }
 
@@ -446,7 +504,7 @@ class GameViewModel(
         val hint = chessUsernameHint.value.trim().ifEmpty { null }
 
         if (pgn.isBlank()) {
-            message.value = "❌ Введите или вставьте PGN партии"
+            message.value = "Ошибка: Введите или вставьте PGN партии"
             return
         }
 
@@ -473,7 +531,7 @@ class GameViewModel(
                     is UploadGameUseCase.Result.Success -> {
                         val gameId = uploadResult.game.id
                         if (gameId == null) {
-                            message.value = "❌ Не удалось сохранить партию"
+                            message.value = "Ошибка: Не удалось сохранить партию"
                             isLoading.value = false
                             return@launch
                         }
@@ -483,12 +541,12 @@ class GameViewModel(
                     }
 
                     is UploadGameUseCase.Result.Duplicate -> {
-                        message.value = "❌ Эта партия уже есть в вашей библиотеке"
+                        message.value = "Ошибка: Эта партия уже есть в вашей библиотеке"
                         isLoading.value = false
                     }
 
                     is UploadGameUseCase.Result.Error -> {
-                        message.value = "❌ ${uploadResult.message}"
+                        message.value = "Ошибка: ${uploadResult.message}"
                         isLoading.value = false
                     }
                 }
@@ -496,7 +554,7 @@ class GameViewModel(
                 isLoading.value = false
                 throw e
             } catch (e: Exception) {
-                message.value = "❌ Ошибка: ${e.message}"
+                message.value = "Ошибка: ${e.message}"
                 isLoading.value = false
                 Log.e(TAG, "Error uploading game", e)
             }
@@ -512,13 +570,13 @@ class GameViewModel(
     ) {
         val userId = currentUser.value?.id
         if (userId == null) {
-            message.value = "❌ Необходимо войти в систему"
+            message.value = "Ошибка: Необходимо войти в систему"
             return
         }
 
         val pgn = pgnInput.value.trim()
         if (pgn.isBlank()) {
-            message.value = "❌ Введите или вставьте PGN партии"
+            message.value = "Ошибка: Введите или вставьте PGN партии"
             return
         }
 
@@ -549,14 +607,14 @@ class GameViewModel(
                     is UploadGameUseCase.Result.Success -> {
                         clearImportForm()
                         loadUserData()
-                        message.value = "✅ Партия добавлена в библиотеку (можно разобрать в любой момент)"
+                        message.value = "Партия добавлена в библиотеку (можно разобрать в любой момент)"
                         onSavedToLibrary()
                     }
                     is UploadGameUseCase.Result.Duplicate -> {
-                        message.value = "❌ Эта партия уже есть в вашей библиотеке"
+                        message.value = "Ошибка: Эта партия уже есть в вашей библиотеке"
                     }
                     is UploadGameUseCase.Result.Error -> {
-                        message.value = "❌ ${res.message}"
+                        message.value = "Ошибка: ${res.message}"
                     }
                 }
             } catch (e: CancellationException) {
@@ -564,7 +622,7 @@ class GameViewModel(
                 throw e
             } catch (e: Exception) {
                 isLoading.value = false
-                message.value = "❌ Ошибка сохранения: ${e.message}"
+                message.value = "Ошибка сохранения: ${e.message}"
                 Log.e(TAG, "Error saving game without analysis", e)
             }
         }
@@ -579,13 +637,13 @@ class GameViewModel(
     ) {
         val userId = currentUser.value?.id
         if (userId == null) {
-            message.value = "❌ Необходимо войти в систему"
+            message.value = "Ошибка: Необходимо войти в систему"
             return
         }
 
         val rawArchive = pgnInput.value.trim()
         if (rawArchive.isBlank()) {
-            message.value = "❌ Вставьте PGN или выберите файл .pgn"
+            message.value = "Ошибка: Вставьте PGN или выберите файл .pgn"
             return
         }
 
@@ -617,7 +675,7 @@ class GameViewModel(
                         val importedCount = batchRes.importedGames.size
                         if (importedCount == 0) {
                             isLoading.value = false
-                            message.value = "ℹ️ Все партии из файла (${batchRes.skippedDuplicates}) уже есть в библиотеке"
+                            message.value = "Все партии из файла (${batchRes.skippedDuplicates}) уже есть в библиотеке"
                             return@launch
                         }
 
@@ -642,18 +700,18 @@ class GameViewModel(
                             ?.id
 
                         if (analyzeNewest && newestId != null) {
-                            message.value = "✅ Пакет загружен ($details). Запускаем анализ последней партии..."
+                            message.value = "Пакет загружен ($details). Запускаем анализ последней партии..."
                             analyzeGameWithProgress(newestId)
                         } else {
                             isLoading.value = false
-                            message.value = "✅ Готово — $details"
+                            message.value = "Готово — $details"
                             onImportedToLibrary()
                         }
                     }
 
                     is UploadGameUseCase.BatchResult.Error -> {
                         isLoading.value = false
-                        message.value = "❌ ${batchRes.message}"
+                        message.value = "Ошибка: ${batchRes.message}"
                     }
                 }
             } catch (e: CancellationException) {
@@ -661,7 +719,7 @@ class GameViewModel(
                 throw e
             } catch (e: Exception) {
                 isLoading.value = false
-                message.value = "❌ Ошибка импорта: ${e.message}"
+                message.value = "Ошибка импорта: ${e.message}"
                 Log.e(TAG, "Error importing PGN batch", e)
             }
         }
@@ -670,13 +728,14 @@ class GameViewModel(
     /**
      * Анализировать партию С ПРОГРЕССОМ
      */
-    fun analyzeGameWithProgress(gameId: Long, forceReanalyze: Boolean = false) {
-        if (analysisJob?.isActive == true) {
+    fun analyzeGameWithProgress(gameId: Long, forceReanalyze: Boolean = false): Boolean {
+        if (analysisJob?.isCompleted == false) {
             message.value = "Дождитесь завершения текущего анализа"
-            return
+            return false
         }
 
         isLoading.value = true
+        _analysisProgress.value = AnalyzeGameUseCase.AnalysisProgress.Starting
         activeAnalysisGameId = gameId
         analysisJob = viewModelScope.launch {
             try {
@@ -720,9 +779,9 @@ class GameViewModel(
                                         ""
                                     }
                                     message.value = if (playerAcc != null) {
-                                        "✅ Точность: ${String.format(java.util.Locale.US, "%.1f", playerAcc)}%$oppAccText (ошибок: $errorsCount)"
+                                        "Точность: ${String.format(java.util.Locale.US, "%.1f", playerAcc)}%$oppAccText (ошибок: $errorsCount)"
                                     } else {
-                                        "✅ Анализ завершён! Ошибок: $errorsCount"
+                                        "Анализ завершён! Ошибок: $errorsCount"
                                     }
 
                                     Log.i(
@@ -732,7 +791,7 @@ class GameViewModel(
                                 }
 
                                 is AnalyzeGameUseCase.Result.Error -> {
-                                    message.value = "❌ ${result.message}"
+                                    message.value = "Ошибка: ${result.message}"
                                 }
                             }
                         }
@@ -740,7 +799,7 @@ class GameViewModel(
                         is AnalyzeGameUseCase.AnalysisProgress.Failed -> {
                             isLoading.value = false
                             loadUserData()
-                            message.value = "❌ ${progress.error}"
+                            message.value = "Ошибка: ${progress.error}"
                             Log.e(TAG, "Analysis failed: ${progress.error}")
                         }
                     }
@@ -755,7 +814,7 @@ class GameViewModel(
                 _analysisProgress.value = AnalyzeGameUseCase.AnalysisProgress.Failed(
                     e.message ?: "Неизвестная ошибка"
                 )
-                message.value = "❌ Ошибка анализа: ${e.message}"
+                message.value = "Ошибка анализа: ${e.message}"
                 Log.e(TAG, "Analysis flow crashed", e)
             } finally {
                 if (activeAnalysisGameId == gameId) {
@@ -763,6 +822,7 @@ class GameViewModel(
                 }
             }
         }
+        return true
     }
 
     /**
@@ -771,7 +831,6 @@ class GameViewModel(
     fun cancelAnalysis() {
         container.chessEngine.stop()
         analysisJob?.cancel()
-        analysisJob = null
         activeAnalysisGameId = null
         isLoading.value = false
         _analysisProgress.value = null
@@ -919,12 +978,12 @@ class GameViewModel(
                     closeGameView()
                 }
 
-                message.value = "✅ Партия удалена"
+                message.value = "Партия удалена"
                 Log.d(TAG, "Game $gameId and dependent data deleted")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                message.value = "❌ Ошибка удаления: ${e.message}"
+                message.value = "Ошибка удаления: ${e.message}"
                 Log.e(TAG, "Error deleting game", e)
             }
         }

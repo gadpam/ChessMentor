@@ -1,11 +1,7 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -22,7 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -49,7 +45,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -59,7 +55,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -115,6 +110,7 @@ fun TrainingScreen(
     paddingValues: PaddingValues,
     container: AppContainer,
     userId: Long,
+    onLeaveTraining: () -> Unit,
     preferredTheme: String? = null,
     initialSoundEnabled: Boolean = true,
     initialModeKey: String? = null,
@@ -227,30 +223,34 @@ fun TrainingScreen(
     }
 
     Scaffold(
-        modifier = Modifier.padding(paddingValues),
+        modifier = Modifier.padding(paddingValues).consumeWindowInsets(paddingValues),
         topBar = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
             ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    IconButton(onClick = onLeaveTraining) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Выйти из тренировки")
+                    }
+                    ModePicker(
+                        selectedMode = uiState.mode,
+                        dueReviewCount = uiState.dueReviewCount,
+                        enabled = !uiState.isLoading && !uiState.isAnimatingIntro && !uiState.isAnimatingPunishment,
+                        onSelectMode = { mode ->
+                            selectedSquare = null
+                            pendingPromotion = null
+                            viewModel.selectMode(mode)
+                        }
+                    )
+                }
                 SessionHeader(
                     stats = uiState.sessionStats,
                     sideToMove = uiState.playerSide,
                     hasActiveExercise = uiState.hasActiveExercise,
                     soundEnabled = soundEnabled,
                     onToggleSound = { soundEnabled = !soundEnabled }
-                )
-                ModeSelectorRow(
-                    selectedMode = uiState.mode,
-                    dueReviewCount = uiState.dueReviewCount,
-                    enabled = !uiState.isLoading && !uiState.isAnimatingIntro && !uiState.isAnimatingPunishment,
-                    onReturnToGame = onReturnToGame,
-                    onSelectMode = { mode ->
-                        selectedSquare = null
-                        pendingPromotion = null
-                        viewModel.selectMode(mode)
-                    }
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             }
@@ -452,8 +452,7 @@ fun TrainingScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 44.dp, max = 148.dp)
-                            .padding(vertical = 6.dp),
+                            .height(52.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         UnifiedFeedbackPanel(uiState = uiState)
@@ -483,155 +482,55 @@ fun TrainingScreen(
 }
 
 @Composable
-private fun ModeSelectorRow(
+internal fun ModePicker(
     selectedMode: TrainingMode,
     dueReviewCount: Int,
     enabled: Boolean,
-    onReturnToGame: (() -> Unit)? = null,
     onSelectMode: (TrainingMode) -> Unit
 ) {
-    var themeMenuExpanded by remember { mutableStateOf(false) }
-
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (selectedMode is TrainingMode.FromGame) {
-            if (onReturnToGame != null) {
-                item {
-                    AssistChip(
-                        onClick = onReturnToGame,
-                        label = { Text("← К партии") }
-                    )
-                }
+    var expanded by remember { mutableStateOf(false) }
+    var choosingTheme by remember { mutableStateOf(false) }
+    val choose: (TrainingMode) -> Unit = { mode ->
+        expanded = false
+        onSelectMode(mode)
+    }
+    Box {
+        TextButton(onClick = { choosingTheme = false; expanded = true }, enabled = enabled) {
+            Column {
+                Text("Режим тренировки", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(selectedMode.displayName, style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold)
             }
-            item {
-                FilterChip(
-                    selected = true,
-                    onClick = { onSelectMode(selectedMode.copy(focusMoveNumber = null)) },
-                    enabled = enabled,
-                    label = { Text("🎯 ${selectedMode.displayName}") }
-                )
+            Icon(Icons.Default.ArrowDropDown, contentDescription = "Сменить режим")
+        }
+        DropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
+            if (choosingTheme) {
+                DropdownMenuItem(text = { Text("Назад к режимам") }, onClick = { choosingTheme = false },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) })
+                HorizontalDivider()
             }
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.SmartSession,
-                onClick = { onSelectMode(TrainingMode.SmartSession) },
-                enabled = enabled,
-                label = { Text("Сессия 10") }
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.All,
-                onClick = { onSelectMode(TrainingMode.All) },
-                enabled = enabled,
-                label = { Text("Все") }
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.Daily,
-                onClick = { onSelectMode(TrainingMode.Daily) },
-                enabled = enabled,
-                label = { Text("Задача дня") }
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.PatternVision,
-                onClick = { onSelectMode(TrainingMode.PatternVision) },
-                enabled = enabled,
-                label = { Text("Зоркость") }
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.DeepCalculation,
-                onClick = { onSelectMode(TrainingMode.DeepCalculation) },
-                enabled = enabled,
-                label = { Text("Расчёт") }
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.Defense,
-                onClick = { onSelectMode(TrainingMode.Defense) },
-                enabled = enabled,
-                label = { Text("Защита") }
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedMode is TrainingMode.MyMistakes,
-                onClick = { onSelectMode(TrainingMode.MyMistakes) },
-                enabled = enabled,
-                label = { Text("Мои ошибки") }
-            )
-        }
-        item {
-            val reviewLabel = if (dueReviewCount > 0) {
-                "Повтор ($dueReviewCount)"
+            val modes = if (choosingTheme) {
+                TrainingMode.selectableThemes.map { TrainingMode.ByTheme(it) }
             } else {
-                "Слабые темы"
+                listOfNotNull((selectedMode as? TrainingMode.FromGame)?.copy(focusMoveNumber = null),
+                    TrainingMode.Daily, TrainingMode.SmartSession, TrainingMode.All, TrainingMode.MyMistakes,
+                    TrainingMode.WeakPatterns, TrainingMode.PatternVision, TrainingMode.DeepCalculation, TrainingMode.Defense)
             }
-            FilterChip(
-                selected = selectedMode is TrainingMode.WeakPatterns,
-                onClick = { onSelectMode(TrainingMode.WeakPatterns) },
-                enabled = enabled,
-                label = { Text(reviewLabel) }
-            )
-        }
-        item {
-            Box {
-                val isThemeMode = selectedMode is TrainingMode.ByTheme
-                val labelText = if (selectedMode is TrainingMode.ByTheme) {
-                    TrainingLabels.themeDisplayName(selectedMode.theme)
-                } else {
-                    "По теме"
-                }
-                FilterChip(
-                    selected = isThemeMode,
-                    onClick = { themeMenuExpanded = true },
-                    enabled = enabled,
-                    label = { Text(labelText) },
-                    trailingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = "Выбрать тему",
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+            modes.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(if (mode == TrainingMode.WeakPatterns && dueReviewCount > 0)
+                        "${mode.displayName} · повторить: $dueReviewCount" else mode.displayName) },
+                    trailingIcon = if (mode == selectedMode || (mode is TrainingMode.FromGame && selectedMode is TrainingMode.FromGame)) {
+                        { Icon(Icons.Default.Check, contentDescription = "Выбрано") }
+                    } else null,
+                    onClick = { choose(mode) }
                 )
-                DropdownMenu(
-                    expanded = themeMenuExpanded,
-                    onDismissRequest = { themeMenuExpanded = false }
-                ) {
-                    TrainingMode.selectableThemes.forEach { theme ->
-                        val isSelected = selectedMode is TrainingMode.ByTheme && selectedMode.theme == theme
-                        DropdownMenuItem(
-                            text = { Text(TrainingLabels.themeDisplayName(theme)) },
-                            leadingIcon = if (isSelected) {
-                                {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            } else {
-                                null
-                            },
-                            onClick = {
-                                themeMenuExpanded = false
-                                onSelectMode(TrainingMode.ByTheme(theme))
-                            }
-                        )
-                    }
-                }
+            }
+            if (!choosingTheme) {
+                HorizontalDivider()
+                DropdownMenuItem(text = { Text("По тактической теме") }, onClick = { choosingTheme = true },
+                    trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) })
             }
         }
     }
@@ -753,7 +652,7 @@ private fun SessionSummaryCard(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "⚡ Поспешных первых ходов: ${summary.impulsiveMistakeCount}",
+                            text = "Поспешных первых ходов: ${summary.impulsiveMistakeCount}",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onErrorContainer,
@@ -1051,17 +950,6 @@ private fun PromotionPickerDialog(
     )
 }
 
-private data class FeedbackSnapshot(
-    val text: String?,
-    val motif: String?,
-    val explanation: String?,
-    val sanLine: String?,
-    val isSolved: Boolean,
-    val isRevealed: Boolean,
-    val isError: Boolean,
-    val isFreeAnalysis: Boolean
-)
-
 @Composable
 private fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
     val analysis = uiState.currentMistakeAnalysis
@@ -1081,132 +969,45 @@ private fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
     } else {
         uiState.feedbackMessage ?: uiState.exerciseSubtitle ?: if (isErrorNow) "Неверный ход" else null
     }
-    val snapshot = FeedbackSnapshot(
-        text = mainText,
-        motif = motifNow,
-        explanation = if (isFinished && !uiState.isFreeAnalysisMode) uiState.postSolveExplanation else null,
-        sanLine = if (uiState.isSolved && !uiState.isFreeAnalysisMode) uiState.solutionSanLine else null,
-        isSolved = uiState.isSolved && !uiState.isFreeAnalysisMode,
-        isRevealed = uiState.isSolutionRevealed && !uiState.isFreeAnalysisMode,
-        isError = isErrorNow,
-        isFreeAnalysis = uiState.isFreeAnalysisMode && isFinished
-    )
+    val queued = uiState.similarExercisesQueued.takeIf { it > 0 && uiState.mode is TrainingMode.All }
+    val details = listOfNotNull(
+        mainText,
+        motifNow?.let { "Мотив: $it" },
+        uiState.postSolveExplanation.takeIf { isFinished && !uiState.isFreeAnalysisMode },
+        uiState.solutionSanLine.takeIf { uiState.isSolved && !uiState.isFreeAnalysisMode },
+        queued?.let { "Закрепление темы: ещё $it шт. в очереди" }
+    ).filter { it.isNotBlank() }
+    if (details.isEmpty()) return
 
-    AnimatedContent(
-        targetState = snapshot,
-        transitionSpec = {
-            fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(220))
-        },
-        label = "FeedbackTransition"
-    ) { state ->
-        if (state.text != null) {
-            // Семантические цвета Material 3 — корректно читаются и в светлой, и в тёмной теме
-            val (containerColor, contentColor, icon) = when {
-                state.isFreeAnalysis -> Triple(
-                    MaterialTheme.colorScheme.secondaryContainer,
-                    MaterialTheme.colorScheme.onSecondaryContainer,
-                    Icons.Default.Analytics
-                )
-                state.isSolved -> Triple(
-                    MaterialTheme.colorScheme.primaryContainer,
-                    MaterialTheme.colorScheme.onPrimaryContainer,
-                    Icons.Default.EmojiEvents
-                )
-                state.isError -> Triple(
-                    MaterialTheme.colorScheme.errorContainer,
-                    MaterialTheme.colorScheme.onErrorContainer,
-                    Icons.Default.Warning
-                )
-                state.isRevealed -> Triple(
-                    MaterialTheme.colorScheme.tertiaryContainer,
-                    MaterialTheme.colorScheme.onTertiaryContainer,
-                    Icons.Default.Lightbulb
-                )
-                else -> Triple(
-                    MaterialTheme.colorScheme.surfaceVariant,
-                    MaterialTheme.colorScheme.onSurfaceVariant,
-                    Icons.Default.Info
-                )
-            }
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = containerColor),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = contentColor,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = state.text,
-                            color = contentColor,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-
-                    if (!state.motif.isNullOrBlank() || !state.explanation.isNullOrBlank() || !state.sanLine.isNullOrBlank()) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                            color = contentColor.copy(alpha = 0.2f)
-                        )
-                        if (!state.motif.isNullOrBlank()) {
-                            val motifLine = if (!state.sanLine.isNullOrBlank()) {
-                                "Мотив: ${state.motif} • ${state.sanLine}"
-                            } else {
-                                "Мотив: ${state.motif}"
-                            }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Lightbulb,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(15.dp),
-                                    tint = contentColor.copy(alpha = 0.85f)
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = motifLine,
-                                    color = contentColor.copy(alpha = 0.94f),
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 12.sp,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
-                        if (!state.explanation.isNullOrBlank()) {
-                            Text(
-                                text = state.explanation,
-                                color = contentColor.copy(alpha = 0.88f),
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                }
-            }
+    val containerColor = when {
+        isErrorNow -> MaterialTheme.colorScheme.errorContainer
+        isFinished -> MaterialTheme.colorScheme.primaryContainer
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    var showDetails by remember { mutableStateOf(false) }
+    Surface(
+        onClick = { showDetails = true },
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = containerColor
+    ) {
+        Row(
+            modifier = Modifier.height(48.dp).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(details.first(), modifier = Modifier.weight(1f), maxLines = 2,
+                overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+            Icon(Icons.Default.Info, contentDescription = "Открыть пояснение")
         }
+    }
+    if (showDetails) {
+        AlertDialog(
+            onDismissRequest = { showDetails = false },
+            title = { Text("Пояснение к задаче") },
+            text = { Text(details.joinToString("\n\n"), modifier = Modifier.verticalScroll(rememberScrollState())) },
+            confirmButton = { TextButton(onClick = { showDetails = false }) { Text("К доске") } }
+        )
     }
 }
 
@@ -1229,18 +1030,14 @@ private fun SessionHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = "✔ ${stats.solved}",
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 15.sp
-            )
-            Text(
-                text = "✖ ${stats.failed}",
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.error,
-                fontSize = 15.sp
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Check, contentDescription = "Решено", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                Text(stats.solved.toString(), fontWeight = FontWeight.Bold)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Close, contentDescription = "Ошибки", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                Text(stats.failed.toString(), fontWeight = FontWeight.Bold)
+            }
             if (stats.currentStreak > 0) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -1286,7 +1083,7 @@ private fun SessionHeader(
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                 ) {
                     Text(
-                        text = if (isWhite) "♔ Ход белых" else "♚ Ход чёрных",
+                        text = if (isWhite) "Ход белых" else "Ход чёрных",
                         color = if (isWhite) {
                             MaterialTheme.colorScheme.onSurface
                         } else {
@@ -1575,14 +1372,6 @@ private fun BottomControlPanel(
                 }
             }
 
-            if (uiState.similarExercisesQueued > 0 && uiState.mode is TrainingMode.All) {
-                Text(
-                    text = "Закрепление темы: ещё ${uiState.similarExercisesQueued} шт. в очереди",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
-            }
         }
     }
 }

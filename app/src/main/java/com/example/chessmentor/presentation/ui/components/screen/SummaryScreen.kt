@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +20,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +35,8 @@ import com.example.chessmentor.domain.analysis.GameMoveClassifier
 import com.example.chessmentor.domain.analysis.GameReviewHelper
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.presentation.ui.components.util.MISSING_ACCURACY
+import com.example.chessmentor.presentation.ui.components.util.formatGameAccuracy
 import com.example.chessmentor.domain.entity.KeyMoment
 import com.example.chessmentor.domain.entity.MoveQuality
 import com.example.chessmentor.domain.pgn.PgnParser
@@ -135,12 +139,8 @@ fun SummaryScreen(
         GameReviewHelper.filterKeyMoments(keyMoments, GameReviewHelper.MomentFilter.ALL)
     }
 
-    val currentMoveLabel = remember(currentMoveIndex, boardViewModel.moveNotations.size) {
-        boardViewModel.getCurrentMoveNotation()
-    }
-    val currentMoveEval = remember(currentMoveIndex, evaluations.size) {
-        evaluations.getOrNull(currentMoveIndex + 1)
-    }
+    val currentMoveLabel = boardViewModel.getCurrentMoveNotation()
+    val currentMoveEval = evaluations.getOrNull(currentMoveIndex + 1)
 
     LazyColumn(
         modifier = Modifier
@@ -199,8 +199,9 @@ fun SummaryScreen(
         }
 
         // Интерактивный график оценки (тап + скраббинг + мгновенный переход на доску)
-        item {
+        item(key = "evaluation-graph") {
             EvaluationGraphCard(
+                moveLabels = boardViewModel.moveNotations,
                 evaluations = evaluations,
                 keyMoments = graphMoments,
                 currentMoveIndex = currentMoveIndex,
@@ -221,7 +222,7 @@ fun SummaryScreen(
         }
 
         // Ключевые моменты с фильтрами, полным раскрытием и переходом в тренажёр по любому ходу
-        item {
+        item(key = "key-moments") {
             KeyMomentsCard(
                 keyMoments = keyMoments,
                 onMomentClick = { moment ->
@@ -382,6 +383,7 @@ private fun CoachSummaryCard(
  */
 @Composable
 private fun EvaluationGraphCard(
+    moveLabels: List<String>,
     evaluations: List<Int>,
     keyMoments: List<KeyMoment>,
     currentMoveIndex: Int,
@@ -407,7 +409,7 @@ private fun EvaluationGraphCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "📈 График оценки",
+                    text = "График оценки",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -455,7 +457,7 @@ private fun EvaluationGraphCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            if (evaluations.isNotEmpty()) {
+            if (hasRealData) {
                 EvaluationGraph(
                     evaluations = evaluations,
                     keyMoments = keyMoments,
@@ -473,10 +475,50 @@ private fun EvaluationGraphCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 EvaluationGraphLegend()
+                GraphMovePicker(moveLabels, evaluations, currentMoveIndex, onOpenReviewAtMove)
             } else {
                 NoEvaluationsPlaceholder()
             }
         }
+    }
+}
+
+/** Text alternative to aiming at the graph. Index 0 in evaluations is the starting position. */
+@Composable
+internal fun GraphMovePicker(
+    moveLabels: List<String>,
+    evaluations: List<Int>,
+    currentMoveIndex: Int,
+    onOpenReviewAtMove: (Int) -> Unit
+) {
+    val count = minOf(moveLabels.size, evaluations.size - 1)
+    if (count <= 0) return
+    var open by rememberSaveable { mutableStateOf(false) }
+    OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+        Text("Выбрать ход из списка")
+    }
+    if (open) {
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text("Открыть ход на доске") },
+            text = {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                    state = rememberLazyListState(initialFirstVisibleItemIndex = currentMoveIndex.coerceIn(0, count - 1))
+                ) {
+                    items(count) { index ->
+                        TextButton(
+                            onClick = { open = false; onOpenReviewAtMove(index) },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) {
+                            Text(moveLabels[index], modifier = Modifier.weight(1f), fontFamily = FontFamily.Monospace)
+                            Text(ChessEngine.formatEvaluation(evaluations[index + 1]))
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { open = false }) { Text("Закрыть") } }
+        )
     }
 }
 
@@ -659,7 +701,7 @@ private fun SummaryHeader(
 
                 if (!openingLabel.isNullOrBlank()) {
                     Text(
-                        text = "📖 $openingLabel",
+                        text = "Дебют: $openingLabel",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -670,7 +712,7 @@ private fun SummaryHeader(
 
                 if (cardInfo.playerTimeTroubleMoves > 0) {
                     Text(
-                        text = "🕒 Ходов в цейтноте (<20 с): ${cardInfo.playerTimeTroubleMoves}",
+                        text = "Ходов в цейтноте (<20 с): ${cardInfo.playerTimeTroubleMoves}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
                     )
@@ -692,12 +734,12 @@ private fun SummaryHeader(
 }
 
 @Composable
-private fun GameMetricsCard(
+internal fun GameMetricsCard(
     game: Game,
     opponentSummary: GameMoveClassifier.SideAnalysisSummary? = null,
     phaseAccuracy: GameMoveClassifier.PhaseAccuracyBreakdown? = null
 ) {
-    val accuracy = game.accuracy ?: 0.0
+    val accuracy = game.accuracy
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -706,7 +748,7 @@ private fun GameMetricsCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "📈 Статистика партии",
+                text = "Статистика партии",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -714,14 +756,19 @@ private fun GameMetricsCard(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Точность игрока — главный круговой индикатор
-            AccuracyIndicator(accuracy = accuracy)
+            if (accuracy != null) {
+                AccuracyIndicator(accuracy = accuracy)
+            } else {
+                Text(MISSING_ACCURACY, style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
 
             // Сравнение точности и средней потери: Вы vs Соперник
             if (opponentSummary != null) {
                 Spacer(modifier = Modifier.height(14.dp))
                 SideComparisonStrip(
                     playerAccuracy = accuracy,
-                    playerAcpl = game.averageEvaluationLoss ?: 0,
+                    playerAcpl = game.averageEvaluationLoss,
                     opponentAccuracy = opponentSummary.accuracy,
                     opponentAcpl = opponentSummary.averageCpLoss
                 )
@@ -736,7 +783,7 @@ private fun GameMetricsCard(
                 // Средняя потеря (ACPL)
                 MetricItem(
                     label = "Ср. потеря (сП)",
-                    value = "${game.averageEvaluationLoss ?: 0}",
+                    value = game.averageEvaluationLoss?.toString() ?: "—",
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
@@ -821,8 +868,8 @@ private fun GameMetricsCard(
 
 @Composable
 private fun SideComparisonStrip(
-    playerAccuracy: Double,
-    playerAcpl: Int,
+    playerAccuracy: Double?,
+    playerAcpl: Int?,
     opponentAccuracy: Double,
     opponentAcpl: Int
 ) {
@@ -845,13 +892,13 @@ private fun SideComparisonStrip(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = String.format(java.util.Locale.US, "%.1f%%", playerAccuracy),
+                    text = playerAccuracy?.let(::formatGameAccuracy) ?: "—",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = getAccuracyColor(playerAccuracy)
+                    color = playerAccuracy?.let(::getAccuracyColor) ?: MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = "$playerAcpl сП",
+                    text = playerAcpl?.let { "$it сП" } ?: "— сП",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -871,7 +918,7 @@ private fun SideComparisonStrip(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = String.format(java.util.Locale.US, "%.1f%%", opponentAccuracy),
+                    text = formatGameAccuracy(opponentAccuracy),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = getAccuracyColor(opponentAccuracy)
@@ -946,8 +993,8 @@ private fun AccuracyIndicator(accuracy: Double) {
             )
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "${accuracy.toInt()}%",
-                    style = MaterialTheme.typography.headlineLarge,
+                    text = formatGameAccuracy(accuracy),
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = color
                 )
@@ -1048,8 +1095,8 @@ fun KeyMomentsCard(
     onMomentClick: (KeyMoment) -> Unit,
     onPracticeMoment: ((KeyMoment) -> Unit)? = null
 ) {
-    var selectedFilter by remember { mutableStateOf(GameReviewHelper.MomentFilter.ALL) }
-    var showAllMoments by remember { mutableStateOf(false) }
+    var selectedFilter by rememberSaveable { mutableStateOf(GameReviewHelper.MomentFilter.ALL) }
+    var showAllMoments by rememberSaveable { mutableStateOf(false) }
 
     // Статистика качества считается строго по ходам игрока
     val playerMoments = keyMoments.filter { it.isPlayerMove }
@@ -1081,7 +1128,7 @@ fun KeyMomentsCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "⭐ Качество ваших ходов",
+                text = "Качество ваших ходов",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -1279,11 +1326,7 @@ fun KeyMomentItemCompact(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.width(70.dp)
     ) {
-        Text(
-            text = quality.getEmoji(),
-            fontSize = 24.sp,
-            modifier = Modifier.padding(bottom = 2.dp)
-        )
+        Icon(quality.getIcon(), contentDescription = null, modifier = Modifier.size(24.dp))
 
         Text(
             text = "$count",
@@ -1345,10 +1388,7 @@ fun KeyMomentRow(
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = moment.quality.getEmoji(),
-                fontSize = 22.sp
-            )
+            Icon(moment.quality.getIcon(), contentDescription = null, modifier = Modifier.size(22.dp))
 
             Spacer(modifier = Modifier.width(10.dp))
 

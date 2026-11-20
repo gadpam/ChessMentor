@@ -572,7 +572,7 @@ class BoardViewModel : ViewModel() {
                     isCheckingEngine = false,
                     hintArrowUci = null,
                     attemptsCount = nextAttempts,
-                    feedback = "✅ ${eval.message}"
+                    feedback = "${eval.message}"
                 )
             }
 
@@ -592,7 +592,7 @@ class BoardViewModel : ViewModel() {
                     board.value = boardFromFen(state.fenBefore)
                     retryState.value = state.copy(
                         attemptsCount = nextAttempts,
-                        feedback = "🤔 ${eval.message}"
+                        feedback = "${eval.message}"
                     )
                 }
             }
@@ -625,7 +625,7 @@ class BoardViewModel : ViewModel() {
                 isCheckingEngine = false,
                 hintArrowUci = null,
                 attemptsCount = nextAttempts,
-                feedback = "✅ Блестяще! ${eval.attemptedSan} сразу ставит мат!"
+                feedback = "Блестяще! ${eval.attemptedSan} сразу ставит мат!"
             )
             return
         }
@@ -666,13 +666,13 @@ class BoardViewModel : ViewModel() {
                         isSolved = true,
                         isCheckingEngine = false,
                         hintArrowUci = null,
-                        feedback = "✅ Засчитано! ${eval.attemptedSan} не уступает ходу движка (${eval.expectedBestSan})."
+                        feedback = "Засчитано! ${eval.attemptedSan} не уступает ходу движка (${eval.expectedBestSan})."
                     )
                 } else {
                     board.value = boardFromFen(state.fenBefore)
                     retryState.value = current.copy(
                         isCheckingEngine = false,
-                        feedback = "🤔 ${eval.message}"
+                        feedback = "${eval.message}"
                     )
                 }
             } catch (e: CancellationException) {
@@ -683,7 +683,7 @@ class BoardViewModel : ViewModel() {
                 board.value = boardFromFen(state.fenBefore)
                 retryState.value = current.copy(
                     isCheckingEngine = false,
-                    feedback = "🤔 ${eval.message}"
+                    feedback = "${eval.message}"
                 )
             }
         }

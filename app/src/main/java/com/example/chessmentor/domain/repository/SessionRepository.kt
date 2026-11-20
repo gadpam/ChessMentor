@@ -35,4 +35,6 @@ interface SessionRepository {
 
     /** Сохранить ник игрока на Lichess / Chess.com для данного пользователя. */
     fun saveChessUsernameHint(userId: Long, hint: String)
+    fun getChessComSource(userId: Long): String?
+    fun setChessComSource(userId: Long, name: String?)
 }

@@ -120,9 +120,9 @@ data class Game(
      * Получить краткое описание партии
      */
     fun getShortDescription(): String {
-        val colorSymbol = playerColor.getSymbol()
+        val color = playerColor.getDisplayName()
         val time = timeControl ?: "неизвестно"
-        return "$colorSymbol $time"
+        return "$color · $time"
     }
 
     override fun toString(): String {

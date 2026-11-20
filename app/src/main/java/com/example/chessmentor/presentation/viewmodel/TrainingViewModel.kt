@@ -671,7 +671,7 @@ class TrainingViewModel(
             }
 
             val scheduleNote = refreshCardAndDueCount()?.let { "\n${SpacedRepetitionScheduler.formatNextIntervalNote(it)}" }
-                ?: "\n📅 Вернёмся к задаче через 10 мин"
+                ?: "\nВернёмся к задаче через 10 мин"
 
             val postReview = buildPostSolveReviewState()
             val fullSan = postReview.second.ifBlank { sanNotation }
@@ -685,7 +685,7 @@ class TrainingViewModel(
                 reviewStepIndex = (postReview.first.size - 1).coerceAtLeast(0),
                 solutionSanLine = fullSan,
                 postSolveExplanation = postReview.third,
-                feedbackMessage = "💡 Решение: $fullSan$scheduleNote"
+                feedbackMessage = "Решение: $fullSan$scheduleNote"
             )
         }
     }
@@ -915,10 +915,10 @@ class TrainingViewModel(
         )
 
         val initialBanner = when {
-            isAlreadySolvedDaily -> "✓ Задача дня уже решена сегодня — можно перерешать без изменения рейтинга"
+            isAlreadySolvedDaily -> "Задача дня уже решена сегодня — можно перерешать без изменения рейтинга"
             reviewState != null -> SpacedRepetitionScheduler.formatReviewBanner(reviewState)
-            isReviewOfFailed -> "🔁 Повтор задачи, в которой ранее была ошибка"
-            mode is TrainingMode.DeepCalculation -> "🧠 Досчитайте весь форсированный вариант до первого хода"
+            isReviewOfFailed -> "Повтор задачи, в которой ранее была ошибка"
+            mode is TrainingMode.DeepCalculation -> "Досчитайте весь форсированный вариант до первого хода"
             else -> null
         }
 
@@ -1242,7 +1242,7 @@ class TrainingViewModel(
                         currentMoveIndex++
 
                         if (!applied || currentMoveIndex >= targetSequence.size || _uiState.value.board.isMated) {
-                            handleSuccess("✅ Отличный альтернативный ход!")
+                            handleSuccess("Отличный альтернативный ход!")
                         } else {
                             val nextStep = (currentMoveIndex / 2) + 1
                             _uiState.value = _uiState.value.copy(
@@ -1255,7 +1255,7 @@ class TrainingViewModel(
                     }
                 }
 
-                handleSuccess("✅ Отличный альтернативный ход!")
+                handleSuccess("Отличный альтернативный ход!")
                 return
             } else {
                 handleMistakeComprehensive(fenBefore, move)
@@ -1273,7 +1273,7 @@ class TrainingViewModel(
             currentMoveIndex++
 
             if (!applied || currentMoveIndex >= targetSequence.size || _uiState.value.board.isMated) {
-                handleSuccess("🏆 Комбинация завершена!")
+                handleSuccess("Комбинация завершена!")
             } else {
                 val nextStep = (currentMoveIndex / 2) + 1
                 _uiState.value = _uiState.value.copy(
@@ -1283,9 +1283,9 @@ class TrainingViewModel(
             }
         } else {
             val message = if (_uiState.value.board.isMated) {
-                "🏆 Мат! Задача решена!"
+                "Мат! Задача решена!"
             } else {
-                "✅ Задача решена!"
+                "Задача решена!"
             }
             handleSuccess(message)
         }
@@ -1363,10 +1363,10 @@ class TrainingViewModel(
         lastMistakeCoachingNote = when {
             wasImpulsiveFirstMove && thinkMs != null -> {
                 val secs = String.format(java.util.Locale.US, "%.1f", thinkMs / 1000.0)
-                "⚡ Поспешный ход ($secs с)! Сначала проверьте шахи, взятия и лучший ответ соперника."
+                "Поспешный ход ($secs с)! Сначала проверьте шахи, взятия и лучший ответ соперника."
             }
             attemptMistakeCount >= 2 -> {
-                "🛑 Не перебирайте ходы наугад — посчитайте ответ соперника или возьмите подсказку фигуры."
+                "Не перебирайте ходы наугад — посчитайте ответ соперника или возьмите подсказку фигуры."
             }
             else -> null
         }
@@ -1574,14 +1574,14 @@ class TrainingViewModel(
                 }
             } else {
                 _uiState.value = _uiState.value.copy(
-                    feedbackMessage = "❌ Неверный ход — найдите более сильное решение."
+                    feedbackMessage = "Неверный ход — найдите более сильное решение."
                 )
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Fallback mistake handling failed", e)
-            _uiState.value = _uiState.value.copy(feedbackMessage = "❌ Неверный ход")
+            _uiState.value = _uiState.value.copy(feedbackMessage = "Неверный ход")
         }
 
         delay(PUNISHMENT_DISPLAY_MS)

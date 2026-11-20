@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -73,7 +74,7 @@ fun MoveQualityBadge(
         )
         moveQuality == MoveQuality.BOOK -> BadgeInfo(
             backgroundColor = Color(0xFFCE93D8),
-            symbol = "📖",
+            symbol = null,
             textColor = Color.White
         )
         else -> null
@@ -89,7 +90,10 @@ fun MoveQualityBadge(
             .border(2.dp, Color.White, CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        Text(
+        if (badgeInfo.symbol == null) {
+            Icon(MoveQuality.BOOK.getIcon(), contentDescription = MoveQuality.BOOK.getDisplayName(),
+                tint = badgeInfo.textColor, modifier = Modifier.size(size * 0.6f))
+        } else Text(
             text = badgeInfo.symbol,
             fontSize = (size.value * 0.45).sp,
             fontWeight = FontWeight.Bold,
@@ -100,7 +104,7 @@ fun MoveQualityBadge(
 
 private data class BadgeInfo(
     val backgroundColor: Color,
-    val symbol: String,
+    val symbol: String?,
     val textColor: Color
 )
 

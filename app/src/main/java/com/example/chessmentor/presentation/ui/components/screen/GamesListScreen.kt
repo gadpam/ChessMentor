@@ -4,6 +4,7 @@ package com.example.chessmentor.presentation.ui.components.screen
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
@@ -20,7 +22,9 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -32,6 +36,8 @@ import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.presentation.ui.components.util.MISSING_ACCURACY
+import com.example.chessmentor.presentation.ui.components.util.formatGameAccuracy
 import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
@@ -47,8 +53,8 @@ private enum class LibraryFilter(val label: String) {
     WINS("Победы"),
     LOSSES("Поражения"),
     DRAWS("Ничьи"),
-    WHITE("⚪ Белые"),
-    BLACK("⚫ Чёрные")
+    WHITE("Белые"),
+    BLACK("Чёрные")
 }
 
 private enum class LibrarySort(val label: String) {
@@ -84,22 +90,7 @@ fun GamesListScreen(
 
     val engineStatus by container.chessEngine.status.collectAsState()
     val analysisProgress by gameViewModel.analysisProgress.collectAsState(initial = null)
-    val currentOnAnalysisComplete by rememberUpdatedState(onAnalysisComplete)
-
-    // Если пользователь запустил анализ прямо из списка партий — открываем сводку по завершении
-    var triggeredAnalysisFromList by remember { mutableStateOf(false) }
-    LaunchedEffect(analysisProgress) {
-        val completed = analysisProgress as? AnalyzeGameUseCase.AnalysisProgress.Completed
-        if (completed != null && triggeredAnalysisFromList) {
-            triggeredAnalysisFromList = false
-            gameViewModel.clearAnalysisProgress()
-            if (completed.result is AnalyzeGameUseCase.Result.Success) {
-                currentOnAnalysisComplete()
-            }
-        } else if (analysisProgress is AnalyzeGameUseCase.AnalysisProgress.Failed) {
-            triggeredAnalysisFromList = false
-        }
-    }
+    var requestedGameId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     var searchQuery by remember { mutableStateOf(initialSearchQuery.orEmpty()) }
     var activeFilter by remember {
@@ -114,6 +105,13 @@ fun GamesListScreen(
     var activeSort by remember { mutableStateOf(LibrarySort.NEWEST) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
 
+    val focusManager = LocalFocusManager.current
+    val showAllGames = {
+        searchQuery = ""
+        activeFilter = LibraryFilter.ALL
+        focusManager.clearFocus()
+    }
+
     LaunchedEffect(initialSearchQuery, initialColorFilter) {
         if (!initialSearchQuery.isNullOrBlank() || initialColorFilter != null) {
             searchQuery = initialSearchQuery.orEmpty()
@@ -126,12 +124,12 @@ fun GamesListScreen(
         }
     }
 
-    // Кэшируем разбор метаданных карточек по (id, hash(pgn), color, timeControl) — O(1) при прокрутке и поиске
+    // Кэшируем разбор метаданных карточек по (id, hash(pgn), color, timeControl, playedAt) — O(1) при прокрутке и поиске
     val infoCache = remember { mutableMapOf<String, PgnParser.GameCardInfo>() }
     val indexedGames = remember(games) {
         val activeKeys = HashSet<String>(games.size)
         val list = games.map { g ->
-            val key = "${g.id}_${g.pgnData.hashCode()}_${g.playerColor}_${g.timeControl}"
+            val key = "${g.id}_${g.pgnData.hashCode()}_${g.playerColor}_${g.timeControl}_${g.playedAt}"
             activeKeys.add(key)
             val info = infoCache.getOrPut(key) { PgnParser.extractGameCardInfo(g) }
             IndexedGame(g, info)
@@ -146,7 +144,7 @@ fun GamesListScreen(
             val matchesFilter = when (activeFilter) {
                 LibraryFilter.ALL -> true
                 LibraryFilter.ANALYZED -> item.game.isAnalyzed()
-                LibraryFilter.PENDING -> !item.game.isAnalyzed()
+                LibraryFilter.PENDING -> item.game.analysisStatus == AnalysisStatus.PENDING
                 LibraryFilter.WINS -> item.info.outcome == PgnParser.PlayerOutcome.WIN
                 LibraryFilter.LOSSES -> item.info.outcome == PgnParser.PlayerOutcome.LOSS
                 LibraryFilter.DRAWS -> item.info.outcome == PgnParser.PlayerOutcome.DRAW
@@ -233,17 +231,17 @@ fun GamesListScreen(
                         sortMenuExpanded = false
                     },
                     shownCount = filteredGames.size,
-                    totalCount = indexedGames.size
+                    totalCount = indexedGames.size,
+                    onShowAll = showAllGames
                 )
             }
 
             if (filteredGames.isEmpty()) {
                 item {
                     NoMatchingGamesCard(
-                        onResetFilters = {
-                            searchQuery = ""
-                            activeFilter = LibraryFilter.ALL
-                        }
+                        query = searchQuery.trim(),
+                        filter = activeFilter,
+                        onShowAll = showAllGames
                     )
                 }
             } else {
@@ -260,14 +258,9 @@ fun GamesListScreen(
                         mistakes = gameMistakes,
                         isBusy = isLoading,
                         onClick = { onGameClick(game) },
-                        onAnalyze = {
-                            val id = game.id
-                            if (id != null) {
-                                triggeredAnalysisFromList = true
-                                gameViewModel.analyzeGameWithProgress(
-                                    gameId = id,
-                                    forceReanalyze = game.analysisStatus == AnalysisStatus.FAILED
-                                )
+                        onAnalyze = { id, retry ->
+                            if (gameViewModel.analyzeGameWithProgress(id, forceReanalyze = retry)) {
+                                requestedGameId = id
                             }
                         },
                         onDelete = { game.id?.let { gameViewModel.deleteGame(it) } }
@@ -277,16 +270,37 @@ fun GamesListScreen(
         }
     }
 
-    AnalysisProgressDialog(
+    LibraryAnalysisFeedback(
+        requestedGameId = requestedGameId,
         progress = analysisProgress,
-        onDismiss = {
-            triggeredAnalysisFromList = false
-            gameViewModel.clearAnalysisProgress()
-        },
-        onCancel = {
-            triggeredAnalysisFromList = false
-            gameViewModel.cancelAnalysis()
+        forgetRequest = { requestedGameId = null },
+        onDismiss = gameViewModel::clearAnalysisProgress,
+        onCancel = gameViewModel::cancelAnalysis,
+        onOpenSummary = onAnalysisComplete
+    )
+}
+
+@Composable
+internal fun LibraryAnalysisFeedback(
+    requestedGameId: Long?,
+    progress: AnalyzeGameUseCase.AnalysisProgress?,
+    forgetRequest: () -> Unit,
+    onDismiss: () -> Unit,
+    onCancel: () -> Unit,
+    onOpenSummary: () -> Unit
+) {
+    LaunchedEffect(progress) {
+        if (progress is AnalyzeGameUseCase.AnalysisProgress.Completed && requestedGameId != null) {
+            val result = progress.result as? AnalyzeGameUseCase.Result.Success
+            forgetRequest()
+            onDismiss()
+            if (result?.game?.id == requestedGameId) onOpenSummary()
         }
+    }
+    AnalysisProgressDialog(
+        progress = progress, gameId = requestedGameId,
+        onDismiss = { forgetRequest(); onDismiss() },
+        onCancel = { forgetRequest(); onCancel() }
     )
 }
 
@@ -294,7 +308,7 @@ fun GamesListScreen(
 private fun GamesLibraryHeader(indexedGames: List<IndexedGame>) {
     val total = indexedGames.size
     val analyzedGames = indexedGames.filter { it.game.isAnalyzed() }
-    val pendingCount = total - analyzedGames.size
+    val pendingCount = indexedGames.count { it.game.analysisStatus == AnalysisStatus.PENDING }
     val wins = indexedGames.count { it.info.outcome == PgnParser.PlayerOutcome.WIN }
     val draws = indexedGames.count { it.info.outcome == PgnParser.PlayerOutcome.DRAW }
     val losses = indexedGames.count { it.info.outcome == PgnParser.PlayerOutcome.LOSS }
@@ -322,7 +336,7 @@ private fun GamesLibraryHeader(indexedGames: List<IndexedGame>) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "📋 Библиотека партий",
+                    text = "Библиотека партий",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -369,7 +383,8 @@ private fun LibrarySearchAndFilters(
     onSortMenuToggle: (Boolean) -> Unit,
     onSortChange: (LibrarySort) -> Unit,
     shownCount: Int,
-    totalCount: Int
+    totalCount: Int,
+    onShowAll: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -380,7 +395,8 @@ private fun LibrarySearchAndFilters(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = onSearchChange,
-                placeholder = { Text("Соперник, дебют, ECO, контроль...") },
+                label = { Text("Поиск партий") },
+                placeholder = { Text("Соперник, дебют, ECO, контроль…") },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),
@@ -445,11 +461,14 @@ private fun LibrarySearchAndFilters(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        if (shownCount > 0 && (activeFilter != LibraryFilter.ALL || searchQuery.isNotBlank())) {
+            TextButton(onClick = onShowAll) { Text("Показать все партии") }
+        }
     }
 }
 
 @Composable
-private fun NoMatchingGamesCard(onResetFilters: () -> Unit) {
+private fun NoMatchingGamesCard(query: String, filter: LibraryFilter, onShowAll: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
@@ -458,19 +477,22 @@ private fun NoMatchingGamesCard(onResetFilters: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Ничего не найдено",
+                text = "Совпадений нет",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Попробуйте изменить запрос или сбросить фильтр",
+                text = buildList {
+                    if (query.isNotEmpty()) add("Запрос: «$query»")
+                    if (filter != LibraryFilter.ALL) add("Фильтр: ${filter.label}")
+                }.joinToString("\n"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(10.dp))
-            TextButton(onClick = onResetFilters) {
-                Text("Сбросить фильтры")
+            OutlinedButton(onClick = onShowAll) {
+                Text("Показать все партии")
             }
         }
     }
@@ -481,7 +503,7 @@ private fun GamesListMessage(
     message: String,
     onDismiss: () -> Unit
 ) {
-    val isError = message.startsWith("❌")
+    val isError = message.startsWith("Ошибка")
     Card(
         colors = CardDefaults.cardColors(
             containerColor = if (isError) MaterialTheme.colorScheme.errorContainer
@@ -503,7 +525,7 @@ private fun GamesListMessage(
                 else MaterialTheme.colorScheme.onTertiaryContainer
             )
             TextButton(onClick = onDismiss) {
-                Text("✕")
+                Icon(Icons.Default.Clear, contentDescription = "Закрыть сообщение")
             }
         }
     }
@@ -518,7 +540,7 @@ private fun EmptyGamesPlaceholder(onImportClick: () -> Unit) {
                 .padding(32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("📭", fontSize = 48.sp)
+            Icon(Icons.Default.Inbox, null, modifier = Modifier.size(48.dp))
             Spacer(modifier = Modifier.height(14.dp))
             Text(
                 text = "Партий пока нет",
@@ -544,16 +566,17 @@ private fun EmptyGamesPlaceholder(onImportClick: () -> Unit) {
 @Composable
 fun GameCard(
     game: Game,
-    info: PgnParser.GameCardInfo = remember(game.id, game.pgnData, game.playerColor, game.timeControl) {
+    info: PgnParser.GameCardInfo = remember(game.id, game.pgnData, game.playerColor, game.timeControl, game.playedAt) {
         PgnParser.extractGameCardInfo(game)
     },
     @Suppress("unused") mistakes: List<Mistake> = emptyList(),
     isBusy: Boolean = false,
     onClick: () -> Unit,
-    onAnalyze: () -> Unit = {},
+    onAnalyze: (Long, Boolean) -> Unit = { _, _ -> },
     onDelete: () -> Unit
 ) {
-    var showDeleteDialog by remember { mutableStateOf(false) }
+    val id = game.id
+    var showDeleteDialog by remember(id) { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -600,10 +623,11 @@ fun GameCard(
 
                         // Контроль · ходы · дата · часы · платформа
                         val subtitle = buildList {
+                            id?.let { add("№$it") }
                             add(info.timeControlLabel)
                             if (info.fullMoveCount > 0) add("${info.fullMoveCount} х.")
                             if (info.dateLabel.isNotBlank()) add(info.dateLabel)
-                            if (info.hasClockData) add("🕒")
+                            if (info.hasClockData) add("С часами")
                             if (info.platform != PgnParser.GamePlatform.OTHER) {
                                 add(info.platform.displayName)
                             }
@@ -631,13 +655,13 @@ fun GameCard(
                         StatusChip(status = game.analysisStatus)
                     }
 
-                    IconButton(
+                    if (id != null) IconButton(
                         onClick = { showDeleteDialog = true },
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Delete,
-                            contentDescription = "Удалить",
+                            contentDescription = "Удалить партию №$id",
                             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
                             modifier = Modifier.size(18.dp)
                         )
@@ -649,7 +673,7 @@ fun GameCard(
             if (!info.openingLabel.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "📖 ${info.openingLabel}",
+                    text = "Дебют: ${info.openingLabel}",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -664,13 +688,12 @@ fun GameCard(
             // Нижний блок: метрики анализа либо кнопка запуска анализа в 1 нажатие
             when (game.analysisStatus) {
                 AnalysisStatus.COMPLETED -> {
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         AccuracyBadge(
-                            accuracy = game.accuracy ?: 0.0,
+                            accuracy = game.accuracy,
                             acpl = game.averageEvaluationLoss
                         )
 
@@ -698,10 +721,9 @@ fun GameCard(
                 }
 
                 AnalysisStatus.PENDING -> {
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
                             text = "Ещё не проанализирована",
@@ -709,10 +731,10 @@ fun GameCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         FilledTonalButton(
-                            onClick = onAnalyze,
-                            enabled = !isBusy,
+                            onClick = { id?.let { onAnalyze(it, false) } },
+                            enabled = !isBusy && id != null,
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.height(34.dp)
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Analytics,
@@ -720,7 +742,7 @@ fun GameCard(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Анализировать", style = MaterialTheme.typography.labelMedium)
+                            Text("Разобрать партию", style = MaterialTheme.typography.labelMedium)
                         }
                     }
                 }
@@ -738,10 +760,9 @@ fun GameCard(
                 }
 
                 AnalysisStatus.FAILED -> {
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
                             text = "Анализ не завершился",
@@ -749,10 +770,10 @@ fun GameCard(
                             color = MaterialTheme.colorScheme.error
                         )
                         OutlinedButton(
-                            onClick = onAnalyze,
-                            enabled = !isBusy,
+                            onClick = { id?.let { onAnalyze(it, true) } },
+                            enabled = !isBusy && id != null,
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.height(34.dp)
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
@@ -760,7 +781,7 @@ fun GameCard(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Повторить", style = MaterialTheme.typography.labelMedium)
+                            Text("Повторить анализ", style = MaterialTheme.typography.labelMedium)
                         }
                     }
                 }
@@ -768,12 +789,20 @@ fun GameCard(
         }
     }
 
-    if (showDeleteDialog) {
+    if (showDeleteDialog && id != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Удалить партию?") },
+            title = { Text("Удалить партию №$id?") },
             text = {
-                Text("Партия «${info.title}» и результаты её анализа будут удалены без возможности восстановления.")
+                Column(
+                    Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(info.title, style = MaterialTheme.typography.titleMedium)
+                    Text(listOf(info.dateLabel, info.timeControlLabel, info.outcome.displayName)
+                        .filter { it.isNotBlank() }.joinToString(" · "))
+                    Text("Будут удалены партия и её разбор, а также связанные с ней задачи и попытки их решения. Отменить удаление нельзя.")
+                }
             },
             confirmButton = {
                 TextButton(
@@ -823,8 +852,8 @@ private fun OutcomeChip(outcome: PgnParser.PlayerOutcome) {
 @Composable
 fun StatusChip(status: AnalysisStatus) {
     val (color, text) = when (status) {
-        AnalysisStatus.COMPLETED -> Color(0xFF4CAF50) to "✓ Готово"
-        AnalysisStatus.IN_PROGRESS -> Color(0xFFFFA726) to "⏳ Анализ"
+        AnalysisStatus.COMPLETED -> Color(0xFF4CAF50) to "Готово"
+        AnalysisStatus.IN_PROGRESS -> Color(0xFFFFA726) to "Анализ"
         AnalysisStatus.PENDING -> Color(0xFF9E9E9E) to "В очереди"
         AnalysisStatus.FAILED -> Color(0xFFE53935) to "Ошибка"
     }
@@ -846,21 +875,25 @@ fun StatusChip(status: AnalysisStatus) {
 
 @Composable
 fun AccuracyBadge(
-    accuracy: Double,
+    accuracy: Double?,
     acpl: Int? = null
 ) {
     Column(horizontalAlignment = Alignment.Start) {
-        Text(
-            text = String.format(Locale.US, "%.1f%%", accuracy),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = accuracyColor(accuracy)
-        )
-        Text(
-            text = if (acpl != null) "Точность · $acpl сП" else "Точность",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        if (accuracy != null) {
+            Text(
+                text = "Точность: ${formatGameAccuracy(accuracy)}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = accuracyColor(accuracy)
+            )
+        } else {
+            Text(MISSING_ACCURACY, style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (acpl != null) {
+            Text("Ср. потеря: $acpl сП", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

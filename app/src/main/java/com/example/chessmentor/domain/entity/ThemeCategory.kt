@@ -24,18 +24,6 @@ enum class ThemeCategory {
     }
 
     /**
-     * Иконка для отображения
-     */
-    fun getIcon(): String = when (this) {
-        TACTICS -> "⚔️"
-        STRATEGY -> "🧠"
-        OPENING -> "🎯"
-        ENDGAME -> "🏁"
-        CALCULATION -> "🔢"
-        KING_SAFETY -> "🛡️"
-    }
-
-    /**
      * Описание категории
      */
     fun getDescription(): String = when (this) {

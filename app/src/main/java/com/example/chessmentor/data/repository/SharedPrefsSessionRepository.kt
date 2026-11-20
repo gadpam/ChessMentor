@@ -89,4 +89,8 @@ class SharedPrefsSessionRepository(context: Context) : SessionRepository {
             if (cleaned.isEmpty()) remove(key) else putString(key, cleaned)
         }.apply()
     }
+    override fun getChessComSource(userId: Long): String? = prefs.getString("chesscom_source_$userId", null)
+    override fun setChessComSource(userId: Long, name: String?) {
+        prefs.edit().putString("chesscom_source_$userId", name).apply()
+    }
 }

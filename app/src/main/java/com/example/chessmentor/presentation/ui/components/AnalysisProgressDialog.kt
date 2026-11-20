@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,7 +28,8 @@ import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 fun AnalysisProgressDialog(
     progress: AnalyzeGameUseCase.AnalysisProgress?,
     onDismiss: () -> Unit,
-    onCancel: (() -> Unit)? = null
+    onCancel: (() -> Unit)? = null,
+    gameId: Long? = null
 ) {
     if (progress == null || progress is AnalyzeGameUseCase.AnalysisProgress.Completed) {
         return
@@ -51,13 +55,17 @@ fun AnalysisProgressDialog(
                 modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                if (gameId != null) {
+                    Text("Партия №$gameId", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(8.dp))
+                }
                 when (progress) {
                     is AnalyzeGameUseCase.AnalysisProgress.Starting -> {
                         StartingContent()
                         if (onCancel != null) {
                             Spacer(modifier = Modifier.height(16.dp))
                             TextButton(onClick = onCancel) {
-                                Text("Отменить")
+                                Text("Отменить анализ")
                             }
                         }
                     }
@@ -89,11 +97,8 @@ fun AnalysisProgressDialog(
 
 @Composable
 private fun StartingContent() {
-    Text(
-        text = "🏁",
-        fontSize = 48.sp,
-        modifier = Modifier.padding(bottom = 16.dp)
-    )
+    Icon(Icons.Default.Flag, contentDescription = null,
+        modifier = Modifier.padding(bottom = 16.dp).size(48.dp))
 
     Text(
         text = "Запуск анализа",
@@ -217,11 +222,8 @@ private fun FailedContent(
     error: String,
     onDismiss: () -> Unit
 ) {
-    Text(
-        text = "❌",
-        fontSize = 48.sp,
-        modifier = Modifier.padding(bottom = 16.dp)
-    )
+    Icon(Icons.Default.ErrorOutline, contentDescription = null,
+        modifier = Modifier.padding(bottom = 16.dp).size(48.dp))
 
     Text(
         text = "Ошибка анализа",

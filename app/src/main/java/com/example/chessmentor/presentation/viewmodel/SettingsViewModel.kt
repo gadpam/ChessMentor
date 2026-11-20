@@ -98,11 +98,11 @@ class SettingsViewModel(
         val nickname = tempNickname.value.trim()
 
         if (nickname.length < 3) {
-            message.value = "❌ Никнейм должен содержать не менее 3 символов"
+            message.value = "Ошибка: Никнейм должен содержать не менее 3 символов"
             return
         }
         if (nickname.length > 50) {
-            message.value = "❌ Никнейм должен содержать не более 50 символов"
+            message.value = "Ошибка: Никнейм должен содержать не более 50 символов"
             return
         }
 
@@ -111,7 +111,7 @@ class SettingsViewModel(
                 if (!nickname.equals(user.nickname, ignoreCase = true)) {
                     val existing = container.userRepository.findByNickname(nickname)
                     if (existing != null && existing.id != user.id) {
-                        message.value = "❌ Этот никнейм уже занят"
+                        message.value = "Ошибка: Этот никнейм уже занят"
                         return@launch
                     }
                 }
@@ -126,12 +126,12 @@ class SettingsViewModel(
 
                 tempNickname.value = nickname
                 currentUser.value = updatedUser
-                message.value = "✅ Настройки профиля сохранены"
+                message.value = "Настройки профиля сохранены"
                 onUserUpdated(updatedUser)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                message.value = "❌ Ошибка сохранения: ${e.message}"
+                message.value = "Ошибка сохранения: ${e.message}"
             }
         }
     }
@@ -158,18 +158,18 @@ class SettingsViewModel(
                     is ChangePasswordUseCase.Result.Success -> {
                         currentUser.value = res.user
                         clearPasswordFields()
-                        message.value = "✅ Пароль успешно обновлён"
+                        message.value = "Пароль успешно обновлён"
                         onUserUpdated(res.user)
                         onSuccess()
                     }
                     is ChangePasswordUseCase.Result.Error -> {
-                        message.value = "❌ ${res.message}"
+                        message.value = "Ошибка: ${res.message}"
                     }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                message.value = "❌ Ошибка смены пароля: ${e.message}"
+                message.value = "Ошибка смены пароля: ${e.message}"
             } finally {
                 isSavingPassword.value = false
             }
@@ -192,14 +192,14 @@ class SettingsViewModel(
                     )
                 }
                 if (archive.gamesCount == 0) {
-                    message.value = "❌ В библиотеке пока нет партий для экспорта"
+                    message.value = "Ошибка: В библиотеке пока нет партий для экспорта"
                 } else {
                     onReady(archive)
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                message.value = "❌ Не удалось подготовить архив: ${e.message}"
+                message.value = "Ошибка: Не удалось подготовить архив: ${e.message}"
             } finally {
                 isExporting.value = false
             }
@@ -221,13 +221,13 @@ class SettingsViewModel(
                 when (res) {
                     is ExportUserBackupUseCase.Result.Success -> onReady(res.backup)
                     is ExportUserBackupUseCase.Result.Error -> {
-                        message.value = "❌ ${res.message}"
+                        message.value = "Ошибка: ${res.message}"
                     }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                message.value = "❌ Ошибка создания копии: ${e.message}"
+                message.value = "Ошибка создания копии: ${e.message}"
             } finally {
                 isExporting.value = false
             }
@@ -262,10 +262,10 @@ class SettingsViewModel(
                         onDataRestored()
 
                         message.value = if (s.totalChanges == 0) {
-                            "✅ Копия проверена: все данные уже присутствуют на устройстве (без дублей)"
+                            "Копия проверена: все данные уже присутствуют на устройстве (без дублей)"
                         } else {
                             buildString {
-                                append("✅ Восстановлено: ")
+                                append("Восстановлено: ")
                                 val parts = buildList {
                                     if (s.gamesImported > 0) add("партий ${s.gamesImported}")
                                     if (s.gamesAnalysisUpgraded > 0) add("разборов ${s.gamesAnalysisUpgraded}")
@@ -277,13 +277,13 @@ class SettingsViewModel(
                         }
                     }
                     is ImportUserBackupUseCase.Result.Error -> {
-                        message.value = "❌ ${res.message}"
+                        message.value = "Ошибка: ${res.message}"
                     }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                message.value = "❌ Ошибка восстановления: ${e.message}"
+                message.value = "Ошибка восстановления: ${e.message}"
             } finally {
                 isImportingBackup.value = false
             }

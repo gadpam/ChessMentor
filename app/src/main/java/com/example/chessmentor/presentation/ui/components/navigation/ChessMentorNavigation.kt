@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -123,14 +124,14 @@ fun ChessMentorApp(
 
     Scaffold(
         topBar = {
-            ChessMentorTopBar(
+            if (currentScreen != "training") ChessMentorTopBar(
                 currentScreen = currentScreen,
                 currentUser = currentUser,
                 onNavigateBack = handleNavigateBack
             )
         },
         bottomBar = {
-            if (currentUser != null && currentScreen !in setOf("game_view", "engine_settings")) {
+            if (currentUser != null && currentScreen !in setOf("training", "game_view", "engine_settings")) {
                 ChessMentorBottomBar(
                     currentScreen = currentScreen,
                     onNavigate = { target ->
@@ -199,6 +200,7 @@ fun ChessMentorApp(
                 currentScreen = "training"
                 Log.d(TAG, "Open game mistake training: game=$gameId move=$focusMoveNumber from=$fromScreen")
             },
+            onLeaveTraining = handleNavigateBack,
             onReturnToGameFromTraining = if (
                 trainingReturnScreen != null && gameViewModel.selectedGame.value != null
             ) {
@@ -266,6 +268,25 @@ fun ChessMentorApp(
             onRegRatingChange = { regRating = it },
             onLoginEmailChange = { loginEmail = it },
             onLoginPasswordChange = { loginPassword = it },
+            onOpenTester = if (com.example.chessmentor.BuildConfig.DEBUG) ({
+                if (!isLoading) {
+                    isLoading = true
+                    coroutineScope.launch {
+                        try {
+                            container.testerProfiles.open(onlyIfEmpty = false)?.let { gameViewModel.setUser(it) }
+                            regPassword = ""
+                            loginPassword = ""
+                            message = ""
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            message = "Не удалось открыть тестовый профиль"
+                        } finally {
+                            isLoading = false
+                        }
+                    }
+                }
+            }) else null,
             onRegister = { nick, email, pass, rating ->
                 coroutineScope.launch {
                     isLoading = true
@@ -279,13 +300,13 @@ fun ChessMentorApp(
                                 gameViewModel.setUser(result.user)
                             }
                             is RegisterUserUseCase.Result.Error -> {
-                                message = "❌ ${result.message}"
+                                message = "Ошибка: ${result.message}"
                             }
                         }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        message = "❌ Ошибка: ${e.message}"
+                        message = "Ошибка: ${e.message}"
                     } finally {
                         isLoading = false
                     }
@@ -304,13 +325,13 @@ fun ChessMentorApp(
                                 gameViewModel.setUser(result.user)
                             }
                             is LoginUserUseCase.Result.Error -> {
-                                message = "❌ ${result.message}"
+                                message = "Ошибка: ${result.message}"
                             }
                         }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        message = "❌ Ошибка: ${e.message}"
+                        message = "Ошибка: ${e.message}"
                     } finally {
                         isLoading = false
                     }
@@ -447,6 +468,7 @@ private fun NavigationHost(
     onCloseEngineSettings: () -> Unit,
     onOpenTrainingWithMode: (TrainingMode) -> Unit,
     onOpenGameMistakeTraining: (fromScreen: String, gameId: Long, focusMoveNumber: Int?) -> Unit,
+    onLeaveTraining: () -> Unit,
     onReturnToGameFromTraining: (() -> Unit)?,
     onTrainingModeConsumed: () -> Unit,
     onOpenGamesWithFilter: (query: String, color: ChessColor?) -> Unit,
@@ -461,6 +483,7 @@ private fun NavigationHost(
     onRegRatingChange: (String) -> Unit,
     onLoginEmailChange: (String) -> Unit,
     onLoginPasswordChange: (String) -> Unit,
+    onOpenTester: (() -> Unit)?,
     onRegister: (String, String, String, Int) -> Unit,
     onLogin: (String, String) -> Unit
 ) {
@@ -468,6 +491,13 @@ private fun NavigationHost(
         SessionRestoringView(paddingValues = paddingValues)
         return
     }
+
+    // Keep the summary's lazy-list and filter only for the current review route.
+    val reviewGameId = when (currentScreen) {
+        "summary", "game_view", "training" -> gameViewModel.selectedGame.value?.id
+        else -> null
+    }
+    val summaryState = key(reviewGameId) { rememberSaveableStateHolder() }
 
     when (currentScreen) {
         "home" -> HomeScreen(
@@ -488,6 +518,7 @@ private fun NavigationHost(
             isLoading = isLoading,
             onMessageDismiss = onMessageDismiss,
             onLogout = onLogout,
+            onOpenTester = onOpenTester,
             onRegister = onRegister,
             onLogin = onLogin,
             regNickname = regNickname,
@@ -562,23 +593,25 @@ private fun NavigationHost(
                     )
                 }
 
-                val keyMoments = remember(game.id, game.analyzedAt, boardViewModel.analyzedMoves.size) {
-                    boardViewModel.getKeyMoments()
+                val keyMoments by remember(game.id, game.playerColor) {
+                    derivedStateOf { boardViewModel.getKeyMoments() }
                 }
 
-                SummaryScreen(
-                    paddingValues = paddingValues,
-                    game = game,
-                    keyMoments = keyMoments,
-                    boardViewModel = boardViewModel,
-                    gameViewModel = gameViewModel,
-                    onReviewClick = {
-                        onScreenChange("game_view")
-                    },
-                    onPracticeGameMistakes = { gameId, focusMove ->
-                        onOpenGameMistakeTraining("summary", gameId, focusMove)
-                    }
-                )
+                summaryState.SaveableStateProvider("summary") {
+                    SummaryScreen(
+                        paddingValues = paddingValues,
+                        game = game,
+                        keyMoments = keyMoments,
+                        boardViewModel = boardViewModel,
+                        gameViewModel = gameViewModel,
+                        onReviewClick = {
+                            onScreenChange("game_view")
+                        },
+                        onPracticeGameMistakes = { gameId, focusMove ->
+                            onOpenGameMistakeTraining("summary", gameId, focusMove)
+                        }
+                    )
+                }
             } else {
                 LaunchedEffect(Unit) {
                     Log.w(TAG, "SummaryScreen: No game selected")
@@ -613,6 +646,7 @@ private fun NavigationHost(
                     initialSoundEnabled = user.isSoundEnabled,
                     initialModeKey = pendingTrainingModeKey,
                     onModeConsumed = onTrainingModeConsumed,
+                    onLeaveTraining = onLeaveTraining,
                     onNavigateToUpload = { onScreenChange("upload") },
                     onReturnToGame = onReturnToGameFromTraining,
                     onUserUpdated = onUserUpdated

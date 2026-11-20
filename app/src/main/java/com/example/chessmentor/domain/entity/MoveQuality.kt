@@ -30,19 +30,6 @@ enum class MoveQuality {
         MISSED_WIN -> "Упущенная победа"
     }
 
-    fun getEmoji(): String = when (this) {
-        BRILLIANT -> "💎"
-        GREAT_MOVE -> "👍"
-        BEST_MOVE -> "⭐"
-        EXCELLENT -> "✅"
-        GOOD -> "✓"
-        BOOK -> "📖"
-        INACCURACY -> "⚡"
-        MISTAKE -> "⚠️"
-        BLUNDER -> "❌"
-        MISSED_WIN -> "💔"
-    }
-
     fun getIcon(): ImageVector = when (this) {
         BRILLIANT -> Icons.Default.Diamond
         GREAT_MOVE -> Icons.Default.ThumbUp
