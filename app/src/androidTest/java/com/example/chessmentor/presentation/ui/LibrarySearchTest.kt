@@ -1,6 +1,10 @@
 package com.example.chessmentor.presentation.ui
 
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.unit.dp
+import androidx.test.espresso.Espresso.pressBack
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -10,6 +14,7 @@ import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.presentation.ui.components.screen.GameCard
 import com.example.chessmentor.presentation.ui.components.screen.GamesListScreen
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import org.junit.Assert.assertEquals
@@ -62,6 +67,52 @@ class LibrarySearchTest {
         visibleText("Показано: 1 из 3 · Сначала новые").assertIsDisplayed()
         visibleText("Показать все партии").performClick()
         ui.onNodeWithText("Все").assertIsSelected()
+    }
+
+    private val duplicateGames = listOf(14L, 15L).map { id ->
+        Game(id = id, userId = 1, playedAt = 1, playerColor = ChessColor.WHITE,
+            pgnData = "[Black \"Rival\"]\n[Result \"1-0\"]\n\n1. e4 e5 1-0")
+    }
+
+    private fun openDeleteFor(id: Long) {
+        val description = "Удалить партию №$id"
+        ui.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollToIndex))
+            .performScrollToNode(hasContentDescription(description))
+        ui.onNodeWithContentDescription(description).assertHeightIsAtLeast(48.dp).performClick()
+        ui.onNodeWithText("Удалить партию №$id?").assertIsDisplayed()
+    }
+
+    @Test fun dismissDeleteRetainsQueryFilterAndBothGames() {
+        show(duplicateGames)
+        ui.onNode(hasSetTextAction()).performTextInput("Rival")
+        ui.onNodeWithText("Победы").performScrollTo().performClick()
+        openDeleteFor(15)
+        ui.onNodeWithText("Отмена").performClick()
+        ui.onNodeWithText("Удалить партию №15?").assertDoesNotExist()
+        openDeleteFor(14)
+        pressBack()
+        ui.onNodeWithText("Удалить партию №14?").assertDoesNotExist()
+        visibleText("Показано: 2 из 2 · Сначала новые").assertIsDisplayed()
+        ui.onNodeWithText("Победы").assertIsSelected()
+        ui.onNode(hasSetTextAction()).assert(hasText("Rival"))
+        ui.runOnIdle { assertEquals(duplicateGames, model.userGames.toList()) }
+    }
+
+    @Test fun confirmTargetsOnlyTheTappedRecordWithTheSameOpponent() {
+        val deleted = mutableListOf<Long?>()
+        ui.setContent {
+            LazyColumn {
+                items(duplicateGames, key = { it.id!! }) { game ->
+                    GameCard(game, onClick = { error("Открылась партия вместо подтверждения") },
+                        onDelete = { deleted.add(game.id) })
+                }
+            }
+        }
+        openDeleteFor(15)
+        ui.runOnIdle { assertEquals(emptyList<Long?>(), deleted) }
+        ui.onNodeWithText("Удалить").performClick()
+        ui.runOnIdle { assertEquals(listOf(15L), deleted) }
+        ui.onNodeWithText("Удалить партию №15?").assertDoesNotExist()
     }
 
     @Test fun emptyLibraryOffersImportInsteadOfReset() {

@@ -4,6 +4,7 @@ package com.example.chessmentor.presentation.ui.components.screen
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -137,12 +138,12 @@ fun GamesListScreen(
         }
     }
 
-    // Кэшируем разбор метаданных карточек по (id, hash(pgn), color, timeControl) — O(1) при прокрутке и поиске
+    // Кэшируем разбор метаданных карточек по (id, hash(pgn), color, timeControl, playedAt) — O(1) при прокрутке и поиске
     val infoCache = remember { mutableMapOf<String, PgnParser.GameCardInfo>() }
     val indexedGames = remember(games) {
         val activeKeys = HashSet<String>(games.size)
         val list = games.map { g ->
-            val key = "${g.id}_${g.pgnData.hashCode()}_${g.playerColor}_${g.timeControl}"
+            val key = "${g.id}_${g.pgnData.hashCode()}_${g.playerColor}_${g.timeControl}_${g.playedAt}"
             activeKeys.add(key)
             val info = infoCache.getOrPut(key) { PgnParser.extractGameCardInfo(g) }
             IndexedGame(g, info)
@@ -563,7 +564,7 @@ private fun EmptyGamesPlaceholder(onImportClick: () -> Unit) {
 @Composable
 fun GameCard(
     game: Game,
-    info: PgnParser.GameCardInfo = remember(game.id, game.pgnData, game.playerColor, game.timeControl) {
+    info: PgnParser.GameCardInfo = remember(game.id, game.pgnData, game.playerColor, game.timeControl, game.playedAt) {
         PgnParser.extractGameCardInfo(game)
     },
     @Suppress("unused") mistakes: List<Mistake> = emptyList(),
@@ -572,7 +573,8 @@ fun GameCard(
     onAnalyze: () -> Unit = {},
     onDelete: () -> Unit
 ) {
-    var showDeleteDialog by remember { mutableStateOf(false) }
+    val id = game.id
+    var showDeleteDialog by remember(id) { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -619,6 +621,7 @@ fun GameCard(
 
                         // Контроль · ходы · дата · часы · платформа
                         val subtitle = buildList {
+                            id?.let { add("№$it") }
                             add(info.timeControlLabel)
                             if (info.fullMoveCount > 0) add("${info.fullMoveCount} х.")
                             if (info.dateLabel.isNotBlank()) add(info.dateLabel)
@@ -650,13 +653,13 @@ fun GameCard(
                         StatusChip(status = game.analysisStatus)
                     }
 
-                    IconButton(
+                    if (id != null) IconButton(
                         onClick = { showDeleteDialog = true },
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Delete,
-                            contentDescription = "Удалить",
+                            contentDescription = "Удалить партию №$id",
                             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
                             modifier = Modifier.size(18.dp)
                         )
@@ -786,12 +789,20 @@ fun GameCard(
         }
     }
 
-    if (showDeleteDialog) {
+    if (showDeleteDialog && id != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Удалить партию?") },
+            title = { Text("Удалить партию №$id?") },
             text = {
-                Text("Партия «${info.title}» и результаты её анализа будут удалены без возможности восстановления.")
+                Column(
+                    Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(info.title, style = MaterialTheme.typography.titleMedium)
+                    Text(listOf(info.dateLabel, info.timeControlLabel, info.outcome.displayName)
+                        .filter { it.isNotBlank() }.joinToString(" · "))
+                    Text("Будут удалены партия и её разбор, а также связанные с ней задачи и попытки их решения. Отменить удаление нельзя.")
+                }
             },
             confirmButton = {
                 TextButton(
