@@ -1,292 +1,84 @@
-// presentation/ui/components/AnalysisProgressDialog.kt
 package com.example.chessmentor.presentation.ui.components
 
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Flag
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate  // Добавлен импорт
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
+import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase.AnalysisProgress
 
 @Composable
 fun AnalysisProgressDialog(
-    progress: AnalyzeGameUseCase.AnalysisProgress?,
+    progress: AnalysisProgress?,
     onDismiss: () -> Unit,
     onCancel: (() -> Unit)? = null,
     gameId: Long? = null
 ) {
-    if (progress == null || progress is AnalyzeGameUseCase.AnalysisProgress.Completed) {
-        return
-    }
-
-    Dialog(
-        onDismissRequest = { /* Нельзя случайно закрыть тапом мимо окна */ },
-        properties = DialogProperties(
-            dismissOnBackPress = false,
-            dismissOnClickOutside = false
-        )
-    ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            )
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                if (gameId != null) {
-                    Text("Партия №$gameId", style = MaterialTheme.typography.labelLarge)
-                    Spacer(Modifier.height(8.dp))
-                }
+    if (progress == null || progress is AnalysisProgress.Completed) return
+    val colors = MaterialTheme.colorScheme
+    AlertDialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+        containerColor = colors.surface,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (gameId != null) Text("Партия №$gameId", style = MaterialTheme.typography.labelLarge,
+                    color = colors.onSurfaceVariant)
+                Text(when (progress) {
+                    is AnalysisProgress.Starting -> "Запуск анализа"
+                    is AnalysisProgress.Failed -> "Ошибка анализа"
+                    else -> "Анализ партии"
+                }, style = MaterialTheme.typography.headlineSmall)
+            }
+        },
+        text = {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 when (progress) {
-                    is AnalyzeGameUseCase.AnalysisProgress.Starting -> {
-                        StartingContent()
-                        if (onCancel != null) {
-                            Spacer(modifier = Modifier.height(16.dp))
-                            TextButton(onClick = onCancel) {
-                                Text("Отменить анализ")
-                            }
-                        }
-                    }
-                    is AnalyzeGameUseCase.AnalysisProgress.InProgress -> {
-                        InProgressContent(
-                            current = progress.currentMove,
-                            total = progress.totalMoves,
-                            moveNotation = progress.currentMoveNotation
-                        )
-                        if (onCancel != null) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            TextButton(onClick = onCancel) {
-                                Text("Отменить анализ")
-                            }
-                        }
-                    }
-                    is AnalyzeGameUseCase.AnalysisProgress.Failed -> {
-                        FailedContent(
-                            error = progress.error,
-                            onDismiss = onDismiss
-                        )
-                    }
-                    else -> { /* Completed обрабатывается выше */ }
+                    is AnalysisProgress.Starting -> StartingContent()
+                    is AnalysisProgress.InProgress -> InProgressContent(progress.currentMove, progress.totalMoves,
+                        progress.currentMoveNotation)
+                    is AnalysisProgress.Failed -> FailedContent(progress.error)
+                    else -> Unit
                 }
             }
+        },
+        confirmButton = {
+            if (progress is AnalysisProgress.Failed) {
+                Button(onClick = onDismiss) { Text("Закрыть") }
+            } else if (onCancel != null) {
+                TextButton(onClick = onCancel) { Text("Отменить анализ") }
+            }
         }
-    }
+    )
 }
 
 @Composable
 private fun StartingContent() {
-    Icon(Icons.Default.Flag, contentDescription = null,
-        modifier = Modifier.padding(bottom = 16.dp).size(48.dp))
-
-    Text(
-        text = "Запуск анализа",
-        style = MaterialTheme.typography.headlineSmall,
-        fontWeight = FontWeight.Bold
-    )
-
-    Spacer(modifier = Modifier.height(16.dp))
-
-    CircularProgressIndicator(
-        modifier = Modifier.size(48.dp),
-        color = MaterialTheme.colorScheme.primary
-    )
-
-    Spacer(modifier = Modifier.height(16.dp))
-
-    Text(
-        text = "Инициализация движка...",
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+    Text("Инициализация движка…", style = MaterialTheme.typography.bodyLarge)
+    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
 }
 
 @Composable
-private fun InProgressContent(
-    current: Int,
-    total: Int,
-    moveNotation: String
-) {
-    // Конвертируем полуходы в полные ходы для отображения
-    val currentFullMove = (current + 1) / 2
-    val totalFullMoves = (total + 1) / 2
-
-    val progress = if (total > 0) current.toFloat() / total else 0f
-    val percentage = (progress * 100).toInt()
-
-    // Анимированная иконка
-    val infiniteTransition = rememberInfiniteTransition(label = "chess")
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rotation"
-    )
-
-    Text(
-        text = "♔",
-        fontSize = 48.sp,
-        modifier = Modifier
-            .padding(bottom = 16.dp)
-            .rotate(rotation)
-    )
-
-    Text(
-        text = "Анализ партии",
-        style = MaterialTheme.typography.headlineSmall,
-        fontWeight = FontWeight.Bold
-    )
-
-    Spacer(modifier = Modifier.height(8.dp))
-
-    // Показываем полные ходы вместо полуходов
-    Text(
-        text = "Ход $currentFullMove из $totalFullMoves",
-        style = MaterialTheme.typography.bodyLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-
+private fun InProgressContent(current: Int, total: Int, moveNotation: String) {
+    val fraction = if (total > 0) (current.toFloat() / total).coerceIn(0f, 1f) else 0f
+    Text("Ход ${(current + 1) / 2} из ${(total + 1) / 2}", style = MaterialTheme.typography.bodyLarge)
     if (moveNotation.isNotEmpty()) {
-        Text(
-            text = moveNotation,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 4.dp)
-        )
+        Text(moveNotation, style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace)
     }
-
-    Spacer(modifier = Modifier.height(20.dp))
-
-    // Прогресс-бар (оставляем на основе полуходов для точности)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(8.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(4.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(progress)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(4.dp))
-                .background(MaterialTheme.colorScheme.primary)
-        )
-    }
-
-    Spacer(modifier = Modifier.height(8.dp))
-
-    Text(
-        text = "$percentage%",
-        style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.primary
-    )
-
-    Spacer(modifier = Modifier.height(16.dp))
-
-    LoadingDots()
+    LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+    Text("${(fraction * 100).toInt()}%", style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary)
 }
 
 @Composable
-private fun FailedContent(
-    error: String,
-    onDismiss: () -> Unit
-) {
-    Icon(Icons.Default.ErrorOutline, contentDescription = null,
-        modifier = Modifier.padding(bottom = 16.dp).size(48.dp))
-
-    Text(
-        text = "Ошибка анализа",
-        style = MaterialTheme.typography.headlineSmall,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.error
-    )
-
-    Spacer(modifier = Modifier.height(12.dp))
-
-    Text(
-        text = error,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        textAlign = TextAlign.Center
-    )
-
-    Spacer(modifier = Modifier.height(20.dp))
-
-    Button(
-        onClick = onDismiss,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.error
-        )
-    ) {
-        Text("Закрыть")
-    }
-}
-
-@Composable
-private fun LoadingDots() {
-    val infiniteTransition = rememberInfiniteTransition(label = "dots")
-
-    Row(
-        horizontalArrangement = Arrangement.Center,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        repeat(3) { index ->
-            val animationDelay = index * 100
-            val alpha by infiniteTransition.animateFloat(
-                initialValue = 0.3f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = keyframes {
-                        durationMillis = 1200
-                        0.3f at animationDelay with LinearEasing
-                        1f at animationDelay + 200 with LinearEasing
-                        0.3f at animationDelay + 400 with LinearEasing
-                    },
-                    repeatMode = RepeatMode.Restart
-                ),
-                label = "dot_$index"
-            )
-
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 4.dp)
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(
-                        MaterialTheme.colorScheme.primary.copy(alpha = alpha)
-                    )
-            )
-        }
+private fun FailedContent(error: String) {
+    Surface(color = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        shape = MaterialTheme.shapes.medium) {
+        Text(error, modifier = Modifier.fillMaxWidth().padding(12.dp), style = MaterialTheme.typography.bodyMedium)
     }
 }

@@ -1,6 +1,8 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
@@ -58,13 +60,15 @@ internal fun ChessComImportDialog(
             busy = false
         }
     }
-    AlertDialog(onDismissRequest = onClose, title = { Text("Партии с Chess.com") },
+    val colors = MaterialTheme.colorScheme
+    AlertDialog(onDismissRequest = onClose, containerColor = colors.surface,
+        title = { Text("Партии с Chess.com", style = MaterialTheme.typography.headlineSmall) },
         text = {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Публичный архив завершённых партий. Пароль не нужен. ChessMentor не связан с Chess.com.",
-                    style = MaterialTheme.typography.bodySmall)
+                    style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                 if (source == null) {
-                    OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Ник на Chess.com") }, singleLine = true)
+                    OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = name, onValueChange = { name = it }, label = { Text("Ник на Chess.com") }, singleLine = true)
                     Button(onClick = { source = name.trim() }, enabled = ChessComArchive.nickname.matches(name.trim())) {
                         Text("Загрузить архив")
                     }
@@ -77,7 +81,8 @@ internal fun ChessComImportDialog(
                 }
                 val month = period
                 if (month != null) {
-                    Text("Месяц: $month", style = MaterialTheme.typography.titleSmall)
+                    HorizontalDivider()
+                    Text("Месяц: $month", style = MaterialTheme.typography.titleMedium)
                     val index = months.indexOf(month)
                     Row {
                         TextButton(onClick = { period = months[index + 1] }, enabled = index >= 0 && index < months.lastIndex) { Text("Раньше") }
@@ -85,10 +90,18 @@ internal fun ChessComImportDialog(
                     }
                 }
                 when {
-                    busy -> Text("Загружаем публичный архив…")
-                    error != null -> {
-                        Text(error.orEmpty(), color = MaterialTheme.colorScheme.error)
-                        TextButton(onClick = { retry++ }) { Text("Повторить") }
+                    busy -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text("Загружаем публичный архив…", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    error != null -> Surface(shape = MaterialTheme.shapes.medium,
+                        color = colors.errorContainer, contentColor = colors.onErrorContainer) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                            Text("Архив не загружен", style = MaterialTheme.typography.titleMedium)
+                            Text(error.orEmpty(), style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onClick = { retry++ }, colors = ButtonDefaults.textButtonColors(
+                                contentColor = colors.onErrorContainer)) { Text("Повторить") }
+                        }
                     }
                     source == null -> Unit
                     month == null -> Text("В публичном архиве пока нет партий.")
@@ -97,15 +110,17 @@ internal fun ChessComImportDialog(
                         Text("До 10 последних партий за месяц. Выберите нужные. Новые партии могут появляться с задержкой.")
                         for (game in games) {
                             val checked = game.fingerprint in selected
-                            Row(Modifier.fillMaxWidth().toggleable(value = checked, enabled = !game.inLibrary,
+                            val fill = if (checked) colors.primaryContainer else colors.surfaceVariant
+                            val ink = if (checked) colors.onPrimaryContainer else colors.onSurfaceVariant
+                            Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(fill).toggleable(value = checked, enabled = !game.inLibrary,
                                 role = Role.Checkbox, onValueChange = { selected = if (it) selected + game.fingerprint else selected - game.fingerprint })
-                                .padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                .heightIn(min = 48.dp).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(checked, onCheckedChange = null, enabled = !game.inLibrary)
                                 Spacer(Modifier.width(8.dp))
                                 Column {
-                                    Text(game.opponent, style = MaterialTheme.typography.titleSmall)
-                                    Text("${dateFormat.format(Instant.ofEpochSecond(game.ended))} · ${game.side.getDisplayName()} · ${game.outcome}", style = MaterialTheme.typography.bodySmall)
-                                    if (game.inLibrary) Text("Уже в библиотеке", style = MaterialTheme.typography.labelMedium)
+                                    Text(game.opponent, style = MaterialTheme.typography.titleMedium, color = ink)
+                                    Text("${dateFormat.format(Instant.ofEpochSecond(game.ended))} · ${game.side.getDisplayName()} · ${game.outcome}", style = MaterialTheme.typography.bodySmall, color = ink)
+                                    if (game.inLibrary) Text("Уже в библиотеке", style = MaterialTheme.typography.labelMedium, color = ink)
                                 }
                             }
                             game.libraryId?.let { id ->

@@ -16,7 +16,7 @@ import androidx.core.view.WindowCompat
 import com.example.chessmentor.domain.session.AppThemeMode
 
 private val DarkColorScheme = darkColorScheme(
-    primary = PrimaryGreen,
+    primary = Color(0xFFAFDAB8),
     onPrimary = Color(0xFF14210A),
     primaryContainer = Color(0xFF34562B),
     onPrimaryContainer = Color(0xFFE3F5D3),
@@ -36,18 +36,18 @@ private val DarkColorScheme = darkColorScheme(
 
     surface = SurfaceDark,
     onSurface = TextPrimaryDark,
-    surfaceVariant = Color(0xFF3C3935),
+    surfaceVariant = Color(0xFF353D36),
     onSurfaceVariant = TextSecondaryDark,
     outline = Color(0xFF6B6660),
 
-    error = ErrorRed,
-    onError = Color.White,
+    error = Color(0xFFFFB4AA),
+    onError = Color(0xFF561D17),
     errorContainer = Color(0xFF561D17),
     onErrorContainer = Color(0xFFFFDAD5)
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF5D9233),
+    primary = Color(0xFF316446),
     onPrimary = Color.White,
     primaryContainer = Color(0xFFE4F2D5),
     onPrimaryContainer = Color(0xFF1D380E),
@@ -67,8 +67,8 @@ private val LightColorScheme = lightColorScheme(
 
     surface = SurfaceLight,
     onSurface = TextPrimaryLight,
-    surfaceVariant = Color(0xFFE6E6E3),
-    onSurfaceVariant = Color(0xFF575753),
+    surfaceVariant = Color(0xFFE7EBE3),
+    onSurfaceVariant = Color(0xFF48524A),
     outline = Color(0xFF8C8C87),
 
     error = Color(0xFFD32F2F),
@@ -104,6 +104,7 @@ fun ChessMentorTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
+        typography = MentorTypography,
         content = content
     )
 }

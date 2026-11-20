@@ -26,7 +26,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.ChessColor
@@ -461,16 +460,12 @@ internal fun PgnLivePreviewCard(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.CheckCircle,
                         contentDescription = null,
-                        tint = Color(0xFF4CAF50),
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -487,21 +482,21 @@ internal fun PgnLivePreviewCard(
                 }
 
                 if (meta.result != PgnParser.PgnResult.ONGOING) {
-                    val outcomeColor = when (outcome) {
-                        PgnParser.PlayerOutcome.WIN -> Color(0xFF2E7D32)
-                        PgnParser.PlayerOutcome.LOSS -> Color(0xFFC62828)
-                        PgnParser.PlayerOutcome.DRAW -> Color(0xFFEF6C00)
-                        PgnParser.PlayerOutcome.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant
+                    val colors = MaterialTheme.colorScheme
+                    val (fill, ink) = when (outcome) {
+                        PgnParser.PlayerOutcome.WIN -> colors.primaryContainer to colors.onPrimaryContainer
+                        PgnParser.PlayerOutcome.LOSS -> colors.errorContainer to colors.onErrorContainer
+                        else -> colors.secondaryContainer to colors.onSecondaryContainer
                     }
                     Surface(
-                        color = outcomeColor.copy(alpha = 0.14f),
+                        color = fill,
+                        contentColor = ink,
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
                             text = "${meta.result.displaySymbol()} · ${outcome.displayName}",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = outcomeColor,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
@@ -674,8 +669,7 @@ private fun UploadHeader() {
             Column {
                 Text(
                     text = "Импорт партий",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
+                    style = MaterialTheme.typography.titleLarge
                 )
                 Text(
                     text = "Буфер обмена, файл .pgn или пакет из Lichess / Chess.com",
@@ -1043,7 +1037,7 @@ internal fun UploadForm(
                 Text(
                     text = "Поддерживаются одиночные PGN и скачанные .pgn-архивы Lichess / Chess.com " +
                         "(до ${PgnParser.MAX_BATCH_GAMES} партий за раз) с рейтингами, дебютом, результатом и часами.",
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

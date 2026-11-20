@@ -9,11 +9,11 @@ val PrimaryGreen = Color(0xFF81B64C)
 val PrimaryGreenDark = Color(0xFF45753C)
 
 // Backgrounds
-val BackgroundLight = Color(0xFFF1F1F1) // Светло-серый (приятный для глаз)
+val BackgroundLight = Color(0xFFF6F6EF) // Тёплый светлый фон
 val SurfaceLight = Color(0xFFFFFFFF)    // Белый для карточек
 
-val BackgroundDark = Color(0xFF312E2B)  // Темно-серый (фирменный темный)
-val SurfaceDark = Color(0xFF262421)     // Чуть темнее фона
+val BackgroundDark = Color(0xFF181D19)  // Тёмный фон
+val SurfaceDark = Color(0xFF242B25)     // Приподнятая поверхность
 
 // Functional
 val ErrorRed = Color(0xFFFA412D)        // Blunder
@@ -26,4 +26,4 @@ val TextPrimaryLight = Color(0xFF212121)
 val TextSecondaryLight = Color(0xFF757575)
 
 val TextPrimaryDark = Color(0xFFEEEEEE)
-val TextSecondaryDark = Color(0xFFAAAAAA)
+val TextSecondaryDark = Color(0xFFC0C9BF)
