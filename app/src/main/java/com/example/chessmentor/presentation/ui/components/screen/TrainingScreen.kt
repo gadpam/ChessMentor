@@ -110,6 +110,7 @@ fun TrainingScreen(
     paddingValues: PaddingValues,
     container: AppContainer,
     userId: Long,
+    onLeaveTraining: () -> Unit,
     preferredTheme: String? = null,
     initialSoundEnabled: Boolean = true,
     initialModeKey: String? = null,
@@ -824,7 +825,6 @@ private fun EmptyTrainingState(
     showUploadButton: Boolean,
     showReturnToGameButton: Boolean = false,
     onReturnToGame: () -> Unit = {},
-    onLeaveTraining: () -> Unit,
     onNavigateToUpload: () -> Unit,
     onSwitchToAllMode: () -> Unit
 ) {
