@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.Modifier
@@ -89,22 +90,7 @@ fun GamesListScreen(
 
     val engineStatus by container.chessEngine.status.collectAsState()
     val analysisProgress by gameViewModel.analysisProgress.collectAsState(initial = null)
-    val currentOnAnalysisComplete by rememberUpdatedState(onAnalysisComplete)
-
-    // Если пользователь запустил анализ прямо из списка партий — открываем сводку по завершении
-    var triggeredAnalysisFromList by remember { mutableStateOf(false) }
-    LaunchedEffect(analysisProgress) {
-        val completed = analysisProgress as? AnalyzeGameUseCase.AnalysisProgress.Completed
-        if (completed != null && triggeredAnalysisFromList) {
-            triggeredAnalysisFromList = false
-            gameViewModel.clearAnalysisProgress()
-            if (completed.result is AnalyzeGameUseCase.Result.Success) {
-                currentOnAnalysisComplete()
-            }
-        } else if (analysisProgress is AnalyzeGameUseCase.AnalysisProgress.Failed) {
-            triggeredAnalysisFromList = false
-        }
-    }
+    var requestedGameId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     var searchQuery by remember { mutableStateOf(initialSearchQuery.orEmpty()) }
     var activeFilter by remember {
@@ -272,14 +258,9 @@ fun GamesListScreen(
                         mistakes = gameMistakes,
                         isBusy = isLoading,
                         onClick = { onGameClick(game) },
-                        onAnalyze = {
-                            val id = game.id
-                            if (id != null) {
-                                triggeredAnalysisFromList = true
-                                gameViewModel.analyzeGameWithProgress(
-                                    gameId = id,
-                                    forceReanalyze = game.analysisStatus == AnalysisStatus.FAILED
-                                )
+                        onAnalyze = { id, retry ->
+                            if (gameViewModel.analyzeGameWithProgress(id, forceReanalyze = retry)) {
+                                requestedGameId = id
                             }
                         },
                         onDelete = { game.id?.let { gameViewModel.deleteGame(it) } }
@@ -289,16 +270,37 @@ fun GamesListScreen(
         }
     }
 
-    AnalysisProgressDialog(
+    LibraryAnalysisFeedback(
+        requestedGameId = requestedGameId,
         progress = analysisProgress,
-        onDismiss = {
-            triggeredAnalysisFromList = false
-            gameViewModel.clearAnalysisProgress()
-        },
-        onCancel = {
-            triggeredAnalysisFromList = false
-            gameViewModel.cancelAnalysis()
+        forgetRequest = { requestedGameId = null },
+        onDismiss = gameViewModel::clearAnalysisProgress,
+        onCancel = gameViewModel::cancelAnalysis,
+        onOpenSummary = onAnalysisComplete
+    )
+}
+
+@Composable
+internal fun LibraryAnalysisFeedback(
+    requestedGameId: Long?,
+    progress: AnalyzeGameUseCase.AnalysisProgress?,
+    forgetRequest: () -> Unit,
+    onDismiss: () -> Unit,
+    onCancel: () -> Unit,
+    onOpenSummary: () -> Unit
+) {
+    LaunchedEffect(progress) {
+        if (progress is AnalyzeGameUseCase.AnalysisProgress.Completed && requestedGameId != null) {
+            val result = progress.result as? AnalyzeGameUseCase.Result.Success
+            forgetRequest()
+            onDismiss()
+            if (result?.game?.id == requestedGameId) onOpenSummary()
         }
+    }
+    AnalysisProgressDialog(
+        progress = progress, gameId = requestedGameId,
+        onDismiss = { forgetRequest(); onDismiss() },
+        onCancel = { forgetRequest(); onCancel() }
     )
 }
 
@@ -570,7 +572,7 @@ fun GameCard(
     @Suppress("unused") mistakes: List<Mistake> = emptyList(),
     isBusy: Boolean = false,
     onClick: () -> Unit,
-    onAnalyze: () -> Unit = {},
+    onAnalyze: (Long, Boolean) -> Unit = { _, _ -> },
     onDelete: () -> Unit
 ) {
     val id = game.id
@@ -719,10 +721,9 @@ fun GameCard(
                 }
 
                 AnalysisStatus.PENDING -> {
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
                             text = "Ещё не проанализирована",
@@ -730,10 +731,10 @@ fun GameCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         FilledTonalButton(
-                            onClick = onAnalyze,
-                            enabled = !isBusy,
+                            onClick = { id?.let { onAnalyze(it, false) } },
+                            enabled = !isBusy && id != null,
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.height(34.dp)
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Analytics,
@@ -741,7 +742,7 @@ fun GameCard(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Анализировать", style = MaterialTheme.typography.labelMedium)
+                            Text("Разобрать партию", style = MaterialTheme.typography.labelMedium)
                         }
                     }
                 }
@@ -759,10 +760,9 @@ fun GameCard(
                 }
 
                 AnalysisStatus.FAILED -> {
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
                             text = "Анализ не завершился",
@@ -770,10 +770,10 @@ fun GameCard(
                             color = MaterialTheme.colorScheme.error
                         )
                         OutlinedButton(
-                            onClick = onAnalyze,
-                            enabled = !isBusy,
+                            onClick = { id?.let { onAnalyze(it, true) } },
+                            enabled = !isBusy && id != null,
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.height(34.dp)
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
@@ -781,7 +781,7 @@ fun GameCard(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Повторить", style = MaterialTheme.typography.labelMedium)
+                            Text("Повторить анализ", style = MaterialTheme.typography.labelMedium)
                         }
                     }
                 }

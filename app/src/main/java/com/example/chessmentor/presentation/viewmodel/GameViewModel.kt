@@ -666,13 +666,14 @@ class GameViewModel(
     /**
      * Анализировать партию С ПРОГРЕССОМ
      */
-    fun analyzeGameWithProgress(gameId: Long, forceReanalyze: Boolean = false) {
-        if (analysisJob?.isActive == true) {
+    fun analyzeGameWithProgress(gameId: Long, forceReanalyze: Boolean = false): Boolean {
+        if (analysisJob?.isCompleted == false) {
             message.value = "Дождитесь завершения текущего анализа"
-            return
+            return false
         }
 
         isLoading.value = true
+        _analysisProgress.value = AnalyzeGameUseCase.AnalysisProgress.Starting
         activeAnalysisGameId = gameId
         analysisJob = viewModelScope.launch {
             try {
@@ -759,6 +760,7 @@ class GameViewModel(
                 }
             }
         }
+        return true
     }
 
     /**
@@ -767,7 +769,6 @@ class GameViewModel(
     fun cancelAnalysis() {
         container.chessEngine.stop()
         analysisJob?.cancel()
-        analysisJob = null
         activeAnalysisGameId = null
         isLoading.value = false
         _analysisProgress.value = null

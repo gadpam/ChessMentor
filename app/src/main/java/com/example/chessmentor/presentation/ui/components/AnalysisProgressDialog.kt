@@ -28,7 +28,8 @@ import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 fun AnalysisProgressDialog(
     progress: AnalyzeGameUseCase.AnalysisProgress?,
     onDismiss: () -> Unit,
-    onCancel: (() -> Unit)? = null
+    onCancel: (() -> Unit)? = null,
+    gameId: Long? = null
 ) {
     if (progress == null || progress is AnalyzeGameUseCase.AnalysisProgress.Completed) {
         return
@@ -54,13 +55,17 @@ fun AnalysisProgressDialog(
                 modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                if (gameId != null) {
+                    Text("Партия №$gameId", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(8.dp))
+                }
                 when (progress) {
                     is AnalyzeGameUseCase.AnalysisProgress.Starting -> {
                         StartingContent()
                         if (onCancel != null) {
                             Spacer(modifier = Modifier.height(16.dp))
                             TextButton(onClick = onCancel) {
-                                Text("Отменить")
+                                Text("Отменить анализ")
                             }
                         }
                     }
