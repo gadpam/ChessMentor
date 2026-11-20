@@ -745,7 +745,8 @@ private fun ExerciseMetaStrip(uiState: TrainingUiState) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
+        if (uiState.mode == TrainingMode.Daily && uiState.sourceLabel == uiState.mode.displayName) Spacer(Modifier.weight(1f))
+        else Text(
             text = uiState.sourceLabel,
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

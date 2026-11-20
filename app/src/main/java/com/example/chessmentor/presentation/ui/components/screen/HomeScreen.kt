@@ -34,13 +34,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.engine.EngineStatus
-import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
-import com.example.chessmentor.presentation.ui.components.util.MISSING_ACCURACY
-import com.example.chessmentor.presentation.ui.components.util.formatGameAccuracy
 import com.example.chessmentor.domain.entity.User
-import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.presentation.ui.components.BoardThemes
@@ -822,46 +818,7 @@ private fun EmptyGamesCard() {
 
 @Composable
 fun MiniGameCard(game: Game, onOpen: (Game) -> Unit) {
-    val info = remember(game.id, game.pgnData, game.playerColor, game.timeControl, game.playedAt) {
-        PgnParser.extractGameCardInfo(game)
-    }
-    val analysisLabel = when (game.analysisStatus) {
-        AnalysisStatus.PENDING -> "Ожидает анализа"
-        AnalysisStatus.IN_PROGRESS -> "Идёт анализ"
-        AnalysisStatus.FAILED -> "Ошибка анализа"
-        AnalysisStatus.COMPLETED -> game.accuracy?.let {
-            "Точность: ${formatGameAccuracy(it)}"
-        } ?: MISSING_ACCURACY
-    }
-
-    Card(onClick = { onOpen(game) }, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    info.title, modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-            }
-            Text(
-                "${info.outcome.displayName} · ${if (game.playerColor == ChessColor.WHITE) "Вы белыми" else "Вы чёрными"}",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Text(analysisLabel, style = MaterialTheme.typography.labelLarge,
-                color = if (game.analysisStatus == AnalysisStatus.FAILED) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.onSurface)
-            Text(
-                buildList {
-                    game.id?.let { add("№$it") }
-                    if (info.dateLabel.isNotBlank()) add(info.dateLabel)
-                    add(info.timeControlLabel)
-                    info.eco?.let { add(it) }
-                }.joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
+    GameCard(game = game, showDate = true, showNumber = true, onClick = { onOpen(game) })
 }
 
 @Composable

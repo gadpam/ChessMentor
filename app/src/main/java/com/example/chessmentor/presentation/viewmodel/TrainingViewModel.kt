@@ -915,7 +915,7 @@ class TrainingViewModel(
         )
 
         val initialBanner = when {
-            isAlreadySolvedDaily -> "Задача дня уже решена сегодня — можно перерешать без изменения рейтинга"
+            isAlreadySolvedDaily -> "Повтор без изменения рейтинга"
             reviewState != null -> SpacedRepetitionScheduler.formatReviewBanner(reviewState)
             isReviewOfFailed -> "Повтор задачи, в которой ранее была ошибка"
             mode is TrainingMode.DeepCalculation -> "Досчитайте весь форсированный вариант до первого хода"
