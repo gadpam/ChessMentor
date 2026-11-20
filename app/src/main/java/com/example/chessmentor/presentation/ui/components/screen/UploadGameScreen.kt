@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -118,6 +119,22 @@ fun UploadGameScreen(
         remember { mutableStateOf<EngineStatus>(EngineStatus.Idle) }
     }
 
+    val userId = gameViewModel.currentUser.value?.id
+    var showChessCom by rememberSaveable(userId) { mutableStateOf(false) }
+    if (showChessCom && userId != null) {
+        ChessComImportDialog(
+            savedName = gameViewModel.savedChessComSource(userId),
+            rememberSource = { gameViewModel.setChessComSource(userId, it) },
+            monthsFor = gameViewModel::archiveMonths,
+            gamesFor = { name, period -> gameViewModel.archiveGames(userId, name, period) },
+            onImport = { selected ->
+                gameViewModel.importChessComGames(userId, selected)
+                showChessCom = false
+            },
+            onClose = { showChessCom = false }
+        )
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -127,6 +144,13 @@ fun UploadGameScreen(
     ) {
         item {
             UploadHeader()
+        }
+
+        if (userId != null) item {
+            OutlinedButton(onClick = { showChessCom = true }, enabled = !isLoading,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                Text("С Chess.com")
+            }
         }
 
         item {

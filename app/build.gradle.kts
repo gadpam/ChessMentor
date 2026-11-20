@@ -125,6 +125,8 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
     // Chess
     implementation(libs.chesslib)
 

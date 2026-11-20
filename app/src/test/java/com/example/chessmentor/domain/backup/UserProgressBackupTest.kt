@@ -641,6 +641,8 @@ class UserProgressBackupTest {
         }
 
         val session = object : SessionRepository {
+            override fun getChessComSource(userId: Long): String? = null
+            override fun setChessComSource(userId: Long, name: String?) = Unit
             override val themeMode: StateFlow<AppThemeMode> = themeFlow
             override fun getActiveUserId(): Long? = null
             override fun saveActiveSession(userId: Long, email: String) = Unit

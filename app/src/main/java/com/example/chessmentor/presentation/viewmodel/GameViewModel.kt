@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.chessmentor.data.chesscom.ArchiveGame
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
@@ -209,6 +210,61 @@ class GameViewModel(
         chessUsernameHint.value = ""
         message.value = ""
         isLoading.value = false
+    }
+
+    internal fun savedChessComSource(userId: Long) = container.sessionRepository.getChessComSource(userId)
+
+    internal fun setChessComSource(userId: Long, name: String?) {
+        if (currentUser.value?.id == userId) container.sessionRepository.setChessComSource(userId, name)
+    }
+
+    internal suspend fun archiveMonths(name: String) = container.chessComArchive.months(name)
+
+    internal suspend fun archiveGames(userId: Long, name: String, period: String): List<ArchiveGame> {
+        val known = withContext(Dispatchers.IO) {
+            container.gameRepository.findByUserId(userId).mapNotNull {
+                PgnParser.computeFingerprintForStoredPgn(it.pgnData)
+            }.toSet()
+        }
+        return container.chessComArchive.latest(name, period, known)
+    }
+
+    internal fun importChessComGames(userId: Long, selection: List<ArchiveGame>) {
+        if (isLoading.value || currentUser.value?.id != userId || selection.isEmpty()) return
+        isLoading.value = true
+        message.value = "Сохраняем выбранные партии…"
+        viewModelScope.launch {
+            var saved = 0
+            var duplicates = 0
+            var invalid = 0
+            try {
+                // Per-side batches use the archive identity, never the unrelated local nickname.
+                for ((side, games) in selection.groupBy { it.side }) {
+                    val result = withContext(Dispatchers.IO) {
+                        container.uploadGameUseCase.executeBatch(UploadGameUseCase.BatchInput(
+                            userId = userId, rawPgnArchive = games.joinToString("\n\n") { it.pgn },
+                            fallbackColor = side, autoDetectColor = false
+                        ))
+                    }
+                    when (result) {
+                        is UploadGameUseCase.BatchResult.Success -> {
+                            saved += result.importedGames.size
+                            duplicates += result.skippedDuplicates
+                            invalid += result.failedCount
+                        }
+                        is UploadGameUseCase.BatchResult.Error -> error(result.message)
+                    }
+                }
+                message.value = "Chess.com → библиотека: добавлено $saved, повторов $duplicates, ошибок $invalid."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = "Ошибка импорта Chess.com: ${e.localizedMessage}"
+            } finally {
+                isLoading.value = false
+                if (currentUser.value?.id == userId) loadUserData()
+            }
+        }
     }
 
     fun clearImportForm() {
