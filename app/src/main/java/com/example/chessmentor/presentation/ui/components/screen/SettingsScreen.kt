@@ -859,7 +859,7 @@ private fun DataBackupCard(
 
             Text(
                 text = "Партий: $totalGames (разобрано: $analyzedGames) · Попыток в тренажёре: $totalAttempts. " +
-                    "Полная JSON-копия сохраняет разборы Stockfish, персональные задачи и расписание интервальных повторений SM-2 (с проверкой SHA-256, без пароля).",
+                    "JSON — партии и прогресс. PGN — только партии.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -411,31 +411,31 @@ private fun ChessMentorBottomBar(
 ) {
     NavigationBar {
         NavigationBarItem(
-            icon = { Icon(Icons.Default.Home, contentDescription = "Главная") },
+            icon = { Icon(Icons.Default.Home, contentDescription = null) },
             label = { Text("Главная") },
             selected = currentScreen == "home",
             onClick = { onNavigate("home") }
         )
         NavigationBarItem(
-            icon = { Icon(Icons.Default.List, contentDescription = "Партии") },
+            icon = { Icon(Icons.Default.List, contentDescription = null) },
             label = { Text("Партии") },
             selected = currentScreen in setOf("games", "summary"),
             onClick = { onNavigate("games") }
         )
         NavigationBarItem(
-            icon = { Icon(Icons.Default.FitnessCenter, contentDescription = "Тренировка") },
+            icon = { Icon(Icons.Default.FitnessCenter, contentDescription = null) },
             label = { Text("Тренировка") },
             selected = currentScreen == "training",
             onClick = { onNavigate("training") }
         )
         NavigationBarItem(
-            icon = { Icon(Icons.Default.Upload, contentDescription = "Загрузить") },
+            icon = { Icon(Icons.Default.Upload, contentDescription = null) },
             label = { Text("Загрузить") },
             selected = currentScreen == "upload",
             onClick = { onNavigate("upload") }
         )
         NavigationBarItem(
-            icon = { Icon(Icons.Default.Analytics, contentDescription = "Статистика") },
+            icon = { Icon(Icons.Default.Analytics, contentDescription = null) },
             label = { Text("Статистика") },
             selected = currentScreen == "stats",
             onClick = { onNavigate("stats") }

@@ -141,22 +141,11 @@ fun UploadGameScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item {
-            UploadHeader()
-        }
-
         if (userId != null) item {
             OutlinedButton(onClick = { showChessCom = true }, enabled = !isLoading,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                 Text("С Chess.com")
             }
-        }
-
-        item {
-            EngineSettingsCard(
-                settings = engineSettings,
-                onClick = onOpenEngineSettings
-            )
         }
 
         // Живой прогресс/ошибка загрузки NNUE прямо перед запуском анализа партии
@@ -252,6 +241,13 @@ fun UploadGameScreen(
                         onImportedToLibrary = { currentOnNavigateToLibrary() }
                     )
                 }
+            )
+        }
+
+        item {
+            EngineSettingsCard(
+                settings = engineSettings,
+                onClick = onOpenEngineSettings
             )
         }
     }
@@ -647,41 +643,6 @@ private fun EngineSettingsCard(
 }
 
 @Composable
-private fun UploadHeader() {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.CloudUpload,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text(
-                    text = "Импорт партий",
-                    style = MaterialTheme.typography.titleLarge
-                )
-                Text(
-                    text = "Буфер обмена, файл .pgn или пакет из Lichess / Chess.com",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun UploadMessage(
     message: String,
     isLoading: Boolean,
@@ -751,6 +712,7 @@ internal fun UploadForm(
     val isBatch = preview?.isBatch == true
     val validSingle = preview?.singleParsed != null
     val hasDuplicate = preview?.duplicateExistingGame != null
+    var showHelp by rememberSaveable { mutableStateOf(false) }
     val isHugeFileLoaded = pgnInput.length > MAX_INLINE_TEXTFIELD_CHARS
 
     val whitePlayerName = preview?.singleParsed?.metadata?.whiteName
@@ -845,12 +807,13 @@ internal fun UploadForm(
                 OutlinedTextField(
                     value = pgnInput,
                     onValueChange = onPgnChange,
-                    label = { Text("Текст PGN (одна или несколько партий)") },
+                    label = { Text("Текст PGN") },
                     placeholder = { Text("[White \"...\"] [Black \"...\"]\n1. e4 e5 2. Nf3 Nc6 ...") },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(175.dp),
-                    maxLines = 9,
+                        .heightIn(max = 175.dp),
+                    minLines = 2,
+                    maxLines = 6,
                     enabled = !isLoading
                 )
             }
@@ -860,7 +823,7 @@ internal fun UploadForm(
                 OutlinedTextField(
                     value = usernameHint,
                     onValueChange = onUsernameHintChange,
-                    label = { Text("Ваш ник на Lichess / Chess.com (для автоцвета)") },
+                    label = { Text("Ник для выбора цвета") },
                     placeholder = { Text("Например: DrNykterstein") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -872,7 +835,7 @@ internal fun UploadForm(
             }
 
             // Выбор цвета (с подстановкой реальных имён белых и чёрных из PGN)
-            Column {
+            if (validSingle || isBatch) Column {
                 Text(
                     text = if (isBatch) "Цвет по умолчанию (если ник не найден в партии):" else "Ваш цвет:",
                     style = MaterialTheme.typography.titleSmall,
@@ -912,11 +875,11 @@ internal fun UploadForm(
             }
 
             // Контроль времени (для одиночной партии заполняется автоматически из [TimeControl])
-            if (!isBatch) {
+            if (validSingle) {
                 OutlinedTextField(
                     value = timeControl,
                     onValueChange = onTimeControlChange,
-                    label = { Text("Контроль времени (авто из PGN или вручную)") },
+                    label = { Text("Контроль времени") },
                     placeholder = { Text("3+2, 5+3, 10+0, 15+10") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -977,7 +940,7 @@ internal fun UploadForm(
                         Text("Импортировать ($importableCount) и разобрать самую свежую")
                     }
                 }
-            } else if (!hasDuplicate) {
+            } else if (!hasDuplicate && pgnInput.isNotBlank()) {
                 Button(
                     onClick = { onUploadAndAnalyze(false) },
                     modifier = Modifier
@@ -1019,27 +982,13 @@ internal fun UploadForm(
                 }
             }
 
-            HorizontalDivider()
-
-            Row(
-                verticalAlignment = Alignment.Top,
-                modifier = Modifier.padding(top = 2.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Lightbulb,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier
-                        .size(18.dp)
-                        .padding(top = 2.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Поддерживаются одиночные PGN и скачанные .pgn-архивы Lichess / Chess.com " +
-                        "(до ${PgnParser.MAX_BATCH_GAMES} партий за раз) с рейтингами, дебютом, результатом и часами.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            TextButton(onClick = { showHelp = !showHelp }) {
+                Text(if (showHelp) "Скрыть справку" else "Что такое PGN?")
+            }
+            if (showHelp) {
+                Text("PGN — текстовая запись партии. Вставьте её или выберите файл .pgn. " +
+                    "Из архива можно загрузить до ${PgnParser.MAX_BATCH_GAMES} партий за раз.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

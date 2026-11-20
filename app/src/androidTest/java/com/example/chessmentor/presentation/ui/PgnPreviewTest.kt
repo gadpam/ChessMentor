@@ -89,6 +89,13 @@ class PgnPreviewTest {
                     { error("Одиночный анализ") }, { error("Сохранение одной партии") }, { batchActions.add(it) })
             }
         }
+        ui.onNodeWithText("Ваш цвет:").assertDoesNotExist()
+        ui.onNodeWithText("Контроль времени").assertDoesNotExist()
+        ui.onNodeWithText("Импортировать партию и разобрать").assertDoesNotExist()
+        ui.onNodeWithText("Что такое PGN?").performScrollTo().performClick()
+        ui.onNodeWithText("PGN — текстовая запись партии", substring = true).assertExists()
+        ui.onNodeWithText("Скрыть справку").performScrollTo().performClick()
+        ui.onNodeWithText("PGN — текстовая запись партии", substring = true).assertDoesNotExist()
         ui.runOnIdle { vm.onPgnInputChanged(first) }
         ui.waitUntil(5000) { vm.importPreview.value?.singleParsed != null }
         ui.onNodeWithText("Импортировать партию и разобрать").assertIsEnabled()
