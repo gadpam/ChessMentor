@@ -1,5 +1,11 @@
 package com.example.chessmentor.presentation.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,6 +23,7 @@ import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.presentation.ui.components.screen.GameCard
 import com.example.chessmentor.presentation.ui.components.screen.GamesListScreen
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
+import com.example.chessmentor.presentation.ui.components.theme.ChessMentorTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -43,7 +50,11 @@ class LibrarySearchTest {
             analysisStatus = AnalysisStatus.FAILED))
         show(games)
         ui.onNodeWithContentDescription("Сортировка").performClick()
-        ui.onNodeWithText("Сначала старые").performClick()
+        ui.onNodeWithText("Сначала новые").assertIsSelected()
+        ui.onNodeWithText("Сначала старые").assertIsNotSelected().performClick()
+        ui.onNodeWithContentDescription("Сортировка").performClick()
+        ui.onNodeWithText("Сначала старые").assertIsSelected()
+        pressBack()
         ui.onNode(hasSetTextAction()).performTextInput("Rival")
         ui.onNodeWithText("Поражения").performScrollTo().performClick()
         visibleText("Запрос: «Rival»\nФильтр: Поражения").assertIsDisplayed()
@@ -96,6 +107,27 @@ class LibrarySearchTest {
         ui.onNodeWithText("Победы").assertIsSelected()
         ui.onNode(hasSetTextAction()).assert(hasText("Rival"))
         ui.runOnIdle { assertEquals(duplicateGames, model.userGames.toList()) }
+    }
+
+    @Test fun narrowDarkCardAtLargeScaleKeepsDeleteAndCancelReachable() {
+        val game = duplicateGames.last().copy(pgnData = "[Black \"ОченьДлинноеИмяСоперника\"]\n[Result \"1-0\"]\n\n1. e4 e5 1-0")
+        var deletes = 0
+        ui.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 1.5f)) {
+                ChessMentorTheme(darkTheme = true) {
+                    Box(Modifier.width(320.dp)) {
+                        GameCard(game, onClick = { error("Открылась сводка") }, onDelete = { deletes++ })
+                    }
+                }
+            }
+        }
+        ui.onNodeWithContentDescription("Удалить партию №15").assertIsDisplayed()
+            .assertWidthIsAtLeast(48.dp).performClick()
+        ui.onNodeWithText("Отменить удаление нельзя").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("Удалить").assertIsDisplayed()
+        ui.onNodeWithText("Отмена").assertIsDisplayed().performClick()
+        ui.onNodeWithText("Удалить партию №15?").assertDoesNotExist()
+        ui.runOnIdle { assertEquals(0, deletes) }
     }
 
     @Test fun confirmTargetsOnlyTheTappedRecordWithTheSameOpponent() {
