@@ -85,6 +85,13 @@ class LibrarySearchTest {
             pgnData = "[Black \"Rival\"]\n[Result \"1-0\"]\n\n1. e4 e5 1-0")
     }
 
+    @Test fun populatedLibraryAlsoOffersImport() {
+        var imports = 0
+        show(duplicateGames) { imports++ }
+        visibleText("Добавить").performClick()
+        ui.runOnIdle { assertEquals(1, imports) }
+    }
+
     private fun openDeleteFor(id: Long) {
         val description = "Удалить партию №$id"
         ui.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollToIndex))

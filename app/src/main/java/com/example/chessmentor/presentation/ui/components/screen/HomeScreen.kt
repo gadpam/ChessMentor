@@ -57,6 +57,7 @@ fun HomeScreen(
     container: AppContainer? = null,
     onNavigateToSettings: () -> Unit,
     onNavigateToTraining: () -> Unit,
+    onNavigateToUpload: () -> Unit,
     onNavigateToDailyPuzzle: () -> Unit = onNavigateToTraining,
     onNavigateToSmartSession: () -> Unit = onNavigateToTraining,
     onOpenEngineSettings: (() -> Unit)? = null,
@@ -110,6 +111,7 @@ fun HomeScreen(
             gameViewModel = gameViewModel,
             container = container,
             onLogout = onLogout,
+            onNavigateToUpload = onNavigateToUpload,
             onNavigateToDailyPuzzle = onNavigateToDailyPuzzle,
             onNavigateToSmartSession = onNavigateToSmartSession,
             onOpenEngineSettings = onOpenEngineSettings,
@@ -582,6 +584,7 @@ fun DashboardContent(
     container: AppContainer? = null,
     @Suppress("UNUSED_PARAMETER")
     onLogout: () -> Unit,
+    onNavigateToUpload: () -> Unit,
     onNavigateToDailyPuzzle: () -> Unit,
     onNavigateToSmartSession: () -> Unit = onNavigateToDailyPuzzle,
     onOpenEngineSettings: (() -> Unit)? = null,
@@ -653,12 +656,10 @@ fun DashboardContent(
         }
 
         item {
-            Text(
-                "Недавние партии",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 8.dp)
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text("Недавние партии", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                AddGameButton(onNavigateToUpload)
+            }
         }
 
         if (recentGames.isEmpty()) {

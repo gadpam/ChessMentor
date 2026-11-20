@@ -13,6 +13,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -56,6 +59,7 @@ fun ChessMentorApp(
     var pendingGamesSearchQuery by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingGamesColorKey by rememberSaveable { mutableStateOf<String?>(null) }
     var trainingReturnScreen by rememberSaveable { mutableStateOf<String?>(null) }
+    var uploadReturnScreen by rememberSaveable { mutableStateOf("games") }
     var summaryReturnScreen by rememberSaveable { mutableStateOf("games") }
     var engineSettingsReturnScreen by rememberSaveable { mutableStateOf("upload") }
     var isLoading by remember { mutableStateOf(false) }
@@ -107,6 +111,7 @@ fun ChessMentorApp(
                 summaryReturnScreen = "games"
                 target
             }
+            "upload" -> uploadReturnScreen
             "engine_settings" -> {
                 engineSettingsReturnScreen
                     .takeIf { it in setOf("upload", "settings", "home", "games") }
@@ -169,6 +174,9 @@ fun ChessMentorApp(
             loginEmail = loginEmail,
             loginPassword = loginPassword,
             onScreenChange = { next ->
+                if (next == "upload" && currentScreen in setOf("games", "home", "stats", "training")) {
+                    uploadReturnScreen = currentScreen
+                }
                 currentScreen = next
                 Log.d(TAG, "Screen changed to: $next")
             },
@@ -258,6 +266,7 @@ fun ChessMentorApp(
                 pendingGamesColorKey = null
                 trainingReturnScreen = null
                 summaryReturnScreen = "games"
+                uploadReturnScreen = "games"
                 engineSettingsReturnScreen = "upload"
                 currentScreen = "home"
             },
@@ -404,42 +413,43 @@ private fun ChessMentorTopBar(
     )
 }
 
+private enum class MainTab(val screen: String, val label: String, val icon: ImageVector) {
+    HOME("home", "Главная", Icons.Default.Home),
+    GAMES("games", "Партии", Icons.Default.List),
+    TASKS("training", "Задачи", Icons.Default.FitnessCenter),
+    STATS("stats", "Статистика", Icons.Default.Analytics)
+}
+
 @Composable
-private fun ChessMentorBottomBar(
-    currentScreen: String,
-    onNavigate: (String) -> Unit
-) {
-    NavigationBar {
-        NavigationBarItem(
-            icon = { Icon(Icons.Default.Home, contentDescription = null) },
-            label = { Text("Главная") },
-            selected = currentScreen == "home",
-            onClick = { onNavigate("home") }
-        )
-        NavigationBarItem(
-            icon = { Icon(Icons.Default.List, contentDescription = null) },
-            label = { Text("Партии") },
-            selected = currentScreen in setOf("games", "summary"),
-            onClick = { onNavigate("games") }
-        )
-        NavigationBarItem(
-            icon = { Icon(Icons.Default.FitnessCenter, contentDescription = null) },
-            label = { Text("Тренировка") },
-            selected = currentScreen == "training",
-            onClick = { onNavigate("training") }
-        )
-        NavigationBarItem(
-            icon = { Icon(Icons.Default.Upload, contentDescription = null) },
-            label = { Text("Загрузить") },
-            selected = currentScreen == "upload",
-            onClick = { onNavigate("upload") }
-        )
-        NavigationBarItem(
-            icon = { Icon(Icons.Default.Analytics, contentDescription = null) },
-            label = { Text("Статистика") },
-            selected = currentScreen == "stats",
-            onClick = { onNavigate("stats") }
-        )
+internal fun ChessMentorBottomBar(currentScreen: String, onNavigate: (String) -> Unit) {
+    val section = when (currentScreen) {
+        "summary", "upload" -> "games"
+        "settings" -> "home"
+        else -> currentScreen
+    }
+    val measurer = rememberTextMeasurer()
+    val style = MaterialTheme.typography.labelMedium
+    val density = LocalDensity.current
+    // Give longer names proportionally more room, without overriding system font scale.
+    val widths = MainTab.entries.map { tab ->
+        with(density) { (measurer.measure(tab.label, style, maxLines = 1).size.width.toDp() + 16.dp).coerceAtLeast(64.dp) }
+    }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val total = widths.sumOf { it.value.toDouble() }.toFloat()
+        val compact = total > maxWidth.value
+        NavigationBar {
+            MainTab.entries.forEachIndexed { i, tab ->
+                val selected = section == tab.screen
+                val showLabel = !compact || selected
+                NavigationBarItem(
+                    modifier = Modifier.weight(if (compact && !selected) 48f else widths[i].value),
+                    icon = { Icon(tab.icon, contentDescription = if (showLabel) null else tab.label) },
+                    label = if (showLabel) { { Text(tab.label, style = style, maxLines = 1) } } else null,
+                    selected = selected,
+                    onClick = { onNavigate(tab.screen) }
+                )
+            }
+        }
     }
 }
 
@@ -506,6 +516,7 @@ private fun NavigationHost(
             gameViewModel = gameViewModel,
             container = container,
             onNavigateToSettings = { onScreenChange("settings") },
+            onNavigateToUpload = { onScreenChange("upload") },
             onNavigateToTraining = { onScreenChange("training") },
             onNavigateToDailyPuzzle = { onOpenTrainingWithMode(TrainingMode.Daily) },
             onNavigateToSmartSession = { onOpenTrainingWithMode(TrainingMode.SmartSession) },

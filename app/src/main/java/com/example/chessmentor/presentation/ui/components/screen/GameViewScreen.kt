@@ -967,7 +967,7 @@ private fun calculateBadgeOffset(square: Square, isFlipped: Boolean, boardSize: 
 }
 
 @Composable
-private fun RetryMistakePanel(
+internal fun RetryMistakePanel(
     state: RetryMistakeUiState,
     onHint: () -> Unit,
     onShowLine: (() -> Unit)?,
@@ -1022,70 +1022,34 @@ private fun RetryMistakePanel(
                 color = MaterialTheme.colorScheme.onSurface
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (state.isSolved) {
-                    Button(
-                        onClick = onContinueGame,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier.height(30.dp)
-                    ) {
-                        Text("Дальше →", fontSize = 11.sp)
+            var more by remember(state.targetMoveIndex, state.isSolved) { mutableStateOf(false) }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                when {
+                    state.isSolved -> Button(onClick = onContinueGame, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                        Text("Дальше")
                     }
-                    if (onShowLine != null) {
-                        OutlinedButton(
-                            onClick = onShowLine,
-                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                            modifier = Modifier.height(30.dp)
-                        ) {
-                            Text("Линия", fontSize = 11.sp)
+                    state.hintLevel < 2 -> FilledTonalButton(onClick = onHint, enabled = !state.isCheckingEngine,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                        Text(if (state.hintLevel == 0) "Подсказка" else "Показать ход")
+                    }
+                    else -> TextButton(onClick = onCancel, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                        Text("К партии")
+                    }
+                }
+                val canReturn = !state.isSolved && state.hintLevel < 2
+                if (canReturn || onPracticeInTrainer != null || (state.isSolved && onShowLine != null)) {
+                    Box {
+                        IconButton(onClick = { more = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Действия разбора")
                         }
-                    }
-                    if (onPracticeInTrainer != null) {
-                        OutlinedButton(
-                            onClick = onPracticeInTrainer,
-                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                            modifier = Modifier.height(30.dp)
-                        ) {
-                            Text("В тренажёр", fontSize = 11.sp)
+                        DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                            if (canReturn) DropdownMenuItem(text = { Text("К партии") },
+                                onClick = { more = false; onCancel() })
+                            if (state.isSolved && onShowLine != null) DropdownMenuItem(text = { Text("Посмотреть вариант") },
+                                onClick = { more = false; onShowLine() })
+                            if (onPracticeInTrainer != null) DropdownMenuItem(text = { Text("В тренажёр") },
+                                onClick = { more = false; onPracticeInTrainer() })
                         }
-                    }
-                } else {
-                    FilledTonalButton(
-                        onClick = onHint,
-                        enabled = !state.isCheckingEngine,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier.height(30.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Lightbulb,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (state.hintLevel == 0) "Подсказка" else "Показать ход",
-                            fontSize = 11.sp
-                        )
-                    }
-                    if (onPracticeInTrainer != null) {
-                        OutlinedButton(
-                            onClick = onPracticeInTrainer,
-                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                            modifier = Modifier.height(30.dp)
-                        ) {
-                            Text("В тренажёр", fontSize = 11.sp)
-                        }
-                    }
-                    TextButton(
-                        onClick = onCancel,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        modifier = Modifier.height(30.dp)
-                    ) {
-                        Text("К партии", fontSize = 11.sp)
                     }
                 }
             }

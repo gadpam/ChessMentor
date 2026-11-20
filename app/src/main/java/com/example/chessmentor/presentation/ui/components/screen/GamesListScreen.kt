@@ -190,7 +190,7 @@ fun GamesListScreen(
     ) {
         // Сводная шапка библиотеки (всего, W/D/L, разобрано, ср. точность)
         item {
-            GamesLibraryHeader(indexedGames = indexedGames)
+            GamesLibraryHeader(indexedGames, onNavigateToUpload)
         }
 
         // Живой прогресс/ошибка загрузки NNUE (скрывается автоматически при готовности Stockfish)
@@ -308,9 +308,8 @@ internal fun LibraryAnalysisFeedback(
     )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun GamesLibraryHeader(indexedGames: List<IndexedGame>) {
+private fun GamesLibraryHeader(indexedGames: List<IndexedGame>, onAdd: () -> Unit) {
     val total = indexedGames.size
     val analyzedGames = indexedGames.filter { it.game.isAnalyzed() }
     val pendingCount = indexedGames.count { it.game.analysisStatus == AnalysisStatus.PENDING }
@@ -335,28 +334,22 @@ private fun GamesLibraryHeader(indexedGames: List<IndexedGame>) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = "Библиотека партий",
-                    style = MaterialTheme.typography.titleLarge
-                )
-                if (avgAccuracy != null) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            text = String.format(Locale.US, "Ср. %.1f%%", avgAccuracy),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text("Библиотека партий", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                if (total > 0) AddGameButton(onAdd)
+            }
+            if (avgAccuracy != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = String.format(Locale.US, "Ср. %.1f%%", avgAccuracy),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
                 }
             }
 
@@ -373,6 +366,14 @@ private fun GamesLibraryHeader(indexedGames: List<IndexedGame>) {
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
+    }
+}
+
+@Composable
+internal fun AddGameButton(onAdd: () -> Unit) {
+    TextButton(onClick = onAdd, modifier = Modifier.heightIn(min = 48.dp)) {
+        Icon(Icons.Default.Add, contentDescription = null)
+        Text("Добавить")
     }
 }
 
