@@ -97,6 +97,7 @@ class GameViewModel(
     private var analysisJob: Job? = null
     private var activeAnalysisGameId: Long? = null
     private var previewJob: Job? = null
+    private var manualTimeControl = false
     private var lastSourceFileName: String? = null
     private var sessionRestoreStarted = false
 
@@ -213,10 +214,17 @@ class GameViewModel(
     fun clearImportForm() {
         previewJob?.cancel()
         pgnInput.value = ""
+        selectedColor.value = ChessColor.WHITE
+        manualTimeControl = false
         timeControl.value = ""
         colorAutoDetected.value = false
         importPreview.value = null
         lastSourceFileName = null
+    }
+
+    fun setImportTimeControl(value: String) {
+        manualTimeControl = true
+        timeControl.value = value
     }
 
     fun selectPlayerColorManually(color: ChessColor) {
@@ -230,7 +238,7 @@ class GameViewModel(
             container.sessionRepository.saveChessUsernameHint(uid, hint)
         }
         if (pgnInput.value.isNotBlank()) {
-            schedulePgnPreview(pgnInput.value, lastSourceFileName, autoApplyFields = true)
+            schedulePgnPreview(pgnInput.value, lastSourceFileName, debounce = true)
         }
     }
 
@@ -245,48 +253,46 @@ class GameViewModel(
     ) {
         val wasBlank = pgnInput.value.isBlank()
         pgnInput.value = newPgn
-        if (sourceFileName != null || newPgn.isBlank()) {
-            lastSourceFileName = sourceFileName
-        }
+        lastSourceFileName = sourceFileName
+        manualTimeControl = false
+        timeControl.value = ""
         if (newPgn.isBlank()) {
-            previewJob?.cancel()
-            importPreview.value = null
-            colorAutoDetected.value = false
+            clearImportForm()
             return
         }
-        val shouldAutoApply = forceAutoApply || wasBlank || sourceFileName != null
-        schedulePgnPreview(newPgn, lastSourceFileName, autoApplyFields = shouldAutoApply)
+        schedulePgnPreview(newPgn, sourceFileName, debounce = !wasBlank && !forceAutoApply && sourceFileName == null)
     }
 
     private fun schedulePgnPreview(
         rawPgn: String,
         sourceFileName: String?,
-        autoApplyFields: Boolean
+        debounce: Boolean
     ) {
         previewJob?.cancel()
+        importPreview.value = null
+        selectedColor.value = ChessColor.WHITE
+        colorAutoDetected.value = false
         val userSnapshot = currentUser.value
         val hintSnapshot = chessUsernameHint.value
         val existingSnapshot = userGames.toList()
 
         previewJob = viewModelScope.launch {
-            if (!autoApplyFields) {
+            if (debounce) {
                 delay(180L)
             }
             val preview = withContext(Dispatchers.Default) {
                 buildPreviewInternal(rawPgn, userSnapshot, hintSnapshot, existingSnapshot, sourceFileName)
             }
-            importPreview.value = preview
-
-            if (autoApplyFields && preview != null && !preview.isBatch) {
+            if (preview != null && !preview.isBatch) {
                 preview.autoDetectedColor?.let { detected ->
                     selectedColor.value = detected
                     colorAutoDetected.value = true
                 }
-                val parsedTc = preview.singleParsed?.metadata?.timeControl?.fullLabel
-                if (!parsedTc.isNullOrBlank()) {
-                    timeControl.value = parsedTc
+                if (!manualTimeControl) {
+                    timeControl.value = preview.singleParsed?.metadata?.timeControl?.fullLabel.orEmpty()
                 }
             }
+            importPreview.value = preview
         }
     }
 
@@ -301,7 +307,7 @@ class GameViewModel(
         if (trimmed.isEmpty()) return null
 
         val blocks = PgnParser.splitGames(trimmed)
-        if (blocks.isEmpty()) return null
+        if (blocks.isEmpty()) return PgnImportPreview(0, 0, singleError = "В тексте не найдена партия")
 
         val candidateNames = buildList {
             usernameHint.trim().takeIf { it.isNotEmpty() }?.let(::add)
