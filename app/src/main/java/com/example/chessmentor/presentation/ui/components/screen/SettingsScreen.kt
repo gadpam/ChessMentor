@@ -260,7 +260,6 @@ fun SettingsScreen(
             ProfileCard(
                 nickname = tempNickname,
                 email = user.email,
-                rating = user.rating,
                 onNicknameChange = { viewModel.tempNickname.value = it }
             )
         }
@@ -437,33 +436,14 @@ private fun SettingsMessage(
 private fun ProfileCard(
     nickname: String,
     email: String,
-    rating: Int,
     onNicknameChange: (String) -> Unit
 ) {
     Card {
         Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Профиль", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                }
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Text(
-                        text = "Рейтинг $rating",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text("Профиль", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
 
             Spacer(modifier = Modifier.height(14.dp))

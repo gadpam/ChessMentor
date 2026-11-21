@@ -67,21 +67,21 @@ class LibraryAnalysisTest {
             ui.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollToIndex)).performScrollToNode(hasText(label))
             ui.onNodeWithText(label).assertHeightIsAtLeast(48.dp).performClick()
         }
-        start("Разобрать партию")
+        start("Разобрать")
         ui.onNodeWithText("Партия №14").assertIsDisplayed()
         ui.runOnIdle { progress = AnalysisProgress.InProgress(1, 2, "e4") }
         ui.onNodeWithText("Отменить анализ").performClick()
         ui.runOnIdle { assertEquals(1, cancels); progress = success(pending) }
         ui.runOnIdle { assertEquals(0, summaries) }
-        start("Повторить анализ")
+        start("Повторить")
         ui.onNodeWithText("Партия №15").assertIsDisplayed()
         ui.runOnIdle { progress = success(pending) }
         ui.runOnIdle { assertEquals(0, summaries) }
-        start("Повторить анализ")
+        start("Повторить")
         ui.runOnIdle { progress = AnalysisProgress.Failed("Движок недоступен") }
         ui.onNodeWithText("Закрыть").performClick()
         ui.runOnIdle { assertEquals(0, summaries) }
-        start("Повторить анализ")
+        start("Повторить")
         ui.runOnIdle { progress = success(failed.copy(analysisStatus = AnalysisStatus.COMPLETED)) }
         ui.runOnIdle {
             assertEquals(1, summaries)

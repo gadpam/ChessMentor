@@ -91,7 +91,8 @@ object PlayerAnalyticsCalculator {
         val averageAccuracy: Double? = null,
         val averageAcpl: Int? = null,
         val blundersPerGame: Double? = null,
-        val bestWinOpponentElo: Int? = null
+        val bestWinOpponentElo: Int? = null,
+        val accuracySampleSize: Int = 0
     ) {
         val decidedGames: Int get() = wins + draws + losses
 
@@ -508,6 +509,7 @@ object PlayerAnalyticsCalculator {
             scorePercent = scorePct,
             winRatePercent = winRatePct,
             averageAccuracy = avgAcc,
+            accuracySampleSize = accuracies.size,
             averageAcpl = avgAcpl,
             blundersPerGame = blundersPerGame,
             bestWinOpponentElo = bestWinElo

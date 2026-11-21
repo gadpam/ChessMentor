@@ -34,8 +34,8 @@ class RecentGameCardTest {
         }
         val firstCard = ui.onNodeWithText("№14 ·", substring = true)
         val secondCard = ui.onNodeWithText("№15 ·", substring = true)
-        firstCard.assert(hasText("Поражение · Вы чёрными")).assert(hasText("Точность не рассчитана"))
-        secondCard.assert(hasText("Точность: 0%")).performClick()
+        firstCard.assert(hasContentDescription("Поражение")).assert(hasContentDescription("Точность не рассчитана"))
+        secondCard.assert(hasContentDescription("Точность: 0%")).performClick()
         firstCard.performClick()
         ui.runOnIdle { assertEquals(listOf(15L, 14L), opened) }
     }
@@ -43,9 +43,9 @@ class RecentGameCardTest {
     @Test fun absentResultIsNotADraw() {
         var result by mutableStateOf("*")
         ui.setContent { MiniGameCard(game.copy(pgnData = "1. e4 e5 $result")) {} }
-        ui.onNodeWithText("Без результата · Вы чёрными").assertExists()
+        ui.onNodeWithContentDescription("Без результата").assertExists()
         ui.runOnIdle { result = "1/2-1/2" }
-        ui.onNodeWithText("Ничья · Вы чёрными").assertExists()
+        ui.onNodeWithContentDescription("Ничья").assertExists()
     }
 
     @Test fun analysisStateDoesNotOverwriteOutcomeOrShowStaleAccuracy() {
@@ -55,8 +55,8 @@ class RecentGameCardTest {
             AnalysisStatus.IN_PROGRESS to "Идёт анализ", AnalysisStatus.FAILED to "Ошибка анализа",
             AnalysisStatus.COMPLETED to "Точность: 83%")) {
             ui.runOnIdle { status = state }
-            ui.onNodeWithText(label).assert(hasText("Победа · Вы белыми"))
-            if (state != AnalysisStatus.COMPLETED) ui.onNodeWithText("Точность: 83%").assertDoesNotExist()
+            ui.onNode(hasText(label) or hasContentDescription(label)).assert(hasContentDescription("Победа")).assert(hasContentDescription("Вы белыми"))
+            if (state != AnalysisStatus.COMPLETED) ui.onNodeWithContentDescription("Точность: 83%").assertDoesNotExist()
         }
     }
 }

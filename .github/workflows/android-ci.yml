@@ -321,6 +321,23 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: bash gradlew :app:connectedDebugAndroidTest -Pandroid.injected.build.abi=x86_64 --no-daemon
+      - name: Identify failing device tests
+        if: failure()
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          reports = list(Path('app/build/outputs/androidTest-results/connected').rglob('TEST-*.xml'))
+          if not reports:
+              print('::warning::No JUnit device report produced; inspect emulator setup and instrumentation logs.')
+          for report in reports:
+              for case in ET.parse(report).iter('testcase'):
+                  for problem in [*case.findall('failure'), *case.findall('error')]:
+                      detail = (problem.text or problem.get('message') or '').strip()
+                      excerpt = '\n'.join(detail.splitlines()[:18])[:1600]
+                      msg = f"{case.get('classname')}.{case.get('name')}: {excerpt}"
+                      print('::error::' + msg.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PYTHON
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: always()
         with:

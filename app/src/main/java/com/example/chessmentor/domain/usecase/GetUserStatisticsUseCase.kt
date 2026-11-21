@@ -22,6 +22,7 @@ import com.example.chessmentor.domain.training.AttemptMetadata
 import com.example.chessmentor.domain.training.AttemptQuality
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.ExerciseSitting
+import com.example.chessmentor.domain.training.HintUsage
 import com.example.chessmentor.domain.training.MasteryLevel
 import com.example.chessmentor.domain.training.PatternMastery
 import com.example.chessmentor.domain.training.SpacedRepetitionScheduler
@@ -36,7 +37,7 @@ class GetUserStatisticsUseCase(
     private val analyzedMoveRepository: AnalyzedMoveRepository? = null
 ) {
     companion object {
-        private const val BASELINE_RATING = 1200
+        internal const val BASELINE_RATING = 1200
         private const val MAX_CP_LOSS_FOR_AVG = 1000
         private const val MAX_SOLVE_SECONDS_FOR_AVG = 600
     }
@@ -313,7 +314,11 @@ class GetUserStatisticsUseCase(
                 SpacedRepetitionScheduler.groupIntoSittings(list, exercisesById[exId]).size
             }
 
-        val ratingHistory = PlayerAnalyticsCalculator.computeRatingHistory(
+        // Просмотр решения без своей попытки не превращает стартовую оценку в результат.
+        val hasRatedAttempt = allAttempts.any {
+            AttemptMetadata.extractHintUsage(it) != HintUsage.FULL_SOLUTION || AttemptMetadata.extractRetryCount(it) > 0
+        }
+        val ratingHistory = if (!hasRatedAttempt) emptyList() else PlayerAnalyticsCalculator.computeRatingHistory(
             currentRating = playerElo,
             attempts = allAttempts,
             exercisesById = exercisesById

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
 import androidx.test.espresso.Espresso.pressBack
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -49,6 +50,8 @@ class LibrarySearchTest {
         val games = listOf(win, win.copy(id = 2, playedAt = 2, pgnData = "[Black \"Other\"]\n[Result \"0-1\"]\n\n1. d4 d5 0-1",
             analysisStatus = AnalysisStatus.FAILED))
         show(games)
+        ui.onNodeWithContentDescription("Поиск и фильтры").performClick()
+
         ui.onNodeWithContentDescription("Сортировка").performClick()
         ui.onNodeWithText("Сначала новые").assertIsSelected()
         ui.onNodeWithText("Сначала старые").assertIsNotSelected().performClick()
@@ -70,12 +73,17 @@ class LibrarySearchTest {
         val pending = Game(id = 1, userId = 1, playedAt = 1, playerColor = ChessColor.WHITE, pgnData = "1. e4 *")
         show(listOf(pending, pending.copy(id = 2, analysisStatus = AnalysisStatus.IN_PROGRESS),
             pending.copy(id = 3, analysisStatus = AnalysisStatus.FAILED)))
+        ui.onNodeWithContentDescription("Поиск и фильтры").performClick()
+
         ui.onNode(hasText("В очереди") and SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected))
             .performScrollTo().performClick()
         ui.onNode(hasSetTextAction()).performTextInput("missing")
         visibleText("Запрос: «missing»\nФильтр: В очереди").assertIsDisplayed()
         ui.onNodeWithContentDescription("Очистить поиск").performScrollTo().performClick()
         visibleText("Показано: 1 из 3 · Сначала новые").assertIsDisplayed()
+        ui.onNodeWithContentDescription("Поиск и фильтры").performScrollTo().performClick()
+        ui.onNode(hasSetTextAction()).assertDoesNotExist()
+        visibleText("В очереди · Сначала новые · 1 из 3").performClick()
         visibleText("Показать все партии").performClick()
         ui.onNodeWithText("Все").assertIsSelected()
     }
@@ -83,6 +91,18 @@ class LibrarySearchTest {
     private val duplicateGames = listOf(14L, 15L).map { id ->
         Game(id = id, userId = 1, playedAt = 1, playerColor = ChessColor.WHITE,
             pgnData = "[Black \"Rival\"]\n[Result \"1-0\"]\n\n1. e4 e5 1-0")
+    }
+
+    @Test fun completedGameFitsInACompactRowWithoutTheReport() {
+        val game = duplicateGames.first().copy(analysisStatus = AnalysisStatus.COMPLETED, accuracy = 50.9)
+        ui.setContent {
+            Box(Modifier.width(360.dp)) { GameCard(game, onClick = {}, onDelete = {}) }
+        }
+        ui.onNodeWithText("Rival").assertHeightIsAtLeast(48.dp)
+            .assert(hasContentDescription("Точность: 50.9%"))
+        check(ui.onNodeWithText("Rival").getUnclippedBoundsInRoot().height <= 64.dp)
+        ui.onNodeWithText("Зевки").assertDoesNotExist()
+        ui.onNodeWithText("Удалить партию").assertDoesNotExist()
     }
 
     @Test fun populatedLibraryAlsoOffersImport() {
@@ -93,15 +113,17 @@ class LibrarySearchTest {
     }
 
     private fun openDeleteFor(id: Long) {
-        val description = "Удалить партию №$id"
+        val description = "Действия партии №$id"
         ui.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollToIndex))
             .performScrollToNode(hasContentDescription(description))
         ui.onNodeWithContentDescription(description).assertHeightIsAtLeast(48.dp).performClick()
+        ui.onNodeWithText("Удалить партию").performClick()
         ui.onNodeWithText("Удалить партию №$id?").assertIsDisplayed()
     }
 
     @Test fun dismissDeleteRetainsQueryFilterAndBothGames() {
         show(duplicateGames)
+        ui.onNodeWithContentDescription("Поиск и фильтры").performClick()
         ui.onNode(hasSetTextAction()).performTextInput("Rival")
         ui.onNodeWithText("Победы").performScrollTo().performClick()
         openDeleteFor(15)
@@ -128,8 +150,9 @@ class LibrarySearchTest {
                 }
             }
         }
-        ui.onNodeWithContentDescription("Удалить партию №15").assertIsDisplayed()
+        ui.onNodeWithContentDescription("Действия партии №15").assertIsDisplayed()
             .assertWidthIsAtLeast(48.dp).performClick()
+        ui.onNodeWithText("Удалить партию").performClick()
         ui.onNodeWithText("Отменить удаление нельзя").performScrollTo().assertIsDisplayed()
         ui.onNodeWithText("Удалить").assertIsDisplayed()
         ui.onNodeWithText("Отмена").assertIsDisplayed().performClick()

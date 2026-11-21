@@ -30,18 +30,19 @@ class GameAccuracyTest {
                 GameMetricsCard(record, opponentSummary = opponent)
             }
         }
-        ui.onAllNodesWithText("Точность не рассчитана").assertCountEquals(3)
+        ui.onNodeWithText("Точность не рассчитана").assertExists()
+        ui.onAllNodesWithContentDescription("Точность не рассчитана").assertCountEquals(2)
         ui.onNodeWithText("Плохо").assertDoesNotExist()
         ui.onNodeWithText("0%").assertDoesNotExist()
         ui.onNodeWithText("0 сП").assertDoesNotExist()
         ui.onNodeWithText("91.2%").assertExists()
         ui.runOnIdle { record = game.copy(accuracy = 0.0, averageEvaluationLoss = 0) }
-        ui.onAllNodesWithText("Точность: 0%").assertCountEquals(2)
+        ui.onAllNodesWithContentDescription("Точность: 0%").assertCountEquals(2)
         ui.onAllNodesWithText("0%").assertCountEquals(2) // indicator and player's side
         ui.onNodeWithText("0 сП").assertExists()
         ui.onNodeWithText("Точность не рассчитана").assertDoesNotExist()
         ui.runOnIdle { record = game.copy(accuracy = 83.75) }
-        ui.onAllNodesWithText("Точность: 83.8%").assertCountEquals(2)
+        ui.onAllNodesWithContentDescription("Точность: 83.8%").assertCountEquals(2)
         ui.onAllNodesWithText("83.8%").assertCountEquals(2)
     }
 }

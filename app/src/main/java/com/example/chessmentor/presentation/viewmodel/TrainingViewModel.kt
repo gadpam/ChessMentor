@@ -90,8 +90,9 @@ data class TrainingUiState(
     val exerciseElo: Int = 1600,
     val sourceLabel: String = "",
     val isDailyAlreadySolved: Boolean = false,
+    val moveRevealedInExercise: Boolean = false,
     val isReviewOfFailed: Boolean = false,
-    val reviewBox: Int? = null,
+    val nextReviewNote: String? = null,
     val dueReviewCount: Int = 0,
     val currentStepNumber: Int = 1,
     val totalPlayerSteps: Int = 1,
@@ -122,9 +123,6 @@ data class TrainingUiState(
     val punishmentAnimationStep: Int = 0,
     val isAnimatingPunishment: Boolean = false,
     val isErrorShake: Boolean = false,
-
-    // Очередь похожих задач
-    val similarExercisesQueued: Int = 0,
 
     // Звуковые события (soundEventId монотонно растёт для надёжной обработки в LaunchedEffect)
     val soundEvent: TrainingSoundEvent? = null,
@@ -317,7 +315,6 @@ class TrainingViewModel(
             sessionStepNumber = smartSessionStep,
             sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
             sessionPhase = initialPhase,
-            similarExercisesQueued = 0,
             arrows = emptyList(),
             highlights = emptyList(),
             lastRatingDelta = null,
@@ -636,7 +633,7 @@ class TrainingViewModel(
                     failed = if (shouldRecordFail) stats.failed + 1 else stats.failed,
                     currentStreak = 0
                 ),
-                feedbackMessage = "Решение: $sanNotation"
+                feedbackMessage = "Показываем решение"
             )
 
             if (shouldRecordFail) {
@@ -670,8 +667,7 @@ class TrainingViewModel(
                 delay(ANIMATION_DELAY_MS / 2)
             }
 
-            val scheduleNote = refreshCardAndDueCount()?.let { "\n${SpacedRepetitionScheduler.formatNextIntervalNote(it)}" }
-                ?: "\nВернёмся к задаче через 10 мин"
+            val card = refreshCardAndDueCount()
 
             val postReview = buildPostSolveReviewState()
             val fullSan = postReview.second.ifBlank { sanNotation }
@@ -685,7 +681,8 @@ class TrainingViewModel(
                 reviewStepIndex = (postReview.first.size - 1).coerceAtLeast(0),
                 solutionSanLine = fullSan,
                 postSolveExplanation = postReview.third,
-                feedbackMessage = "Решение: $fullSan$scheduleNote"
+                feedbackMessage = "Решение показано",
+                nextReviewNote = card?.takeUnless { isCurrentDailyAlreadySolved }?.let(SpacedRepetitionScheduler::formatNextIntervalNote)
             )
         }
     }
@@ -786,7 +783,6 @@ class TrainingViewModel(
                         mode = mode,
                         isAlreadySolvedDaily = finalResult.isAlreadySolvedDaily,
                         isReviewOfFailed = finalResult.isReviewOfFailed,
-                        reviewState = finalResult.reviewState,
                         dueReviewCount = finalResult.dueReviewCount
                     )
                 }
@@ -859,7 +855,6 @@ class TrainingViewModel(
         mode: TrainingMode,
         isAlreadySolvedDaily: Boolean,
         isReviewOfFailed: Boolean,
-        reviewState: ReviewCardState? = null,
         dueReviewCount: Int = 0
     ) {
         currentExercise = exercise
@@ -915,9 +910,7 @@ class TrainingViewModel(
         )
 
         val initialBanner = when {
-            isAlreadySolvedDaily -> "Задача дня уже решена сегодня — можно перерешать без изменения рейтинга"
-            reviewState != null -> SpacedRepetitionScheduler.formatReviewBanner(reviewState)
-            isReviewOfFailed -> "Повтор задачи, в которой ранее была ошибка"
+            isAlreadySolvedDaily -> "Повтор без изменения рейтинга"
             mode is TrainingMode.DeepCalculation -> "Досчитайте весь форсированный вариант до первого хода"
             else -> null
         }
@@ -945,12 +938,12 @@ class TrainingViewModel(
             exerciseElo = TrainingRatingCalculator.effectiveExerciseElo(exercise),
             sourceLabel = TrainingLabels.sourceLabel(exercise, isDailyMode = mode is TrainingMode.Daily),
             isDailyAlreadySolved = isAlreadySolvedDaily,
+            moveRevealedInExercise = false,
             isReviewOfFailed = isReviewOfFailed,
-            reviewBox = reviewState?.box,
+            nextReviewNote = null,
             dueReviewCount = dueReviewCount,
             currentStepNumber = 1,
             totalPlayerSteps = totalPlayerSteps,
-            similarExercisesQueued = interleavedQueue.pendingCount,
             currentMistakeAnalysis = null,
             showBetterMoveHint = false,
             betterMoveShown = false,
@@ -1278,7 +1271,7 @@ class TrainingViewModel(
                 val nextStep = (currentMoveIndex / 2) + 1
                 _uiState.value = _uiState.value.copy(
                     currentStepNumber = nextStep,
-                    feedbackMessage = "Верно! Продолжайте атаку."
+                    feedbackMessage = "Верно. Найдите продолжение."
                 )
             }
         } else {
@@ -1413,7 +1406,7 @@ class TrainingViewModel(
                 currentStreak = 0,
                 netRatingDelta = updatedNet
             ),
-            feedbackMessage = "Неверный ход — разбираем опровержение...",
+            feedbackMessage = "Проверяем ответ соперника…",
             soundEvent = TrainingSoundEvent.ERROR,
             soundEventId = soundCounter
         )
@@ -1502,7 +1495,7 @@ class TrainingViewModel(
         val coachingSuffix = lastMistakeCoachingNote?.let { "\n$it" } ?: ""
 
         _uiState.value = _uiState.value.copy(
-            feedbackMessage = cleanExplanation + coachingSuffix,
+            feedbackMessage = (if (punishmentMoves.isEmpty()) "Не лучший ход" else "Ответ соперника") + "\n" + cleanExplanation + coachingSuffix,
             currentMistakeAnalysis = analysis,
             showBetterMoveHint = analysis.shouldShowBetterMove()
         )
@@ -1558,7 +1551,7 @@ class TrainingViewModel(
                     if (punishmentUci != null && arrow != null) {
                         _uiState.value = _uiState.value.copy(
                             arrows = listOf(arrow),
-                            feedbackMessage = "Неверный ход. Посмотрите опровержение соперника.",
+                            feedbackMessage = "Ответ соперника",
                             currentMistakeAnalysis = null
                         )
 
@@ -1574,7 +1567,7 @@ class TrainingViewModel(
                 }
             } else {
                 _uiState.value = _uiState.value.copy(
-                    feedbackMessage = "Неверный ход — найдите более сильное решение."
+                    feedbackMessage = "Не лучший ход"
                 )
             }
         } catch (e: CancellationException) {
@@ -1603,15 +1596,15 @@ class TrainingViewModel(
         }
         val coaching = lastMistakeCoachingNote
         val prompt = buildString {
+            append("Попробуйте ещё раз")
             if (keptExplanation != null) {
-                append(keptExplanation)
                 append('\n')
+                append(keptExplanation)
             }
             if (coaching != null) {
-                append(coaching)
                 append('\n')
+                append(coaching)
             }
-            append("Попробуйте ещё раз!")
         }
 
         _uiState.value = prev.copy(
@@ -1642,9 +1635,6 @@ class TrainingViewModel(
             ?: currentExercise?.tacticalPattern
             ?: return
         interleavedQueue.scheduleAfterMistake(pattern.name)
-        _uiState.value = _uiState.value.copy(
-            similarExercisesQueued = interleavedQueue.pendingCount
-        )
     }
 
     private suspend fun checkMoveQuality(fen: String, userMove: Move): TrainingMoveQuality {
@@ -1799,8 +1789,7 @@ class TrainingViewModel(
                 )
             }
             _uiState.value = _uiState.value.copy(
-                dueReviewCount = dueCount,
-                reviewBox = currentCard?.box ?: _uiState.value.reviewBox
+                dueReviewCount = dueCount
             )
             currentCard
         } catch (e: CancellationException) {
@@ -1827,6 +1816,7 @@ class TrainingViewModel(
         _uiState.value = state.copy(
             arrows = listOf(arrow),
             betterMoveShown = true,
+            moveRevealedInExercise = true,
             feedbackMessage = "Лучше было: ${betterMove.explanation}"
         )
     }
@@ -1860,7 +1850,7 @@ class TrainingViewModel(
                     hintLevel = nextLevel,
                     highlights = listOf(fromSq),
                     arrows = emptyList(),
-                    feedbackMessage = "Подсказка: обратите внимание на выделенную фигуру"
+                    feedbackMessage = "Найдите ход фигурой с $fromSq"
                 )
             }
             HintLevel.FULL_SOLUTION -> {
@@ -1871,6 +1861,7 @@ class TrainingViewModel(
                     hintLevel = nextLevel,
                     highlights = emptyList(),
                     arrows = listOf(arrow),
+                    moveRevealedInExercise = true,
                     feedbackMessage = "Лучший ход: $san (без начисления рейтинга)"
                 )
             }
@@ -1923,12 +1914,6 @@ class TrainingViewModel(
         val newStreak = if (countsForStreak) stats.currentStreak + 1 else stats.currentStreak
         val newBestStreak = maxOf(stats.bestStreak, newStreak)
 
-        val ratingInfo = when {
-            isCurrentDailyAlreadySolved -> ""
-            ratingDelta > 0 -> " (+$ratingDelta Эло)"
-            usedFullHint -> " (с подсказкой хода: +0 Эло)"
-            else -> ""
-        }
         val cognitiveNote = if (exercise != null) {
             TrainingSessionPlanner.formatCognitiveModeFeedback(
                 mode = activeMode,
@@ -1941,7 +1926,12 @@ class TrainingViewModel(
         }
 
         val postReview = buildPostSolveReviewState()
-        val combinedMessage = msg + ratingInfo + cognitiveNote
+        val outcome = when {
+            usedFullHint -> "Завершено с показом хода"
+            maxHintUsed == HintUsage.PIECE_HIGHLIGHT -> "Решено с подсказкой фигуры"
+            else -> msg
+        }
+        val combinedMessage = outcome + cognitiveNote
 
         soundCounter++
         _uiState.value = _uiState.value.copy(
@@ -1963,7 +1953,6 @@ class TrainingViewModel(
             ),
             currentMistakeAnalysis = null,
             showBetterMoveHint = false,
-            similarExercisesQueued = interleavedQueue.pendingCount,
             soundEvent = TrainingSoundEvent.SOLVED,
             soundEventId = soundCounter
         )
@@ -1972,7 +1961,6 @@ class TrainingViewModel(
         // а подсказка готовым ходом — как нерешённая попытка (коробка 0, повтор через 10 мин)
         val markAsSolvedInDb = !usedFullHint && !isCurrentDailyAlreadySolved
         val markFullHintForReview = usedFullHint && !isCurrentDailyAlreadySolved && !failedAttemptSaved
-        val baseFeedback = combinedMessage
 
         viewModelScope.launch {
             try {
@@ -2001,7 +1989,7 @@ class TrainingViewModel(
                     if (updatedCard != null && _uiState.value.isSolved && currentExercise?.id == exercise?.id) {
                         val scheduleNote = SpacedRepetitionScheduler.formatNextIntervalNote(updatedCard)
                         _uiState.value = _uiState.value.copy(
-                            feedbackMessage = "$baseFeedback\n$scheduleNote"
+                            nextReviewNote = scheduleNote
                         )
                     }
                 }
@@ -2295,9 +2283,6 @@ class TrainingViewModel(
 
     fun clearSessionQueue() {
         interleavedQueue.clear()
-        _uiState.value = _uiState.value.copy(
-            similarExercisesQueued = 0
-        )
     }
 
     override fun onCleared() {
