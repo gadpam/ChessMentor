@@ -1914,11 +1914,6 @@ class TrainingViewModel(
         val newStreak = if (countsForStreak) stats.currentStreak + 1 else stats.currentStreak
         val newBestStreak = maxOf(stats.bestStreak, newStreak)
 
-        val ratingInfo = when {
-            isCurrentDailyAlreadySolved -> ""
-            ratingDelta > 0 -> " (+$ratingDelta Эло)"
-            else -> ""
-        }
         val cognitiveNote = if (exercise != null) {
             TrainingSessionPlanner.formatCognitiveModeFeedback(
                 mode = activeMode,
@@ -1936,7 +1931,7 @@ class TrainingViewModel(
             maxHintUsed == HintUsage.PIECE_HIGHLIGHT -> "Решено с подсказкой фигуры"
             else -> msg
         }
-        val combinedMessage = outcome + ratingInfo + cognitiveNote
+        val combinedMessage = outcome + cognitiveNote
 
         soundCounter++
         _uiState.value = _uiState.value.copy(

@@ -29,7 +29,8 @@ class ProfileHeaderTest {
                 }
             }
         }
-        val profile = ui.onNodeWithText(nickname).assert(hasText("Рейтинг: 1200"))
+        val profile = ui.onNodeWithText(nickname).assertIsDisplayed()
+        ui.onNodeWithText("Рейтинг", substring = true).assertDoesNotExist()
         val button = ui.onNodeWithContentDescription("Открыть настройки").assertIsDisplayed()
             .assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
         assertTrue(profile.fetchSemanticsNode().boundsInRoot.right <= button.fetchSemanticsNode().boundsInRoot.left)

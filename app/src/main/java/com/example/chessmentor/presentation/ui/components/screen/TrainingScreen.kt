@@ -584,8 +584,6 @@ private fun SessionSummaryCard(
     onPracticeWeakPatterns: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val eloSign = if (summary.netRatingDelta >= 0) "+${summary.netRatingDelta}" else "${summary.netRatingDelta}"
-
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -631,10 +629,6 @@ private fun SessionSummaryCard(
                     SummaryStatPill(
                         label = "С 1-й попытки",
                         value = "${summary.cleanFirstTryCount}/${summary.totalExercises} (${summary.firstTryAccuracyPercent}%)"
-                    )
-                    SummaryStatPill(
-                        label = "Рейтинг",
-                        value = "$eloSign Эло"
                     )
                     SummaryStatPill(
                         label = "Ср. время",
@@ -1036,20 +1030,6 @@ private fun SessionHeader(
                         fontSize = 14.sp
                     )
                 }
-            }
-            if (stats.netRatingDelta != 0) {
-                val sign = if (stats.netRatingDelta > 0) "+" else ""
-                val deltaColor = if (stats.netRatingDelta > 0) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.error
-                }
-                Text(
-                    text = "$sign${stats.netRatingDelta}",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = deltaColor
-                )
             }
         }
 

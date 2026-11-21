@@ -296,7 +296,6 @@ fun StatisticsScreen(
                 item(key = "tactics_summary") {
                     TacticalOverviewCard(
                         currentRating = stats.currentRating,
-                        ratingChange = stats.ratingChange,
                         training = stats.training,
                         onStartTraining = launchTraining
                     )
@@ -566,16 +565,13 @@ private fun PlayerHeroSummaryCard(stats: GetUserStatisticsUseCase.UserStatistics
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Text(
-                        text = buildString {
-                            append(stats.skillLevel)
-                            if (stats.activeDaysStreak > 0) {
-                                append(" · Серия дней: ${stats.activeDaysStreak}")
-                            }
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                    )
+                    if (stats.activeDaysStreak > 0) {
+                        Text(
+                            text = "Серия дней: ${stats.activeDaysStreak}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        )
+                    }
                 }
 
                 overall.bestWinOpponentElo?.let { bestElo ->
@@ -657,15 +653,15 @@ internal fun OverviewMetrics(stats: GetUserStatisticsUseCase.UserStatistics) {
             SummaryMetric("Точность не рассчитана")
         }
         SummaryMetric(overall.scorePercent?.let { "Набрано очков: ${it.roundToInt()}%" } ?: "Нет известных исходов")
-        TrainingRatingMetric(stats.currentRating, stats.ratingChange, stats.training.isRatingProvisional)
     }
 }
 
 @Composable
-private fun TrainingRatingMetric(current: Int, delta: Int, provisional: Boolean) {
-    val change = if (delta > 0) "+$delta" else delta.toString()
-    val basis = "$change от стартовых ${GetUserStatisticsUseCase.BASELINE_RATING}"
-    SummaryMetric("Рейтинг задач: $current", if (provisional) "Предварительный · $basis" else basis)
+internal fun TrainingRatingMetric(current: Int, training: GetUserStatisticsUseCase.TrainingStatistics) {
+    if (training.ratingHistory.isNotEmpty()) {
+        SummaryMetric("Рейтинг в задачах ChessMentor: $current",
+            if (training.isRatingProvisional) "Предварительная оценка" else null)
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -2156,7 +2152,6 @@ private fun EcoVolumesCard(
 @Composable
 private fun TacticalOverviewCard(
     currentRating: Int,
-    ratingChange: Int,
     training: GetUserStatisticsUseCase.TrainingStatistics,
     onStartTraining: ((TrainingMode) -> Unit)?
 ) {
@@ -2172,7 +2167,6 @@ private fun TacticalOverviewCard(
                     modifier = Modifier.size(20.dp))
                 Text("Тактическая подготовка", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
-            TrainingRatingMetric(currentRating, ratingChange, training.isRatingProvisional)
 
             // Прогресс банка задач
             if (training.totalAvailableExercises > 0) {
@@ -2237,6 +2231,8 @@ private fun TacticalOverviewCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            TrainingRatingMetric(currentRating, training)
 
             if (onStartTraining != null) {
                 Row(

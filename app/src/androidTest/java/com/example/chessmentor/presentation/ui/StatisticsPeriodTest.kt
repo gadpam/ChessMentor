@@ -11,6 +11,8 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import com.example.chessmentor.presentation.ui.components.screen.TrainingRatingMetric
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.RatingTrendPoint
 import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.StatsPeriod
 import com.example.chessmentor.domain.usecase.GetUserStatisticsUseCase.TrainingStatistics
 import com.example.chessmentor.domain.usecase.GetUserStatisticsUseCase.UserStatistics
@@ -27,7 +29,7 @@ class StatisticsPeriodTest {
         blunders = 0, mistakes = 0, inaccuracies = 0, averageEvaluationLoss = 0.0, problemThemes = emptyList(),
         ratingChange = 0, accuracyTrend = "", training = TrainingStatistics(), recommendations = emptyList())
 
-    @Test fun summarySeparatesReportSampleFromRatingBaselineAtLargeType() {
+    @Test fun overviewShowsAccuracySampleButNoTrainingRatingAtLargeType() {
         var stats by mutableStateOf(all.copy(currentRating = 1300, ratingChange = 100,
             gameAnalytics = all.gameAnalytics.copy(overall = all.gameAnalytics.overall.copy(
                 averageAccuracy = 0.0, accuracySampleSize = 1))))
@@ -38,11 +40,22 @@ class StatisticsPeriodTest {
         }
         ui.onNodeWithText("По 1 партии").assert(hasText("Точность: 0%")).assertIsDisplayed()
         ui.onNodeWithText("Разобрано: 10").assert(hasText("Партий: 18"))
-        ui.onNodeWithText("Предварительный · +100 от стартовых 1200").assert(hasText("Рейтинг задач: 1300"))
+        ui.onNodeWithText("Рейтинг", substring = true).assertDoesNotExist()
         ui.runOnIdle { stats = all.copy(training = all.training.copy(isRatingProvisional = false)) }
         ui.onNodeWithText("Точность не рассчитана").assertIsDisplayed()
         ui.onNodeWithText("Точность: 0%").assertDoesNotExist()
-        ui.onNodeWithText("0 от стартовых 1200").assert(hasText("Рейтинг задач: 1200"))
+    }
+
+    @Test fun tacticsShowsProvisionalRatingOnlyAfterRatedPractice() {
+        var training by mutableStateOf(TrainingStatistics())
+        ui.setContent { TrainingRatingMetric(1200, training) }
+        val rating = ui.onNodeWithText("Рейтинг в задачах ChessMentor: 1200")
+        rating.assertDoesNotExist()
+        ui.runOnIdle { training = training.copy(ratingHistory = listOf(RatingTrendPoint(1, 0L, 1200, 0, true))) }
+        rating.assert(hasText("Предварительная оценка")).assertIsDisplayed()
+        ui.runOnIdle { training = training.copy(isRatingProvisional = false) }
+        rating.assertIsDisplayed()
+        ui.onNodeWithText("Предварительная оценка").assertDoesNotExist()
     }
 
     @Test fun staleReportNeverAppearsUnderAnotherPeriodAndRetryTargetsSelection() {

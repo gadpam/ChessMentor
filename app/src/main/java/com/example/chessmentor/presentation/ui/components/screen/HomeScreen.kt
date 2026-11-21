@@ -500,7 +500,7 @@ private fun RegisterForm(
 
     var adjustRating by rememberSaveable { mutableStateOf(false) }
     TextButton(onClick = { adjustRating = !adjustRating }, enabled = !isLoading) {
-        Text(if (adjustRating) "Скрыть выбор рейтинга" else "Стартовый рейтинг: ${rating.ifBlank { "1200" }} · изменить")
+        Text(if (adjustRating) "Скрыть настройку сложности" else "Настроить стартовую сложность задач")
     }
     if (adjustRating) {
         OutlinedTextField(
@@ -510,7 +510,7 @@ private fun RegisterForm(
                     onRatingChange(value)
                 }
             },
-            label = { Text("Примерный рейтинг (0–3500)") },
+            label = { Text("Стартовая оценка для подбора задач (0–3500)") },
             leadingIcon = { Icon(Icons.Default.Star, null) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(
@@ -705,20 +705,14 @@ internal fun UserHeader(
             }
         }
 
-        Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
-            Text(
-                user.nickname,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                "Рейтинг: ${user.rating}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        Text(
+            user.nickname,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
 
         IconButton(onClick = onSettingsClick, modifier = Modifier.size(48.dp)) {
             Icon(Icons.Default.Settings, contentDescription = "Открыть настройки")
