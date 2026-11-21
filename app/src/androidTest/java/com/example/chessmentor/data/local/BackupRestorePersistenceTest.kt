@@ -39,7 +39,12 @@ class BackupRestorePersistenceTest {
     private fun importer(db: AppDatabase) = ImportUserBackupUseCase(
         RoomUserRepository(db.userDao()), RoomGameRepository(db.gameDao()),
         RoomMistakeRepository(db.mistakeDao()), RoomAnalyzedMoveRepository(db.analyzedMoveDao()),
-        RoomExerciseRepository(db.exerciseDao())
+        RoomExerciseRepository(db.exerciseDao()),
+        engineSettingsRepository = null,
+        // Боевая проводка: восстановление применяется одной транзакцией. Без этого
+        // тесты не заметили бы регрессию в RoomTransactionRunner (например, смену
+        // диспетчера внутри транзакции).
+        transactionRunner = RoomTransactionRunner(db)
     )
 
     private val pgn = "1. e4 e5 2. Nf3 Nc6 *"

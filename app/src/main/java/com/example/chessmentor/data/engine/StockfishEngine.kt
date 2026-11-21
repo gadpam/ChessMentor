@@ -69,6 +69,33 @@ class StockfishEngine(
         }
     }
 
+    /**
+     * Идемпотентный прогрев для вызова из любого места (например, из Activity при каждом
+     * `onCreate`, включая повторное создание после поворота экрана).
+     *
+     * - уже готовый движок возвращает `true` без повторной работы;
+     * - при незавершённой загрузке/проверке NNUE новый проход не запускается,
+     *   поэтому прогресс не сбрасывается и `.part`-файл не удаляется;
+     * - пауза, поставленная пользователем ([ChessEngine.cancelInit]), не перетирается
+     *   автостартом: возобновление остаётся явным действием в настройках;
+     * - аварийно оборванная инициализация (отмена корутины, `CancellationException`)
+     *   при следующем старте запускается заново, а не оставляет вечный прогресс.
+     *
+     * Ошибки загрузки (нет сети, сбой SHA-256) не ретраятся автоматически бесконечно:
+     * каждая новая попытка привязана к новому жизненному циклу Activity, а сообщение
+     * об ошибке пользователь видит в карточке статуса движка.
+     */
+    override suspend fun ensureReadyOnStartup(): Boolean {
+        val current = _status.value
+        if (isInitialized && current is EngineStatus.Ready) return true
+        // Явная пауза пользователя важнее автостарта: возобновление только кнопкой.
+        if (current is EngineStatus.Error && current.reason == EngineErrorReason.CANCELLED) return false
+        // «Занято» засчитываем только при реально живой корутине инициализации,
+        // иначе после аварийной отмены UI остался бы на вечном прогрессе.
+        if (current.isBusy && activeInitJob?.isActive == true) return false
+        return init()
+    }
+
     override suspend fun retryInit(forceRedownload: Boolean): Boolean =
         withContext(Dispatchers.Default) {
             if (forceRedownload) {
@@ -117,13 +144,7 @@ class StockfishEngine(
                 )
                 true
             } catch (e: CancellationException) {
-                if (!isInitialized) {
-                    _status.value = EngineStatus.Error(
-                        reason = EngineErrorReason.CANCELLED,
-                        message = EngineErrorReason.CANCELLED.title,
-                        canRetry = true
-                    )
-                }
+                // Отмена проверки — не ошибка целостности: статус не подменяем.
                 throw e
             } finally {
                 if (activeInitJob === callerJob) {
@@ -147,15 +168,17 @@ class StockfishEngine(
 
     override fun cancelInit() {
         val job = activeInitJob
+        // Статус выставляется до отмены: отменённая корутина больше не пишет свой статус,
+        // поэтому пауза видна пользователю и не перетирается следующим автостартом.
+        if (job != null && job.isActive && !isInitialized) {
+            _status.value = EngineStatus.Error(
+                reason = EngineErrorReason.CANCELLED,
+                message = EngineErrorReason.CANCELLED.title,
+                canRetry = true
+            )
+        }
         if (job != null && job.isActive) {
             job.cancel(CancellationException("NNUE initialization cancelled by user"))
-            if (!isInitialized) {
-                _status.value = EngineStatus.Error(
-                    reason = EngineErrorReason.CANCELLED,
-                    message = EngineErrorReason.CANCELLED.title,
-                    canRetry = true
-                )
-            }
         }
     }
 
@@ -296,13 +319,8 @@ class StockfishEngine(
             Log.i(TAG, "Stockfish initialized: $ok")
             return ok
         } catch (e: CancellationException) {
-            if (!isInitialized) {
-                _status.value = EngineStatus.Error(
-                    reason = EngineErrorReason.CANCELLED,
-                    message = EngineErrorReason.CANCELLED.title,
-                    canRetry = true
-                )
-            }
+            // Отмена корутины (уход приложения в фон, поворот экрана) — не ошибка загрузки.
+            // Статус остаётся текущим, а следующий ensureReadyOnStartup() продолжит работу.
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Unexpected error during Stockfish initialization", e)

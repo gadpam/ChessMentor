@@ -19,10 +19,12 @@ import com.example.chessmentor.domain.repository.ExerciseRepository
 import com.example.chessmentor.domain.repository.GameRepository
 import com.example.chessmentor.domain.repository.MistakeRepository
 import com.example.chessmentor.domain.repository.SessionRepository
+import com.example.chessmentor.domain.repository.TransactionRunner
 import com.example.chessmentor.domain.repository.UserRepository
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.ExerciseMetadata
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 
 /**
  * Безопасно и идемпотентно восстанавливает прогресс пользователя из JSON-копии:
@@ -39,7 +41,12 @@ class ImportUserBackupUseCase(
     private val analyzedMoveRepository: AnalyzedMoveRepository,
     private val exerciseRepository: ExerciseRepository,
     private val sessionRepository: SessionRepository? = null,
-    private val engineSettingsRepository: EngineSettingsRepository? = null
+    private val engineSettingsRepository: EngineSettingsRepository? = null,
+    /**
+     * Когда задана, все изменения БД применяются одной транзакцией: при сбое
+     * посередине восстановление откатывается целиком, а не остаётся наполовину.
+     */
+    private val transactionRunner: TransactionRunner? = null
 ) {
 
     data class Input(
@@ -75,15 +82,70 @@ class ImportUserBackupUseCase(
     )
 
     suspend fun execute(input: Input): Result {
-        val user = userRepository.findById(input.userId)
-            ?: return Result.Error("Пользователь не найден")
-        val userId = user.id
-            ?: return Result.Error("Некорректный идентификатор пользователя")
-
+        // Транзакция захватывает разбор и проверку перед записью, чтобы не держать
+        // блокировку БД во время полного SHA-256/parse большого JSON-файла.
         val snapshot = when (val decoded = UserProgressBackupCodec.decodeAndVerify(input.rawJson)) {
             is UserProgressBackupCodec.DecodeResult.Success -> decoded.snapshot
             is UserProgressBackupCodec.DecodeResult.Error -> return Result.Error(decoded.message)
         }
+
+        val transaction = transactionRunner
+        val result = if (transaction == null) {
+            applySnapshot(input, snapshot)
+        } else {
+            try {
+                transaction.run { applySnapshot(input, snapshot) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Транзакция уже откатила изменения БД: сообщаем, что копия не применена.
+                return Result.Error(
+                    "Восстановление прервано, изменения не применены: " +
+                        (e.message ?: "неизвестная ошибка")
+                )
+            }
+        }
+
+        // Настройки вне БД пишутся только после успешной фиксации. SharedPreferences
+        // живут вне транзакции Room, поэтому их запись внутри неё откатить нельзя:
+        // тема и параметры движка изменились бы даже при проваленном восстановлении.
+        if (result is Result.Success && input.restorePreferences) {
+            applyOffDatabasePreferences(input.userId, snapshot.profile)
+        }
+        return result
+    }
+
+    /**
+     * Применяет настройки, которые хранятся не в Room: тему оформления, ник источника
+     * Chess.com и параметры движка (SharedPreferences).
+     *
+     * Вызывается только после успешной фиксации транзакции: SharedPreferences не участвуют
+     * в откате Room. Порядок «сначала БД, потом настройки» означает, что при сбое настроек
+     * восстановленные партии и прогресс уже на месте, а не наоборот.
+     */
+    private fun applyOffDatabasePreferences(
+        userId: Long,
+        profile: UserProgressBackupCodec.ProfileSection
+    ) {
+        sessionRepository?.setThemeMode(profile.appThemeMode)
+        profile.chessUsernameHint?.let { hint ->
+            if (sessionRepository?.getChessUsernameHint(userId).isNullOrBlank()) {
+                sessionRepository?.saveChessUsernameHint(userId, hint)
+            }
+        }
+        profile.engineSettings?.let { settings ->
+            engineSettingsRepository?.saveSettings(settings.validate())
+        }
+    }
+
+    private suspend fun applySnapshot(
+        input: Input,
+        snapshot: UserProgressBackupCodec.BackupSnapshot
+    ): Result {
+        val user = userRepository.findById(input.userId)
+            ?: return Result.Error("Пользователь не найден")
+        val userId = user.id
+            ?: return Result.Error("Некорректный идентификатор пользователя")
 
         // Гарантируем наличие встроенного банка задач для точного сопоставления попыток по CURATED_ID / FEN
         CuratedExerciseBank.ensureSeeded(exerciseRepository)
@@ -113,18 +175,6 @@ class ImportUserBackupUseCase(
             next
         } else {
             user
-        }
-
-        if (input.restorePreferences) {
-            sessionRepository?.setThemeMode(profile.appThemeMode)
-            profile.chessUsernameHint?.let { hint ->
-                if (sessionRepository?.getChessUsernameHint(userId).isNullOrBlank()) {
-                    sessionRepository?.saveChessUsernameHint(userId, hint)
-                }
-            }
-            profile.engineSettings?.let { settings ->
-                engineSettingsRepository?.saveSettings(settings.validate())
-            }
         }
 
         // 2. Восстановление партий, ходов и ошибок (с дедупликацией по отпечатку PGN)

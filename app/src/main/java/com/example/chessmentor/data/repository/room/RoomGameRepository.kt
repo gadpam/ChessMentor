@@ -40,11 +40,14 @@ class RoomGameRepository(private val gameDao: GameDao) : GameRepository {
     }
 
     suspend fun findPendingGames(): List<Game> = withContext(Dispatchers.IO) {
-        emptyList() // TODO: Реализовать при необходимости
+        // Заглушка возвращала пустой список, из-за чего вызывающий код считал,
+        // что неразобранных партий нет. Явный отказ безопаснее ложного ответа.
+        throw NotImplementedError("RoomGameRepository.findPendingGames не реализован")
     }
 
-    suspend fun deleteByUserId(userId: Long) = withContext(Dispatchers.IO) {
-        // TODO: Реализовать при необходимости
+    suspend fun deleteByUserId(userId: Long): Unit = withContext(Dispatchers.IO) {
+        // Раньше метод молча ничего не делал: «удаление» профиля оставляло бы партии.
+        throw NotImplementedError("RoomGameRepository.deleteByUserId не реализован")
     }
 
     suspend fun countByUserId(userId: Long): Int = withContext(Dispatchers.IO) {
