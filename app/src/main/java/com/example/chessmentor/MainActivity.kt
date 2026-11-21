@@ -23,16 +23,12 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var container: AppContainer
-    private lateinit var gameViewModel: GameViewModel
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        container = AppContainer.getInstance(applicationContext)
+        val container = AppContainer.getInstance(applicationContext)
         val factory = ChessMentorViewModelFactory(container)
         val gameViewModel = ViewModelProvider(this, factory)[GameViewModel::class.java]
-        this.gameViewModel = gameViewModel
 
         Log.i("CPU_ARCH", "ABI: ${Build.SUPPORTED_ABIS.joinToString()}")
 
@@ -57,11 +53,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Продолжаем разбор, прерванный вместе с предыдущим ViewModel в том же процессе.
-        // Вызов идёт после запуска прогрева: возобновление ждёт готовности движка, а не
-        // стартует вслепую, но не блокирует прогрев.
-        gameViewModel.resumeInterruptedAnalysis()
-
         setContent {
             val themeMode by container.sessionRepository.themeMode.collectAsState()
             ChessMentorTheme(themeMode = themeMode) {
@@ -72,21 +63,6 @@ class MainActivity : ComponentActivity() {
                     ChessMentorApp(container, gameViewModel)
                 }
             }
-        }
-    }
-
-    override fun onStop() {
-        super.onStop()
-        // Activity может быть уничтожена без onDestroy: запоминаем незавершённый разбор,
-        // чтобы продолжить его после пересоздания ViewModel в этом же процессе.
-        if (::gameViewModel.isInitialized) gameViewModel.markAnalysisForResume()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        // Не уничтожаем Stockfish при повороте экрана / смене конфигурации
-        if (isFinishing && !isChangingConfigurations && ::container.isInitialized) {
-            container.cleanup()
         }
     }
 }

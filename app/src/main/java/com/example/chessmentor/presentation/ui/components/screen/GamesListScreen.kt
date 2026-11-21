@@ -94,7 +94,7 @@ fun GamesListScreen(
     val engineStatus by container.chessEngine.status.collectAsState()
     val analysisProgress by gameViewModel.analysisProgress.collectAsState(initial = null)
     // Запрос живёт во ViewModel, а не в rememberSaveable: после пересоздания Activity
-    // (поворот экрана, восстановление процесса) разбор не теряет «свою» партию и
+    // (поворот экрана с сохранением ViewModel) разбор не теряет «свою» партию и
     // диалог прогресса по-прежнему привязан к нужной карточке.
     val requestedGameId by gameViewModel.libraryAnalysisRequestedGameId
 

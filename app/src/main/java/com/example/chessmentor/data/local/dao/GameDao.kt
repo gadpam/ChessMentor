@@ -12,6 +12,9 @@ interface GameDao {
     @Query("SELECT * FROM games WHERE userId = :userId ORDER BY playedAt DESC")
     suspend fun findByUserId(userId: Long): List<Game>
 
+    @Query("SELECT * FROM games WHERE userId = :userId ORDER BY playedAt DESC")
+    fun observeByUserId(userId: Long): kotlinx.coroutines.flow.Flow<List<Game>>
+
     @Query("SELECT * FROM games WHERE userId = :userId AND analysisStatus = :status")
     suspend fun findByUserIdAndStatus(userId: Long, status: AnalysisStatus): List<Game>
 
