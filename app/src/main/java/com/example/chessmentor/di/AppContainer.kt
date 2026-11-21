@@ -6,6 +6,7 @@ import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.data.engine.StockfishEngine
 import com.example.chessmentor.data.local.AppDatabase
 import com.example.chessmentor.data.local.DatabaseMaintenance
+import com.example.chessmentor.data.local.RoomTransactionRunner
 import com.example.chessmentor.data.repository.SharedPrefsEngineSettingsRepository
 import com.example.chessmentor.data.repository.SharedPrefsSessionRepository
 import com.example.chessmentor.data.repository.room.RoomAnalyzedMoveRepository
@@ -20,6 +21,7 @@ import com.example.chessmentor.domain.repository.ExerciseRepository
 import com.example.chessmentor.domain.repository.GameRepository
 import com.example.chessmentor.domain.repository.MistakeRepository
 import com.example.chessmentor.domain.repository.SessionRepository
+import com.example.chessmentor.domain.repository.TransactionRunner
 import com.example.chessmentor.domain.repository.UserRepository
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.domain.usecase.ChangePasswordUseCase
@@ -31,8 +33,20 @@ import com.example.chessmentor.domain.usecase.ImportUserBackupUseCase
 import com.example.chessmentor.domain.usecase.LoginUserUseCase
 import com.example.chessmentor.domain.usecase.RegisterUserUseCase
 import com.example.chessmentor.domain.usecase.UploadGameUseCase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 
 class AppContainer private constructor(private val context: Context) {
+
+    /**
+     * Scope живёт столько же, сколько процесс приложения.
+     *
+     * Нужен для работ, которые не должны прерываться вместе с Activity или ViewModel:
+     * загрузка NNUE (~100 МБ), сохранение результата при выходе из экрана.
+     */
+    val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     companion object {
         @Volatile
@@ -54,6 +68,9 @@ class AppContainer private constructor(private val context: Context) {
     private val database: AppDatabase by lazy {
         AppDatabase.getInstance(context)
     }
+
+    /** Атомарная граница БД для восстановления копии: одна транзакция на все записи. */
+    internal val transactionRunner: TransactionRunner by lazy { RoomTransactionRunner(database) }
 
     // Пользовательская сессия и общие настройки приложения
     val sessionRepository: SessionRepository by lazy {
@@ -195,12 +212,14 @@ class AppContainer private constructor(private val context: Context) {
             analyzedMoveRepository = analyzedMoveRepository,
             exerciseRepository = exerciseRepository,
             sessionRepository = sessionRepository,
-            engineSettingsRepository = engineSettingsRepository
+            engineSettingsRepository = engineSettingsRepository,
+            transactionRunner = transactionRunner
         )
     }
 
     // Очистка ресурсов
     fun cleanup() {
+        appScope.cancel()
         chessEngine.destroy()
     }
 }

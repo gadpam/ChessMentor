@@ -19,6 +19,15 @@ interface ChessEngine {
         get() = DEFAULT_READY_STATUS
 
     suspend fun init(): Boolean
+
+    /**
+     * Идемпотентный прогрев движка при старте приложения.
+     *
+     * В отличие от [init] не перезапускает уже идущую загрузку NNUE и не теряет прогресс
+     * при повторном создании Activity (поворот экрана, смена конфигурации).
+     * Реализация по умолчанию просто вызывает [init].
+     */
+    suspend fun ensureReadyOnStartup(): Boolean = init()
     suspend fun evaluate(fen: String, depthLimit: Int = 15): Int
     suspend fun getBestMove(fen: String, depthLimit: Int = 15): String?
     suspend fun getBestMoveWithLine(fen: String, depthLimit: Int = 15): AnalysisLine?

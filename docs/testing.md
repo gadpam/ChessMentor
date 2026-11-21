@@ -1,6 +1,6 @@
 # Проверка ChessMentor через GitHub
 
-[Быстрый старт и установка](../README.md) · [Карта интерфейса](android-ui-inventory.md)
+[Быстрый старт и установка](../README.md) · [Карта интерфейса](android-ui-inventory.md) · [Что проверять после изменений уровня 1](integrity-and-analysis-fixes.md)
 
 ## Как выбрать сборку и прочитать проверки
 

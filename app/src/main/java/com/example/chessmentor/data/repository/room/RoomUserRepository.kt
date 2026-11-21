@@ -43,17 +43,19 @@ class RoomUserRepository(private val userDao: UserDao) : UserRepository {
     }
 
     override suspend fun findAll(): List<User> = withContext(Dispatchers.IO) {
-        // TODO: Реализовать при необходимости
-        emptyList()
+        userDao.findAll()
     }
 
-    override suspend fun findBySkillLevel(skillLevel: SkillLevel): List<User> = withContext(Dispatchers.IO) {
-        // TODO: Реализовать при необходимости
-        emptyList()
-    }
+    override suspend fun findBySkillLevel(skillLevel: SkillLevel): List<User> =
+        withContext(Dispatchers.IO) {
+            userDao.findBySkillLevel(skillLevel.name)
+        }
 
     override suspend fun findTopByRating(limit: Int): List<User> = withContext(Dispatchers.IO) {
-        // TODO: Реализовать при необходимости
-        emptyList()
+        if (limit <= 0) {
+            emptyList()
+        } else {
+            userDao.findTopByRating(limit)
+        }
     }
 }

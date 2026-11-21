@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.chessmentor.data.chesscom.ArchiveGame
 import com.example.chessmentor.di.AppContainer
+import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
@@ -24,8 +25,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Живой предпросмотр вставленного PGN или выбранного `.pgn`-файла.
@@ -55,6 +58,9 @@ class GameViewModel(
 
     companion object {
         private const val TAG = "GameViewModel"
+
+        /** Ожидание движка перед продолжением прерванного разбора: загрузка NNUE медленная. */
+        private const val ENGINE_WAIT_TIMEOUT_MS = 10 * 60 * 1000L
     }
 
     // ==================== СОСТОЯНИЯ ====================
@@ -91,16 +97,42 @@ class GameViewModel(
     var message = mutableStateOf("")
     var isLoading = mutableStateOf(false)
 
+    /**
+     * Партия, разбор которой инициирован из списка партий: там нужен переход в сводку.
+     *
+     * Хранится во ViewModel, а не в `rememberSaveable` экрана: после пересоздания
+     * Activity прогресс по-прежнему привязан к нужной карточке.
+     */
+    var libraryAnalysisRequestedGameId = mutableStateOf<Long?>(null)
+
     private val _analysisProgress = MutableStateFlow<AnalyzeGameUseCase.AnalysisProgress?>(null)
     val analysisProgress: StateFlow<AnalyzeGameUseCase.AnalysisProgress?> =
         _analysisProgress.asStateFlow()
 
     private var analysisJob: Job? = null
     private var activeAnalysisGameId: Long? = null
+    private var analysisNeedsResume = false
+    private var resumeInFlight = false
     private var previewJob: Job? = null
     private var manualTimeControl = false
     private var lastSourceFileName: String? = null
     private var sessionRestoreStarted = false
+
+    /** Активный разбор текущего процесса; переживает пересоздание Activity. */
+    private var runningAnalysis: RunningAnalysis? = null
+
+    /**
+     * Запрос последнего незавершённого разбора. В отличие от [runningAnalysis] не
+     * обнуляется в `finally`, поэтому им можно возобновить разбор после того, как
+     * `viewModelScope` был отменён вместе с ViewModel.
+     */
+    private var resumableAnalysis: RunningAnalysis? = null
+
+    private class RunningAnalysis(
+        val gameId: Long,
+        val forceReanalyze: Boolean,
+        val requestedByLibrary: Boolean
+    )
 
     // ==================== ПУБЛИЧНЫЕ МЕТОДЫ ====================
 
@@ -731,12 +763,27 @@ class GameViewModel(
     /**
      * Анализировать партию С ПРОГРЕССОМ
      */
-    fun analyzeGameWithProgress(gameId: Long, forceReanalyze: Boolean = false): Boolean {
+    fun analyzeGameWithProgress(
+        gameId: Long,
+        forceReanalyze: Boolean = false,
+        requestedByLibrary: Boolean = false
+    ): Boolean {
+        val running = runningAnalysis
+        if (analysisJob?.isCompleted == false && running?.gameId == gameId) {
+            // После пересоздания Activity тот же запрос (например, из списка партий)
+            // не должен ни падать, ни запускать второй разбор: подписываемся заново.
+            Log.i(TAG, "Re-attaching UI to running analysis of game $gameId")
+            return true
+        }
         if (analysisJob?.isCompleted == false) {
             message.value = "Дождитесь завершения текущего анализа"
             return false
         }
 
+        val request = RunningAnalysis(gameId, forceReanalyze, requestedByLibrary)
+        runningAnalysis = request
+        resumableAnalysis = request
+        libraryAnalysisRequestedGameId.value = if (requestedByLibrary) gameId else null
         isLoading.value = true
         _analysisProgress.value = AnalyzeGameUseCase.AnalysisProgress.Starting
         activeAnalysisGameId = gameId
@@ -791,6 +838,9 @@ class GameViewModel(
                                         TAG,
                                         "Analysis completed: ${result.evaluations.size} evaluations saved"
                                     )
+                                    // Разбор дошёл до терминального состояния: возобновлять нечего.
+                                    resumableAnalysis = null
+                                    analysisNeedsResume = false
                                 }
 
                                 is AnalyzeGameUseCase.Result.Error -> {
@@ -804,6 +854,8 @@ class GameViewModel(
                             loadUserData()
                             message.value = "Ошибка: ${progress.error}"
                             Log.e(TAG, "Analysis failed: ${progress.error}")
+                            resumableAnalysis = null
+                            analysisNeedsResume = false
                         }
                     }
                 }
@@ -823,6 +875,9 @@ class GameViewModel(
                 if (activeAnalysisGameId == gameId) {
                     activeAnalysisGameId = null
                 }
+                if (runningAnalysis?.gameId == gameId) {
+                    runningAnalysis = null
+                }
             }
         }
         return true
@@ -834,6 +889,10 @@ class GameViewModel(
     fun cancelAnalysis() {
         container.chessEngine.stop()
         analysisJob?.cancel()
+        runningAnalysis = null
+        resumableAnalysis = null
+        analysisNeedsResume = false
+        libraryAnalysisRequestedGameId.value = null
         activeAnalysisGameId = null
         isLoading.value = false
         _analysisProgress.value = null
@@ -996,10 +1055,99 @@ class GameViewModel(
         message.value = ""
     }
 
+    /** Сбросить признак «разбор запущен из списка партий» после перехода в сводку. */
+    fun forgetLibraryAnalysisRequest() {
+        libraryAnalysisRequestedGameId.value = null
+    }
+
+    /**
+     * Отметить незавершённый разбор, чтобы его можно было продолжить после пересоздания
+     * ViewModel в том же процессе.
+     *
+     * Вызывается из `onStop`: Activity может быть уничтожена без `onDestroy` (например,
+     * при нехватке памяти), и тогда `onCleared` не успеет ничего запомнить.
+     */
+    fun markAnalysisForResume() {
+        if (analysisJob?.isActive == true) {
+            analysisNeedsResume = true
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         if (analysisJob?.isActive == true) {
+            // Разбор принадлежит viewModelScope и здесь обрывается. Без перезапуска партия
+            // осталась бы в IN_PROGRESS (DatabaseMaintenance сбросит её в PENDING только
+            // при следующем холодном старте), а оценка движка уже частично использована.
+            analysisNeedsResume = true
             container.chessEngine.stop()
         }
     }
+
+    /**
+     * Продолжает разбор, прерванный вместе с предыдущим ViewModel в том же процессе
+     * (например, экран закрыли, а Activity создали заново). Вызывается из Activity.
+     *
+     * Продолжение — дорогая операция, поэтому оно не стартует сразу: движок обычно ещё
+     * не готов (идёт проверка/загрузка NNUE), а без него разбор завершился бы ошибкой
+     * «движок не вернул оценку». Ждём готовности и только затем продолжаем.
+     *
+     * Если процесс был убит системой, ViewModel создаётся с нуля и продолжать нечего:
+     * партию восстанавливает `DatabaseMaintenance` (IN_PROGRESS → PENDING), после чего
+     * пользователь запускает разбор из библиотеки. Персистентный «черновик» разбора
+     * (SavedStateHandle) — отдельная задача, здесь намеренно не вводится.
+     */
+    fun resumeInterruptedAnalysis() {
+        if (!analysisNeedsResume || resumeInFlight) return
+        val request = resumableAnalysis ?: run {
+            analysisNeedsResume = false
+            return
+        }
+        if (analysisJob?.isActive == true) return
+        resumeInFlight = true
+        viewModelScope.launch {
+            try {
+                if (!awaitEngineReady(timeoutMillis = ENGINE_WAIT_TIMEOUT_MS)) {
+                    // Движок не готов (нет сети, ошибка SHA-256, идёт загрузка дольше
+                    // отведённого времени). Отметку не снимаем: попытка повторится при
+                    // следующем старте, а пользователь видит причину в карточке движка.
+                    Log.w(TAG, "Engine not ready, analysis resume postponed")
+                    return@launch
+                }
+                if (analysisJob?.isActive == true || runningAnalysis != null) {
+                    // Пока ждали движок, пользователь запустил другой разбор: не встаём
+                    // в очередь и не показываем ему «дождитесь завершения».
+                    Log.i(TAG, "Another analysis is running, resume postponed")
+                    return@launch
+                }
+                analysisNeedsResume = false
+                Log.i(TAG, "Resuming interrupted analysis of game ${request.gameId}")
+                analyzeGameWithProgress(
+                    gameId = request.gameId,
+                    forceReanalyze = request.forceReanalyze,
+                    requestedByLibrary = request.requestedByLibrary
+                )
+            } finally {
+                resumeInFlight = false
+            }
+        }
+    }
+
+    /**
+     * Ждёт, пока движок станет готов к поиску.
+     *
+     * Загрузка NNUE (до ~100 МБ) может идти минутами, поэтому ожидание ограничено:
+     * по истечении срока разбор не запускается, а партия остаётся в очереди на
+     * следующую попытку. Ошибки сети не маскируются — пользователь видит карточку
+     * статуса движка с кнопкой «Повторить».
+     */
+    private suspend fun awaitEngineReady(timeoutMillis: Long): Boolean =
+        withTimeoutOrNull(timeoutMillis) {
+            // Любое терминальное состояние завершает ожидание: готовность — продолжаем,
+            // ошибка — откладываем до следующего запуска (пользователь видит причину
+            // в карточке статуса движка и может повторить загрузку вручную).
+            container.chessEngine.status.first { status ->
+                status !is EngineStatus.Idle && !status.isBusy
+            }
+        } is EngineStatus.Ready
 }

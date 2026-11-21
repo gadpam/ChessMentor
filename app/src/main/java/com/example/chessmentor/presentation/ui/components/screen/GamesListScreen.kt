@@ -93,7 +93,10 @@ fun GamesListScreen(
 
     val engineStatus by container.chessEngine.status.collectAsState()
     val analysisProgress by gameViewModel.analysisProgress.collectAsState(initial = null)
-    var requestedGameId by rememberSaveable { mutableStateOf<Long?>(null) }
+    // Запрос живёт во ViewModel, а не в rememberSaveable: после пересоздания Activity
+    // (поворот экрана, восстановление процесса) разбор не теряет «свою» партию и
+    // диалог прогресса по-прежнему привязан к нужной карточке.
+    val requestedGameId by gameViewModel.libraryAnalysisRequestedGameId
 
     var searchQuery by remember { mutableStateOf(initialSearchQuery.orEmpty()) }
     var activeFilter by remember {
@@ -281,9 +284,11 @@ fun GamesListScreen(
                         isBusy = isLoading,
                         onClick = { onGameClick(game) },
                         onAnalyze = { id, retry ->
-                            if (gameViewModel.analyzeGameWithProgress(id, forceReanalyze = retry)) {
-                                requestedGameId = id
-                            }
+                            gameViewModel.analyzeGameWithProgress(
+                                id,
+                                forceReanalyze = retry,
+                                requestedByLibrary = true
+                            )
                         },
                         onDelete = { game.id?.let { gameViewModel.deleteGame(it) } }
                     )
@@ -295,7 +300,7 @@ fun GamesListScreen(
     LibraryAnalysisFeedback(
         requestedGameId = requestedGameId,
         progress = analysisProgress,
-        forgetRequest = { requestedGameId = null },
+        forgetRequest = gameViewModel::forgetLibraryAnalysisRequest,
         onDismiss = gameViewModel::clearAnalysisProgress,
         onCancel = gameViewModel::cancelAnalysis,
         onOpenSummary = onAnalysisComplete
@@ -315,6 +320,8 @@ internal fun LibraryAnalysisFeedback(
         if (progress is AnalyzeGameUseCase.AnalysisProgress.Completed && requestedGameId != null) {
             val result = progress.result as? AnalyzeGameUseCase.Result.Success
             forgetRequest()
+            // Завершённый разбор больше не занимает движок: гасим терминальное состояние,
+            // иначе экран просмотра партии навсегда остался бы в режиме «движок занят».
             onDismiss()
             if (result?.game?.id == requestedGameId) onOpenSummary()
         }

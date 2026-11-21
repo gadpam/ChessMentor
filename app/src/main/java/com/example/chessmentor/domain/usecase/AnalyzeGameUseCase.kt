@@ -82,6 +82,20 @@ class AnalyzeGameUseCase(
         ) : AnalysisProgress()
         data class Completed(val result: Result) : AnalysisProgress()
         data class Failed(val error: String) : AnalysisProgress()
+
+        companion object {
+            /**
+             * Занят ли движок активным разбором.
+             *
+             * После [Completed] и [Failed] нативный поиск уже завершён, поэтому движок
+             * считается свободным: иначе UI навсегда блокировал бы live-анализ и проверку
+             * альтернативного хода, если диалог прогресса никто не закрыл.
+             */
+            fun isEngineBusy(progress: AnalysisProgress?): Boolean = when (progress) {
+                null, is Completed, is Failed -> false
+                is Starting, is InProgress -> true
+            }
+        }
     }
 
     sealed class Result {
@@ -303,6 +317,10 @@ class AnalyzeGameUseCase(
         lastResult
     }
 
+    /** Сбой движка во время разбора: результат партии недостоверен и не сохраняется. */
+    class EngineAnalysisException(message: String, cause: Throwable? = null) :
+        Exception(message, cause)
+
     private data class AnalysisData(
         val analyzedMoves: List<AnalyzedMove>,
         val evaluations: List<Int>,
@@ -345,7 +363,10 @@ class AnalyzeGameUseCase(
 
         // Один поиск Stockfish на каждую позицию даёт и оценку, и лучшую линию для следующего полухода
         var pendingLine = chessEngine.getBestMoveWithLine(board.fen, depthLimit = analysisDepth)
-        val initialEvalWhite = toWhitePerspective(pendingLine?.score ?: 0, board.sideToMove)
+            ?: throw EngineAnalysisException(
+                "Движок не вернул оценку стартовой позиции. Проверьте движок и повторите разбор."
+            )
+        val initialEvalWhite = toWhitePerspective(pendingLine.score, board.sideToMove)
         evaluations.add(initialEvalWhite)
 
         var inBookSequence = !isCustomStartFen
@@ -353,6 +374,11 @@ class AnalyzeGameUseCase(
         var prevMove: Move? = null
         var prevCapturedValue = 0
         var prevPlyWinLoss = 0.0
+
+        // Если движок не смог оценить позицию, разбор прерывается: подстановка
+        // «предыдущей оценки» давала бы правдоподобные, но выдуманные точность,
+        // ACPL и количество ошибок, которые затем навсегда сохранялись бы в БД.
+        var analysisError: EngineAnalysisException? = null
 
         halfMoves.forEachIndexed { index, move ->
             coroutineContext.ensureActive()
@@ -411,8 +437,13 @@ class AnalyzeGameUseCase(
                     else -> chessEngine.getBestMoveWithLine(fenAfter, depthLimit = analysisDepth)
                 }
 
+                // Терминальные позиции обработаны выше, поэтому здесь отсутствие линии
+                // означает сбой движка, а не «нулевую» оценку. Молчаливая подстановка 0
+                // искажала бы точность и число ошибок.
                 val evalAfterRaw = afterLine?.score
-                    ?: chessEngine.evaluate(fenAfter, depthLimit = analysisDepth)
+                    ?: throw EngineAnalysisException(
+                        "Движок не вернул оценку позиции после хода $moveNumber ($san)"
+                    )
                 pendingLine = afterLine
 
                 val evalBefore = evaluations.last()
@@ -516,14 +547,19 @@ class AnalyzeGameUseCase(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // Сбой одного поиска делает агрегаты по всей партии недостоверными,
+                // поэтому останавливаемся и отдаём пользователю понятную ошибку.
                 Log.e(TAG, "Error analyzing move $moveNumber ($san): ${e.message}", e)
-                pendingLine = null
-                prevMove = move
-                prevCapturedValue = capturedValueNow
-                prevPlyWinLoss = 0.0
-                evaluations.add(evaluations.lastOrNull() ?: 0)
+                analysisError = EngineAnalysisException(
+                    "Не удалось оценить позицию на ходу $moveNumber ($san): " +
+                        (e.message ?: "неизвестная ошибка"),
+                    e
+                )
+                return@forEachIndexed
             }
         }
+
+        analysisError?.let { throw it }
 
         return AnalysisData(
             analyzedMoves = analyzedMoves,

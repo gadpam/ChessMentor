@@ -34,4 +34,13 @@ interface UserDao {
 
     @Query("SELECT EXISTS(SELECT 1 FROM users WHERE nickname = :nickname COLLATE NOCASE)")
     suspend fun existsByNickname(nickname: String): Boolean
+
+    @Query("SELECT * FROM users ORDER BY createdAt ASC")
+    suspend fun findAll(): List<User>
+
+    @Query("SELECT * FROM users WHERE skillLevel = :skillLevel ORDER BY rating DESC")
+    suspend fun findBySkillLevel(skillLevel: String): List<User>
+
+    @Query("SELECT * FROM users ORDER BY rating DESC LIMIT :limit")
+    suspend fun findTopByRating(limit: Int): List<User>
 }

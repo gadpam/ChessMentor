@@ -39,6 +39,7 @@ import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.MoveQuality
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnParser
+import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.example.chessmentor.presentation.ui.components.*
 import com.example.chessmentor.presentation.viewmodel.BoardViewModel
@@ -128,7 +129,11 @@ private fun GameViewScreenContent(
     val analyzedMoves = gameViewModel.selectedGameAnalyzedMoves
     val gameEvaluations = gameViewModel.selectedGameEvaluations
     val analysisProgress by gameViewModel.analysisProgress.collectAsState(initial = null)
-    val isBackgroundAnalyzing = analysisProgress != null
+    // Терминальные состояния (Completed/Failed) означают, что движок уже свободен.
+    // Иначе разбор, запущенный не с экрана библиотеки (например, из сводки или из
+    // «Повторить» на этом же экране), навсегда оставлял бы флаг «движок занят»
+    // и блокировал live-анализ и проверку альтернативного хода.
+    val isBackgroundAnalyzing = AnalyzeGameUseCase.AnalysisProgress.isEngineBusy(analysisProgress)
 
     val soundManager = remember(context) {
         SoundManager(context.applicationContext)
