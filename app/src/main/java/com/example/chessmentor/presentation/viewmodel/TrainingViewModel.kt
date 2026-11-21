@@ -28,6 +28,8 @@ import com.example.chessmentor.domain.training.SolutionReviewHelper
 import com.example.chessmentor.domain.training.SolutionReviewStep
 import com.example.chessmentor.domain.training.SpacedRepetitionScheduler
 import com.example.chessmentor.domain.training.TrainingLabels
+import com.example.chessmentor.domain.training.verifyTrainingMove
+import com.example.chessmentor.domain.training.TrainingMoveQuality
 import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.training.TrainingRatingCalculator
 import com.example.chessmentor.domain.training.TrainingSessionPlanner
@@ -43,6 +45,8 @@ import com.github.bhlangonijr.chesslib.move.Move
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -70,6 +74,7 @@ data class TrainingUiState(
     val feedbackMessage: String? = null,
     val playerSide: Side = Side.WHITE,
     val isInputLocked: Boolean = false,
+    val checkUnavailable: Boolean = false,
     val isSolved: Boolean = false,
     val isSolutionRevealed: Boolean = false,
     val isLoading: Boolean = false,
@@ -141,10 +146,16 @@ data class SessionStats(
 )
 
 enum class HintLevel { NONE, PIECE_HIGHLIGHT, FULL_SOLUTION }
-enum class TrainingMoveQuality { BEST, EXCELLENT, MISTAKE }
+private data class PendingMoveCheck(
+    val before: TrainingUiState,
+    val move: Move,
+    val previousThinkMs: Long?,
+    val startedAt: Long
+)
 
 class TrainingViewModel(
-    private val container: AppContainer
+    private val container: AppContainer,
+    private val verificationEngine: ChessEngine = container.chessEngine
 ) : ViewModel() {
 
     companion object {
@@ -166,6 +177,7 @@ class TrainingViewModel(
     private var onUserUpdatedCallback: ((User) -> Unit)? = null
     private var currentExercise: Exercise? = null
     private var targetSequence = mutableListOf<String>()
+    private var pendingCheck: PendingMoveCheck? = null
     private val recordedMoves = mutableListOf<String>()
     private var currentMoveIndex = 0
     private var startTime: Long = 0
@@ -833,6 +845,7 @@ class TrainingViewModel(
         analysisJob?.cancel()
         analysisHistory.clear()
         targetSequence.clear()
+        pendingCheck = null
         recordedMoves.clear()
         currentMoveIndex = 0
         attemptMistakeCount = 0
@@ -926,6 +939,7 @@ class TrainingViewModel(
             isAnimatingPunishment = false,
             isLoading = false,
             hasActiveExercise = true,
+            checkUnavailable = false,
             hasNoUserMistakes = false,
             lastRatingDelta = null,
             exerciseTitle = title,
@@ -1113,6 +1127,7 @@ class TrainingViewModel(
             return
         }
 
+        val previousThinkMs = firstMoveThinkTimeMs
         if (firstMoveThinkTimeMs == null && currentMoveIndex == 0 && attemptMistakeCount == 0) {
             firstMoveThinkTimeMs = (System.currentTimeMillis() - startTime).coerceAtLeast(0L)
         }
@@ -1140,6 +1155,7 @@ class TrainingViewModel(
             arrows = emptyList(),
             highlights = emptyList(),
             hintLevel = HintLevel.NONE,
+            lastRatingDelta = null,
             feedbackMessage = null,
             currentMistakeAnalysis = null,
             showBetterMoveHint = false,
@@ -1150,7 +1166,7 @@ class TrainingViewModel(
 
         currentJob?.cancel()
         currentJob = viewModelScope.launch {
-            processUserMove(positionBeforePlayerMove, move)
+            processUserMove(PendingMoveCheck(state, move, previousThinkMs, System.currentTimeMillis()))
         }
     }
 
@@ -1199,9 +1215,27 @@ class TrainingViewModel(
         }
     }
 
-    private suspend fun processUserMove(fenBefore: String, move: Move) {
+    fun retryMoveCheck() {
+        val check = pendingCheck ?: return
+        if (!_uiState.value.checkUnavailable || _uiState.value.isLoading) return
+        _uiState.value = _uiState.value.copy(checkUnavailable = false)
+        currentJob = viewModelScope.launch { processUserMove(check) }
+    }
+
+    fun returnFromMoveCheck() {
+        val check = pendingCheck ?: return
+        if (!_uiState.value.checkUnavailable || _uiState.value.isLoading) return
+        pendingCheck = null
+        startTime += (System.currentTimeMillis() - check.startedAt).coerceAtLeast(0L)
+        firstMoveThinkTimeMs = check.previousThinkMs
+        // Restore the pre-move board and its hint without replaying an old sound.
+        _uiState.value = check.before.copy(soundEvent = null, soundEventId = soundCounter)
+    }
+
+    private suspend fun processUserMove(check: PendingMoveCheck) {
+        val fenBefore = check.before.board.fen
+        val move = check.move
         val userUci = ChessMoveUtils.moveToUci(move)
-        recordedMoves.add(userUci)
 
         val expected = targetSequence.getOrNull(currentMoveIndex)?.lowercase()
         val isExactExpected = expected != null && userUci == expected
@@ -1212,7 +1246,25 @@ class TrainingViewModel(
                 feedbackMessage = "Проверяем вариант..."
             )
 
-            val quality = checkMoveQuality(fenBefore, move)
+            val defensive = currentExercise?.let { ExerciseMetadata.isDefensiveGoal(it) } == true
+            val quality = try {
+                withContext(Dispatchers.IO) { verifyTrainingMove(verificationEngine, fenBefore, move, defensive) }
+            } catch (e: CancellationException) {
+                // Leaving the exercise cancels this job. Cancelling only the engine's
+                // initialization, however, must not leave the current board locked.
+                currentCoroutineContext().ensureActive()
+                TrainingMoveQuality.UNAVAILABLE
+            }
+            if (quality == TrainingMoveQuality.UNAVAILABLE) {
+                pendingCheck = check
+                _uiState.value = _uiState.value.copy(
+                    checkUnavailable = true, feedbackMessage = "Не удалось оценить ход. Ошибка не засчитана."
+                )
+                return
+            }
+            pendingCheck = null
+            startTime += (System.currentTimeMillis() - check.startedAt).coerceAtLeast(0L)
+            recordedMoves.add(userUci)
             if (quality == TrainingMoveQuality.BEST || quality == TrainingMoveQuality.EXCELLENT) {
                 val remainingPlies = (targetSequence.size - currentMoveIndex - 1).coerceAtLeast(0)
                 // Если в задаче предполагалось продолжение и мата ещё нет — пробуем продолжить комбинацию с движком
@@ -1256,6 +1308,7 @@ class TrainingViewModel(
             }
         }
 
+        recordedMoves.add(userUci)
         currentMoveIndex++
 
         if (targetSequence.isNotEmpty() && currentMoveIndex < targetSequence.size && !_uiState.value.board.isMated) {
@@ -1635,66 +1688,6 @@ class TrainingViewModel(
             ?: currentExercise?.tacticalPattern
             ?: return
         interleavedQueue.scheduleAfterMistake(pattern.name)
-    }
-
-    private suspend fun checkMoveQuality(fen: String, userMove: Move): TrainingMoveQuality {
-        return withContext(Dispatchers.IO) {
-            try {
-                val userBoard = Board()
-                userBoard.loadFromFen(fen)
-                if (!userBoard.doMove(userMove)) return@withContext TrainingMoveQuality.MISTAKE
-
-                if (userBoard.isMated) {
-                    return@withContext TrainingMoveQuality.BEST
-                }
-
-                val engine = container.chessEngine
-                if (!engine.init()) return@withContext TrainingMoveQuality.MISTAKE
-
-                val bestLine = engine.getBestMoveWithLine(fen, 10)
-                    ?: return@withContext TrainingMoveQuality.MISTAKE
-
-                val userUci = ChessMoveUtils.moveToUci(move = userMove)
-                if (userUci.equals(bestLine.bestMove, ignoreCase = true)) {
-                    return@withContext TrainingMoveQuality.BEST
-                }
-
-                val opponentEvalAfterUser = engine.evaluate(userBoard.fen, 10)
-                val playerEvalAfterUser = -opponentEvalAfterUser
-                val playerEvalBest = bestLine.score
-
-                if (ChessEngine.isMateScore(playerEvalAfterUser) && playerEvalAfterUser > 0) {
-                    return@withContext if (playerEvalAfterUser >= playerEvalBest) {
-                        TrainingMoveQuality.BEST
-                    } else {
-                        TrainingMoveQuality.EXCELLENT
-                    }
-                }
-
-                if (ChessEngine.isMateScore(playerEvalBest) && playerEvalBest > 0) {
-                    return@withContext TrainingMoveQuality.MISTAKE
-                }
-
-                val cpLoss = playerEvalBest - playerEvalAfterUser
-                val isDefensive = currentExercise?.let { ExerciseMetadata.isDefensiveGoal(it) } == true
-                when {
-                    cpLoss <= 15 -> TrainingMoveQuality.BEST
-                    cpLoss <= 45 -> TrainingMoveQuality.EXCELLENT
-                    // В защитной задаче любой ход, надёжно удерживающий равновесие без тактических потерь, корректен
-                    isDefensive && playerEvalAfterUser >= -140 && cpLoss <= 60 ->
-                        TrainingMoveQuality.EXCELLENT
-                    // При реализации уже подавляющего перевеса (+4 пешки) допускаем равноценный выигрывающий путь
-                    playerEvalAfterUser >= 400 && cpLoss <= 65 ->
-                        TrainingMoveQuality.EXCELLENT
-                    else -> TrainingMoveQuality.MISTAKE
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "Error checking move quality", e)
-                TrainingMoveQuality.MISTAKE
-            }
-        }
     }
 
     private fun cleanEvaluationText(text: String): String {
