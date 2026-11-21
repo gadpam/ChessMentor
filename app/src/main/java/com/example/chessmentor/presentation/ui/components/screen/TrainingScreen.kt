@@ -256,6 +256,8 @@ fun TrainingScreen(
             if (!uiState.isLoading && uiState.hasActiveExercise) {
                 BottomControlPanel(
                     uiState = uiState,
+                    onRetryCheck = viewModel::retryMoveCheck,
+                    onReturnFromCheck = viewModel::returnFromMoveCheck,
                     onNextExercise = {
                         selectedSquare = null
                         pendingPromotion = null
@@ -1080,6 +1082,8 @@ private fun SessionHeader(
 @Composable
 private fun BottomControlPanel(
     uiState: TrainingUiState,
+    onRetryCheck: () -> Unit,
+    onReturnFromCheck: () -> Unit,
     onNextExercise: () -> Unit,
     onHint: () -> Unit,
     onShowBetterMove: () -> Unit,
@@ -1107,7 +1111,10 @@ private fun BottomControlPanel(
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (isFinished) {
+            if (uiState.checkUnavailable) {
+                Button(onClick = onRetryCheck, modifier = Modifier.fillMaxWidth()) { Text("Повторить проверку") }
+                TextButton(onClick = onReturnFromCheck, modifier = Modifier.fillMaxWidth()) { Text("Вернуться к позиции") }
+            } else if (isFinished) {
                 // Пошаговый навигатор решения или управление свободным анализом со Stockfish
                 if (uiState.isFreeAnalysisMode) {
                     Row(
