@@ -771,6 +771,49 @@ private fun ChangePasswordCard(
                     enabled = !isSaving
                 )
 
+                // Индикатор силы пароля
+                if (newPassword.isNotEmpty()) {
+                    val palette = LocalChessPalette.current
+                    val strength = when {
+                        newPassword.length < 6 -> Triple("Слабый", MaterialTheme.colorScheme.error, 0.33f)
+                        newPassword.length < 12 -> Triple("Средний", palette.caution, 0.66f)
+                        else -> Triple("Надёжный", palette.positive, 1f)
+                    }
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Надёжность пароля: ${strength.first}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = strength.second
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(4.dp)
+                                    .background(
+                                        strength.second.copy(alpha = 0.2f),
+                                        RoundedCornerShape(2.dp)
+                                    )
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .widthIn(max = strength.third.coerceAtLeast(0.01f).coerceAtMost(1f) * 100f, fill = false)
+                                        .height(4.dp)
+                                        .background(strength.second, RoundedCornerShape(2.dp))
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(10.dp))
 
                 val mismatch = confirmPassword.isNotEmpty() && confirmPassword != newPassword
