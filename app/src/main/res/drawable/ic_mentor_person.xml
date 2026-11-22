@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Пользователь с шахматной фигурой -->
+    <path
+        android:fillColor="#81B64C"
+        android:pathData="M12,4 C9.74,4 8,5.76 8,8 S9.74,12 12,12 S16,10.24 16,8 S14.26,4 12,4 Z M12,14 C9.79,14 8,12.21 8,10 S9.79,6 12,6 16,7.79 16,10 14.21,14 12,14 Z"/>
+    <path
+        android:fillColor="#316446"
+        android:pathData="M4,22 H20 V12 H4 Z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,14 L12,18 L16,18 L16,14 Z M8,14 L8,18 L12,18 L12,14 Z"/>
+</vector>

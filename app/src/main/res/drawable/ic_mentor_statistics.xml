@@ -1,0 +1,23 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- График точности с шахматным мотивом -->
+    <path
+        android:fillColor="#81B64C"
+        android:pathData="M4,20 L4,4 L20,4 L20,20 Z"/>
+    <!-- Линия графика -->
+    <path
+        android:fillColor="#2196F3"
+        android:pathData="M6,18 L10,14 L14,16 L18,10 L18,20 L6,20 Z M6,18 L10,14 L14,16 L18,10 Z"/>
+    <!-- Точки на графике -->
+    <circle android:fillColor="#FFFFFF" android:cx="6" android:cy="18" android:r="1.5"/>
+    <circle android:fillColor="#FFFFFF" android:cx="10" android:cy="14" android:r="1.5"/>
+    <circle android:fillColor="#FFFFFF" android:cx="14" android:cy="16" android:r="1.5"/>
+    <circle android:fillColor="#FFFFFF" android:cx="18" android:cy="10" android:r="1.5"/>
+    <!-- Шахматная фигура в углу -->
+    <path
+        android:fillColor="#316446"
+        android:pathData="M4,20 L6,18 L6,20 Z"/>
+</vector>
