@@ -61,10 +61,11 @@ internal fun ChessComImportDialog(
         }
     }
     val colors = MaterialTheme.colorScheme
-    AlertDialog(onDismissRequest = onClose, containerColor = colors.surface,
-        title = { Text("Партии с Chess.com", style = MaterialTheme.typography.headlineSmall) },
-        text = {
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("Партии с Chess.com", style = MaterialTheme.typography.headlineSmall)
                 Text("Публичный архив завершённых партий. Пароль не нужен. ChessMentor не связан с Chess.com.",
                     style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                 if (source == null) {
@@ -130,9 +131,19 @@ internal fun ChessComImportDialog(
                     }
                 }
             }
-        },
-        confirmButton = { Button(onClick = { onImport(games.filter { it.fingerprint in selected && !it.inLibrary }) },
-            enabled = !busy && selected.isNotEmpty()) { Text("Импортировать выбранные (${selected.size})") } },
-        dismissButton = { TextButton(onClick = onClose) { Text("Закрыть") } }
-    )
-}
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = { onImport(games.filter { it.fingerprint in selected && !it.inLibrary }) },
+                    enabled = !busy && selected.isNotEmpty()
+                ) {
+                    Text("Импортировать выбранные (${selected.size})")
+                }
+                TextButton(onClick = onClose) {
+                    Text("Закрыть")
+                }
+            }
+        }

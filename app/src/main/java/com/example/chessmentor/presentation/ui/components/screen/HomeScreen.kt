@@ -50,6 +50,7 @@ import com.example.chessmentor.presentation.ui.components.CommonUI.BrandButton
 import com.example.chessmentor.presentation.ui.components.CommonUI.MessageCard
 import com.example.chessmentor.presentation.ui.components.CommonUI.MessageType
 import com.example.chessmentor.presentation.ui.components.EngineStatusBanner
+import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import com.github.bhlangonijr.chesslib.Board
 
@@ -377,11 +378,7 @@ private fun LoginForm(
         enabled = canSubmit
     ) {
         if (isLoading) {
-            CircularProgressIndicator(
-                color = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(22.dp),
-                strokeWidth = 2.5.dp
-            )
+            SkeletonBox(height = 22.dp, width = 22.dp)
         } else {
             Text("Войти", fontSize = 16.sp)
         }
@@ -530,11 +527,7 @@ private fun RegisterForm(
         enabled = !isLoading && isFormValid
     ) {
         if (isLoading) {
-            CircularProgressIndicator(
-                color = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(22.dp),
-                strokeWidth = 2.5.dp
-            )
+            SkeletonBox(height = 22.dp, width = 22.dp)
         } else {
             Text("Зарегистрироваться", fontSize = 16.sp)
         }

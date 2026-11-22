@@ -689,16 +689,36 @@ private fun GameViewScreenContent(
         )
     }
 
-    // Диалог выбора фигуры при превращении пешки (в режиме «Исправить» и в аналитической ветке)
+    // Выбор фигуры при превращении пешки (в режиме «Исправить» и в аналитической ветке)
     pendingPromotion?.let { (from, to) ->
-        ReviewPromotionDialog(
-            onSelect = { pieceType ->
-                pendingPromotion = null
-                selectedSquare = null
-                handleUserBoardMove(from, to, promotion = pieceType)
-            },
-            onDismiss = { pendingPromotion = null }
-        )
+        Box(Modifier.fillMaxWidth()) {
+            DropdownMenu(
+                expanded = true,
+                onDismissRequest = { pendingPromotion = null }
+            ) {
+                listOf(
+                    PieceType.QUEEN to "♕ Ферзь",
+                    PieceType.ROOK to "♖ Ладья",
+                    PieceType.BISHOP to "♗ Слон",
+                    PieceType.KNIGHT to "♘ Конь"
+                ).forEach { (type, label) ->
+                    DropdownMenuItem(
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        text = { Text(label, fontWeight = FontWeight.SemiBold) },
+                        onClick = {
+                            pendingPromotion = null
+                            selectedSquare = null
+                            handleUserBoardMove(from, to, promotion = type)
+                        }
+                    )
+                }
+                DropdownMenuItem(
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    text = { Text("Отмена") },
+                    onClick = { pendingPromotion = null }
+                )
+            }
+        }
     }
 
     AnalysisProgressDialog(
@@ -740,7 +760,7 @@ private fun ReviewPlayerToolbar(
         ) {
             IconButton(
                 onClick = onFlipBoard,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.SwapVert,
@@ -752,7 +772,7 @@ private fun ReviewPlayerToolbar(
             if (showEngineToggle) {
                 IconButton(
                     onClick = onToggleEngine,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Psychology,
@@ -769,7 +789,7 @@ private fun ReviewPlayerToolbar(
             if (onOpenSummary != null) {
                 IconButton(
                     onClick = onOpenSummary,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Insights,
@@ -1016,7 +1036,7 @@ internal fun RetryMistakePanel(
                     color = if (state.isSolved) LocalChessPalette.current.positive else MaterialTheme.colorScheme.primary
                 )
                 if (state.isCheckingEngine) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    SkeletonBox(height = 16.dp, width = 16.dp)
                 }
             }
 
@@ -1153,7 +1173,8 @@ private fun EngineLineCard(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (state.isLoading) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                SkeletonBox(height = 16.dp, width = 16.dp)
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "Stockfish считает лучшую линию...",
                     style = MaterialTheme.typography.bodySmall,
@@ -1211,7 +1232,7 @@ private fun EngineLineCard(
             }
             IconButton(
                 onClick = onClose,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
@@ -1391,35 +1412,4 @@ internal fun ReviewNavigationBar(
     }
 }
 
-@Composable
-private fun ReviewPromotionDialog(
-    onSelect: (PieceType) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val options = listOf(
-        PieceType.QUEEN to "♕ Ферзь",
-        PieceType.ROOK to "♖ Ладья",
-        PieceType.BISHOP to "♗ Слон",
-        PieceType.KNIGHT to "♘ Конь"
-    )
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Превращение пешки") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                options.forEach { (type, label) ->
-                    FilledTonalButton(
-                        onClick = { onSelect(type) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(label, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Отмена") }
-        }
-    )
-}
+

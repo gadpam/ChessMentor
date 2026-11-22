@@ -494,32 +494,26 @@ internal fun GraphMovePicker(
 ) {
     val count = minOf(moveLabels.size, evaluations.size - 1)
     if (count <= 0) return
-    var open by rememberSaveable { mutableStateOf(false) }
-    OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    OutlinedButton(
+        onClick = { expanded = true },
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+    ) {
         Text("Выбрать ход из списка")
     }
-    if (open) {
-        AlertDialog(
-            onDismissRequest = { open = false },
-            title = { Text("Открыть ход на доске") },
-            text = {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
-                    state = rememberLazyListState(initialFirstVisibleItemIndex = currentMoveIndex.coerceIn(0, count - 1))
-                ) {
-                    items(count) { index ->
-                        TextButton(
-                            onClick = { open = false; onOpenReviewAtMove(index) },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        ) {
-                            Text(moveLabels[index], modifier = Modifier.weight(1f), fontFamily = FontFamily.Monospace)
-                            Text(ChessEngine.formatEvaluation(evaluations[index + 1]))
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { open = false }) { Text("Закрыть") } }
-        )
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = { expanded = false }
+    ) {
+        items(count) { index ->
+            DropdownMenuItem(
+                onClick = { expanded = false; onOpenReviewAtMove(index) },
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Text(moveLabels[index], modifier = Modifier.weight(1f), fontFamily = FontFamily.Monospace)
+                Text(ChessEngine.formatEvaluation(evaluations[index + 1]))
+            }
+        }
     }
 }
 
@@ -1440,7 +1434,7 @@ fun KeyMomentRow(
                 Spacer(modifier = Modifier.width(4.dp))
                 IconButton(
                     onClick = onPracticeClick,
-                    modifier = Modifier.size(34.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.FitnessCenter,
