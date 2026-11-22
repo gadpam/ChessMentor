@@ -399,7 +399,7 @@ private fun SelectedMomentStrip(
                     Text("На доске", style = MaterialTheme.typography.labelMedium)
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
+                        contentDescription = "Открыть на доске",
                         modifier = Modifier.size(16.dp)
                     )
                 }

@@ -610,7 +610,7 @@ private fun PlayerHeroSummaryCard(stats: GetUserStatisticsUseCase.UserStatistics
                         ) {
                             Icon(
                                 imageVector = Icons.Default.EmojiEvents,
-                                contentDescription = null,
+                                contentDescription = "Рекорд победы",
                                 tint = LocalChessPalette.current.caution,
                                 modifier = Modifier.size(15.dp)
                             )
@@ -720,7 +720,7 @@ private fun CoachingPlanCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.School,
-                    contentDescription = null,
+                    contentDescription = "План тренера",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
@@ -816,7 +816,7 @@ private fun AccuracyTrendCard(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.TrendingUp,
-                        contentDescription = null,
+                        contentDescription = "Динамика точности",
                         tint = primaryColor,
                         modifier = Modifier.size(20.dp)
                     )
@@ -1038,7 +1038,7 @@ private fun AccuracyTrendCard(
                             onClick = { onOpenGameById(targetId) },
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                         ) {
-                            Icon(Icons.Default.Insights, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Insights, contentDescription = "Разбор партии", modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("Разбор", style = MaterialTheme.typography.labelMedium)
                         }
@@ -1453,7 +1453,7 @@ private fun TimeControlsAndClockCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Timer,
-                    contentDescription = null,
+                    contentDescription = "Контроли времени и цейтнот",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
@@ -1609,7 +1609,7 @@ private fun DailyActivityCard(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.LocalFireDepartment,
-                                contentDescription = null,
+                                contentDescription = "Серия дней",
                                 tint = LocalChessPalette.current.caution,
                                 modifier = Modifier.size(15.dp)
                             )
@@ -1720,7 +1720,7 @@ private fun RepertoireOverviewBanner(
                 ) {
                     Icon(
                         imageVector = Icons.Default.MenuBook,
-                        contentDescription = null,
+                        contentDescription = "Дебютный репертуар (ECO)",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(22.dp)
                     )
@@ -1838,7 +1838,7 @@ private fun SpotlightOpeningBanner(
         ) {
             Icon(
                 imageVector = icon,
-                contentDescription = null,
+                contentDescription = badge,
                 tint = accent,
                 modifier = Modifier.size(24.dp)
             )
@@ -1998,7 +1998,7 @@ private fun OpeningLineItem(
 
             Icon(
                 imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = null,
+                contentDescription = if (expanded) "Свернуть" else "Развернуть",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp)
             )
@@ -2061,7 +2061,7 @@ private fun OpeningLineItem(
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                                 modifier = Modifier.height(32.dp)
                             ) {
-                                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Icon(Icons.Default.Search, contentDescription = "Все партии", modifier = Modifier.size(15.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text("Все партии (${line.gamesCount})", style = MaterialTheme.typography.labelMedium)
                             }
@@ -2187,7 +2187,7 @@ private fun TacticalOverviewCard(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.FitnessCenter, contentDescription = null, tint = MaterialTheme.colorScheme.primary,
+                Icon(Icons.Default.FitnessCenter, contentDescription = "Тактическая подготовка", tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp))
                 Text("Тактическая подготовка", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }

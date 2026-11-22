@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.painter.rememberVectorPainter
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -83,6 +84,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.res.vectorResource
+import com.example.chessmentor.R
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.training.SessionSummary
@@ -373,7 +376,7 @@ fun TrainingScreen(
                     else -> { { viewModel.selectMode(TrainingMode.All) } to "Открыть общий тактический банк" }
                 }
                 BrandEmptyState(
-                    icon = if (isFromGame) Icons.Default.CheckCircle else Icons.Default.Info,
+                    painter = rememberVectorPainter(vectorResource(R.drawable.ic_empty_training)),
                     title = uiState.feedbackMessage ?: "Нет доступных задач в выбранном режиме.",
                     modifier = Modifier
                         .fillMaxSize()
@@ -637,7 +640,7 @@ private fun SessionSummaryCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.EmojiEvents,
-                    contentDescription = null,
+                    contentDescription = summary.headline,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(40.dp)
                 )
@@ -717,7 +720,7 @@ private fun SessionSummaryCard(
                 .height(48.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null)
+            Icon(Icons.Default.PlayArrow, contentDescription = "Начать новую сессию")
             Spacer(Modifier.width(8.dp))
             Text("Новая сессия (10 задач)", fontWeight = FontWeight.Bold)
         }
@@ -1152,7 +1155,7 @@ private fun BottomControlPanel(
                             contentPadding = PaddingValues(horizontal = 10.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.PlayArrow, contentDescription = "Показать лучший ход движка", modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 text = uiState.analysisBestMoveSan?.let { "Ход $it" } ?: "Ход движка",
@@ -1234,7 +1237,7 @@ private fun BottomControlPanel(
                             contentPadding = PaddingValues(horizontal = 10.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Icon(Icons.Default.Analytics, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Analytics, contentDescription = "Анализ позиции", modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("Анализ", fontSize = 12.sp)
                         }
@@ -1263,7 +1266,7 @@ private fun BottomControlPanel(
                         } else {
                             Icons.AutoMirrored.Filled.ArrowForward
                         },
-                        contentDescription = null
+                        contentDescription = if (isFinalSessionPuzzle) "Завершить сессию" else "Перейти к следующей задаче"
                     )
                 }
             } else {

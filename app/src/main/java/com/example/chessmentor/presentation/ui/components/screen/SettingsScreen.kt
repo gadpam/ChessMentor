@@ -285,7 +285,7 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .height(50.dp)
             ) {
-                Icon(Icons.Default.Save, contentDescription = null)
+                Icon(Icons.Default.Save, contentDescription = "Сохранить изменения")
                 Spacer(Modifier.width(8.dp))
                 Text(if (viewModel.hasProfileChanges) "Сохранить изменения" else "Все изменения сохранены")
             }
@@ -358,7 +358,7 @@ fun SettingsScreen(
                 ),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
             ) {
-                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
+                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Выйти из аккаунта")
                 Spacer(Modifier.width(8.dp))
                 Text("Выйти из аккаунта")
             }
@@ -407,7 +407,7 @@ private fun SettingsMessage(
             ) {
                 Icon(
                     imageVector = if (isError) Icons.Default.Error else Icons.Default.CheckCircle,
-                    contentDescription = null,
+                    contentDescription = if (isError) "Ошибка" else "Успешно",
                     tint = if (isError) {
                         MaterialTheme.colorScheme.error
                     } else {
@@ -441,7 +441,7 @@ private fun ProfileCard(
     Card {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Default.Person, contentDescription = "Профиль", tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
                 Text("Профиль", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
@@ -454,7 +454,7 @@ private fun ProfileCard(
                 label = { Text("Никнейм (3–50 символов)") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Edit, null) },
+                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = "Редактировать никнейм") },
                 isError = nickname.trim().length < 3
             )
 
@@ -463,7 +463,7 @@ private fun ProfileCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.Email,
-                    contentDescription = null,
+                    contentDescription = "Электронная почта",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp)
                 )
@@ -490,7 +490,7 @@ private fun ParametersCard(
     Card {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Tune, null, tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Default.Tune, contentDescription = "Оформление и звук", tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
                 Text("Оформление и звук", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
@@ -539,7 +539,7 @@ private fun ParametersCard(
                         } else {
                             Icons.AutoMirrored.Filled.VolumeOff
                         },
-                        contentDescription = null
+                        contentDescription = if (isSoundEnabled) "Звук включён" else "Звук выключен"
                     )
                     Spacer(Modifier.width(12.dp))
                     Text("Звуковые эффекты ходов")
@@ -647,7 +647,7 @@ private fun EngineShortcutCard(
         ) {
             Icon(
                 imageVector = Icons.Default.Memory,
-                contentDescription = null,
+                contentDescription = "Статус движка Stockfish",
                 tint = MaterialTheme.colorScheme.primary
             )
             Spacer(Modifier.width(12.dp))
@@ -666,7 +666,7 @@ private fun EngineShortcutCard(
             if (status.isReady) {
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = null,
+                    contentDescription = "Движок готов",
                     tint = badgeColor,
                     modifier = Modifier.size(18.dp)
                 )
@@ -707,13 +707,13 @@ private fun ChangePasswordCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Lock, contentDescription = "Безопасность и пароль", tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(8.dp))
                     Text("Безопасность и пароль", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
                 Icon(
                     imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = null
+                    contentDescription = if (expanded) "Свернуть раздел пароля" else "Развернуть раздел пароля"
                 )
             }
 
@@ -895,7 +895,7 @@ private fun DataBackupCard(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Storage, null, tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Default.Storage, contentDescription = "Данные и резервная копия", tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
                 Text("Данные и резервная копия", fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
@@ -917,7 +917,7 @@ private fun DataBackupCard(
                 } else {
                     Icon(
                         imageVector = Icons.Default.Download,
-                        contentDescription = null,
+                        contentDescription = "Скачать резервную копию JSON",
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -935,7 +935,7 @@ private fun DataBackupCard(
                 } else {
                     Icon(
                         imageVector = Icons.Default.Upload,
-                        contentDescription = null,
+                        contentDescription = "Загрузить резервную копию JSON",
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -950,7 +950,7 @@ private fun DataBackupCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Download,
-                    contentDescription = null,
+                    contentDescription = "Экспортировать партии в PGN",
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(Modifier.width(8.dp))
