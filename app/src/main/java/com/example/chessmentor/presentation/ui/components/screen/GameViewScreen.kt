@@ -30,6 +30,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.painterResource
+import com.example.chessmentor.R
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.domain.analysis.GameReviewHelper
@@ -73,7 +75,7 @@ fun GameViewScreen(
 
     if (game == null) {
         BrandEmptyState(
-            icon = Icons.Default.SportsEsports,
+            painter = painterResource(R.drawable.ic_empty_game),
             title = "Игра не выбрана",
             subtitle = "Откройте партию из библиотеки, чтобы начать её разбор с движком Stockfish",
             modifier = Modifier

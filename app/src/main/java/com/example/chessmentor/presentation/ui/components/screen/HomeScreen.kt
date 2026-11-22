@@ -33,6 +33,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.painterResource
+import com.example.chessmentor.R
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
@@ -630,7 +632,7 @@ fun DashboardScreen(
         if (recentGames.isEmpty()) {
             item {
                 BrandEmptyState(
-                    icon = Icons.Default.AssignmentTurnedIn,
+                    painter = painterResource(R.drawable.ic_empty_games),
                     title = "Партій ещё нет",
                     subtitle = "Загрузите партию или начните новую игру, чтобы начать отслеживать свой прогресс.",
                     onAction = onNavigateToUpload,

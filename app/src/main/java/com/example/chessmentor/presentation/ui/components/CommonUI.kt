@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.material3.*
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.LinearGradient
@@ -433,7 +434,8 @@ fun BrandButton(
 /** Выразительное пустое состояние с декоративным градиентным фоном и большой иконкой. */
 @Composable
 fun BrandEmptyState(
-    icon: ImageVector,
+    icon: ImageVector? = null,
+    painter: Painter? = null,
     title: String,
     subtitle: String? = null,
     onAction: (() -> Unit)? = null,
@@ -480,12 +482,20 @@ fun BrandEmptyState(
                     .background(MaterialTheme.colorScheme.background, CircleShape)
                     .padding(4.dp)
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(40.dp)
-                )
+                if (painter != null) {
+                    Image(
+                        painter = painter,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp)
+                    )
+                } else {
+                    Icon(
+                        imageVector = icon!!,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
             }
         }
 

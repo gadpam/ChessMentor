@@ -1,0 +1,24 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="200"
+    android:viewportHeight="200">
+    <!-- Книга дебютов -->
+    <path
+        android:fillColor="#81B64C"
+        android:pathData="M50,140 L150,140 L150,60 L120,50 L80,50 L50,60 Z"/>
+    <path
+        android:fillColor="#316446"
+        android:pathData="M60,130 L140,130 L140,70 L110,60 L90,60 L60,70 Z"/>
+    <!-- Страницы книги -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M90,130 L140,130 L140,70 L90,70 Z"/>
+    <path
+        android:fillColor="#F4F5EF"
+        android:pathData="M60,130 L90,130 L90,70 L60,70 Z"/>
+    <!-- Заметки на страницах -->
+    <path
+        android:fillColor="#81B64C"
+        android:pathData="M100,90 L110,90 L110,94 L100,94 Z M100,100 L115,100 L115,104 L100,104 Z M100,110 L108,110 L108,114 L100,114 Z M70,90 L80,90 L80,94 L70,94 Z M70,100 L85,100 L85,104 L70,104 Z"/>
+</vector>

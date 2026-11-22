@@ -1,0 +1,21 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="200"
+    android:viewportHeight="200">
+    <!-- Шахматная фигура и доска -->
+    <path
+        android:fillColor="#81B64C"
+        android:pathData="M60,140 L140,140 L140,60 L60,60 Z"/>
+    <path
+        android:fillColor="#316446"
+        android:pathData="M70,130 L130,130 L130,70 L70,70 Z"/>
+    <!-- Король в центре -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M100,100 L90,110 L100,120 L110,110 Z M100,80 L95,88 L100,92 L105,88 Z"/>
+    <!-- Крест на короле -->
+    <path
+        android:fillColor="#316446"
+        android:pathData="M98,100 L102,100 L102,104 L106,104 L106,108 L102,108 L102,112 L98,112 L98,108 L94,108 L94,104 L98,104 Z"/>
+</vector>

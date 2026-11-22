@@ -1,0 +1,24 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="200"
+    android:viewportHeight="200">
+    <!-- Пустая доска с фигурой -->
+    <path
+        android:fillColor="#81B64C"
+        android:pathData="M100,20 L40,80 L40,120 L100,180 L160,120 L160,80 Z"/>
+    <path
+        android:fillColor="#316446"
+        android:pathData="M100,30 L50,90 L50,110 L100,170 L150,110 L150,90 Z"/>
+    <!-- Фигура в центре -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M100,130 L95,140 L100,145 L105,140 Z M100,120 L98,128 L100,132 L102,128 Z"/>
+    <!-- Линии доски -->
+    <path
+        android:fillColor="#E4F2D5"
+        android:pathData="M40,80 L160,80 L160,120 L40,120 Z"/>
+    <path
+        android:fillColor="#F4F5EF"
+        android:pathData="M40,80 L100,80 L100,120 L40,120 Z M100,80 L160,80 L160,120 L100,120 Z"/>
+</vector>
