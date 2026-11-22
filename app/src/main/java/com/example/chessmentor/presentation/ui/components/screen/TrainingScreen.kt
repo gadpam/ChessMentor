@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.painter.rememberVectorPainter
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -83,6 +84,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.res.vectorResource
+import com.example.chessmentor.R
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.training.SessionSummary
@@ -373,7 +376,7 @@ fun TrainingScreen(
                     else -> { { viewModel.selectMode(TrainingMode.All) } to "Открыть общий тактический банк" }
                 }
                 BrandEmptyState(
-                    icon = if (isFromGame) Icons.Default.CheckCircle else Icons.Default.Info,
+                    painter = rememberVectorPainter(vectorResource(R.drawable.ic_empty_training)),
                     title = uiState.feedbackMessage ?: "Нет доступных задач в выбранном режиме.",
                     modifier = Modifier
                         .fillMaxSize()

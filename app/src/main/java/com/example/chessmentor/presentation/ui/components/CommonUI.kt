@@ -485,13 +485,13 @@ fun BrandEmptyState(
                 if (painter != null) {
                     Image(
                         painter = painter,
-                        contentDescription = null,
+                        contentDescription = title,
                         modifier = Modifier.size(48.dp)
                     )
                 } else {
                     Icon(
                         imageVector = icon!!,
-                        contentDescription = null,
+                        contentDescription = title,
                         tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(40.dp)
                     )
