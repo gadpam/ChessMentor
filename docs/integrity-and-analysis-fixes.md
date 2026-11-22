@@ -75,7 +75,7 @@
 
 | Задание | Что подтверждает | Когда запускается |
 |---|---|---|
-| `test-lint-and-room-schema` | Компиляция, JVM-тесты (включая новый [`AnalysisProgressBusyStateTest`](../app/src/test/java/com/example/chessmentor/domain/usecase/AnalysisProgressBusyStateTest.kt)), экспорт схемы, lint | Постоянно: push, PR, ручной запуск |
+| `test-lint-and-room-schema` | Компиляция, JVM-тесты (включая [`AnalysisProgressBusyStateTest`](../app/src/test/java/com/example/chessmentor/domain/usecase/AnalysisProgressBusyStateTest.kt) и [`EngineFailureMidGameTest`](../app/src/test/java/com/example/chessmentor/domain/usecase/EngineFailureMidGameTest.kt)), экспорт схемы, lint | Постоянно: push, PR, ручной запуск |
 | `android-device-test-results` | `BackupRestorePersistenceTest` на реальной Room с транзакцией, включая сценарии отказа восстановления | Только ручной запуск (**Run workflow**) или тег `v*`; на обычном push/PR задание пропускается |
 
 Транзакционный путь восстановления стоит прогнать вручную: именно это задание ловит ошибку Room про «different coroutine context», которую не видит JVM-набор.
