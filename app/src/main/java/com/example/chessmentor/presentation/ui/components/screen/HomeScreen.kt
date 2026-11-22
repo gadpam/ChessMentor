@@ -84,7 +84,7 @@ fun HomeScreen(
     onLoginPasswordChange: (String) -> Unit
 ) {
     if (currentUser == null) {
-        AuthScreenContent(
+        AuthScreen(
             paddingValues = paddingValues,
             message = message,
             isLoading = isLoading,
@@ -106,7 +106,7 @@ fun HomeScreen(
             onLoginPasswordChange = onLoginPasswordChange
         )
     } else {
-        DashboardContent(
+        DashboardScreen(
             paddingValues = paddingValues,
             user = currentUser,
             gameViewModel = gameViewModel,
@@ -123,7 +123,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun AuthScreenContent(
+fun AuthScreen(
     paddingValues: PaddingValues,
     message: String,
     isLoading: Boolean,
@@ -541,7 +541,7 @@ private fun RegisterForm(
 // ==================== DASHBOARD ====================
 
 @Composable
-fun DashboardContent(
+fun DashboardScreen(
     paddingValues: PaddingValues,
     user: User,
     gameViewModel: GameViewModel,

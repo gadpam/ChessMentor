@@ -2,9 +2,12 @@
 package com.example.chessmentor.presentation.ui.components
 
 import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.collapseHorizontally
@@ -264,17 +267,32 @@ fun MetricCard(
     }
 }
 
-/** Анимированное переключение контента (fade + horizontal slide). */
+/** Анимированное переключение контента между экранами (fade + вертикальный slide).
+ *
+ * [key] используется для определения момента смены контента — при изменении ключа
+ * старый контент анимированно уходит, новый — появляется.
+ */
 @Composable
 fun AnimatedContentSwitcher(
+    key: Any?,
     content: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    AnimatedVisibility(
+    AnimatedContent(
+        targetState = key,
         modifier = modifier,
-        enter = fadeIn(animationSpec = tween(200)) + expandHorizontally(animationSpec = tween(200)),
-        exit = fadeOut(animationSpec = tween(200)) + collapseHorizontally(animationSpec = tween(200))
-    ) {
+        transitionSpec = {
+            fadeIn(animationSpec = tween(250)) +
+                slideInVertically(
+                    initialOffsetY = { introHeight -> introHeight * 0.15f },
+                    animationSpec = tween(250)
+                ) +
+                slideOutVertically(
+                    targetOffsetY = { targetHeight -> targetHeight * 0.15f },
+                    animationSpec = tween(250)
+                )
+        }
+    ) { targetState ->
         content()
     }
 }
