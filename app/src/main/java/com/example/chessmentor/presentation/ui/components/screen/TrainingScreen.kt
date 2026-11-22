@@ -1,5 +1,7 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -152,6 +154,15 @@ fun TrainingScreen(
     var selectedSquare by remember { mutableStateOf<Square?>(null) }
     var pendingPromotion by remember { mutableStateOf<Pair<Square, Square>?>(null) }
     val shakeOffset = remember { Animatable(0f) }
+    val solvePulse = remember { Animatable(0f) }
+
+    // Микро-анимация при правильном ходе: пульсирующая зелёная граница доски
+    LaunchedEffect(uiState.isSolved) {
+        if (uiState.isSolved) {
+            solvePulse.animateTo(1f, animationSpec = tween(150))
+            solvePulse.animateTo(0f, animationSpec = tween(600))
+        }
+    }
 
     val boardTheme = remember(preferredTheme) {
         BoardThemes.getByName(preferredTheme)
@@ -384,11 +395,20 @@ fun TrainingScreen(
                     ExerciseMetaStrip(uiState = uiState)
 
                     // Шахматная доска
+                    val solveBorderColor by animateColorAsState(
+                        if (uiState.isSolved) MaterialTheme.colorScheme.positive else MaterialTheme.colorScheme.outlineVariant,
+                        animationSpec = tween(300)
+                    )
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
-                            .graphicsLayer { translationX = shakeOffset.value },
+                            .graphicsLayer { translationX = shakeOffset.value }
+                            .border(
+                                width = (3f * solvePulse.value).dp,
+                                color = solveBorderColor.copy(alpha = 0.3f + 0.7f * solvePulse.value),
+                                shape = RoundedCornerShape(8.dp)
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         val isFreeAnalysis = uiState.isFreeAnalysisMode &&
@@ -928,12 +948,49 @@ internal fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
         }
     }
     if (showDetails) {
-        AlertDialog(
-            onDismissRequest = { showDetails = false },
-            title = { Text("Пояснение к задаче") },
-            text = { Text(details.joinToString("\n\n"), modifier = Modifier.verticalScroll(rememberScrollState())) },
-            confirmButton = { TextButton(onClick = { showDetails = false }) { Text("К доске") } }
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            AnimatedVisibility(
+                visible = showDetails,
+                enter = expandVertically(animationSpec = tween(250)),
+                exit = collapseVertically(animationSpec = tween(250))
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Пояснение к задаче",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = details.joinToString("\n\n"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(
+                            onClick = { showDetails = false },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("К доске")
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1240,27 +1297,57 @@ internal fun TrainingHelpControls(
     val offerPiece = !better && state.hintLevel == HintLevel.NONE
     val moveShown = state.betterMoveShown || state.hintLevel == HintLevel.FULL_SOLUTION
     val replay = state.isDailyAlreadySolved
-    AlertDialog(
-        onDismissRequest = { open = false },
-        title = { Text("Помощь в задаче") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!moveShown) HelpOption(
-                    title = if (offerPiece) "Подсказать фигуру" else "Показать ход",
-                    consequence = when {
-                        replay -> "Повтор без изменения рейтинга"
-                        !offerPiece || state.moveRevealedInExercise -> "Без прибавки к рейтингу"
-                        else -> "Прибавка за решение будет меньше"
-                    },
-                    onClick = { open = false; if (better) onBetterMove() else onHint() }
-                )
-                HelpOption(if (state.currentStepNumber > 1) "Показать оставшуюся линию" else "Показать всю линию",
-                    if (replay) "Просмотр без изменения рейтинга" else "Без прибавки. Не считается решённой самостоятельно.",
-                    onClick = { open = false; onReveal() })
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        AnimatedVisibility(
+            visible = open,
+            enter = expandVertically(animationSpec = tween(250)),
+            exit = collapseVertically(animationSpec = tween(250))
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Помощь в задаче",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (!moveShown) HelpOption(
+                            title = if (offerPiece) "Подсказать фигуру" else "Показать ход",
+                            consequence = when {
+                                replay -> "Повтор без изменения рейтинга"
+                                !offerPiece || state.moveRevealedInExercise -> "Без прибавки к рейтингу"
+                                else -> "Прибавка за решение будет меньше"
+                            },
+                            onClick = { open = false; if (better) onBetterMove() else onHint() }
+                        )
+                        HelpOption(if (state.currentStepNumber > 1) "Показать оставшуюся линию" else "Показать всю линию",
+                            if (replay) "Просмотр без изменения рейтинга" else "Без прибавки. Не считается решённой самостоятельно.",
+                            onClick = { open = false; onReveal() })
+                    }
+                    Button(
+                        onClick = { open = false },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("К доске")
+                    }
+                }
             }
-        },
-        confirmButton = { TextButton(onClick = { open = false }) { Text("К доске") } }
-    )
+        }
+    }
 }
 
 @Composable
