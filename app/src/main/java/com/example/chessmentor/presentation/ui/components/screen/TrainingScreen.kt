@@ -41,7 +41,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LastPage
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -90,6 +89,8 @@ import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.example.chessmentor.presentation.ui.components.BoardThemes
 import com.example.chessmentor.presentation.ui.components.ChessBoard
+import com.example.chessmentor.presentation.ui.components.CommonUI.EmptyState
+import com.example.chessmentor.presentation.ui.components.CommonUI.ListSkeleton
 import com.example.chessmentor.presentation.ui.components.SoundManager
 import com.example.chessmentor.presentation.viewmodel.ChessMentorViewModelFactory
 import com.example.chessmentor.presentation.viewmodel.HintLevel
@@ -311,24 +312,24 @@ fun TrainingScreen(
         val activeSummary = uiState.sessionSummary
         when {
             uiState.isLoading -> {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(innerPadding),
-                    contentAlignment = Alignment.Center
+                        .padding(innerPadding)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
-                        uiState.feedbackMessage?.let { loadingText ->
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = loadingText,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 24.dp)
-                            )
-                        }
+                    ListSkeleton(itemCount = 3)
+                    uiState.feedbackMessage?.let { loadingText ->
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = loadingText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 24.dp)
+                        )
                     }
                 }
             }
@@ -348,17 +349,21 @@ fun TrainingScreen(
             }
 
             !uiState.hasActiveExercise -> {
-                EmptyTrainingState(
+                val isFromGame = uiState.mode is TrainingMode.FromGame && onReturnToGame != null
+                val action = when {
+                    isFromGame -> { onReturnToGame?.invoke() to "Вернуться к разбору партии" }
+                    uiState.hasNoUserMistakes -> { onNavigateToUpload to "Загрузить партию (PGN)" }
+                    else -> { { viewModel.selectMode(TrainingMode.All) } to "Открыть общий тактический банк" }
+                }
+                EmptyState(
+                    icon = if (isFromGame) Icons.Default.CheckCircle else Icons.Default.Info,
+                    title = uiState.feedbackMessage ?: "Нет доступных задач в выбранном режиме.",
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
                         .padding(24.dp),
-                    message = uiState.feedbackMessage ?: "Нет доступных задач в выбранном режиме.",
-                    showUploadButton = uiState.hasNoUserMistakes,
-                    showReturnToGameButton = uiState.mode is TrainingMode.FromGame && onReturnToGame != null,
-                    onReturnToGame = { onReturnToGame?.invoke() },
-                    onNavigateToUpload = onNavigateToUpload,
-                    onSwitchToAllMode = { viewModel.selectMode(TrainingMode.All) }
+                    onAction = action.first,
+                    actionLabel = action.second
                 )
             }
 
@@ -793,64 +798,6 @@ private fun ExerciseMetaStrip(uiState: TrainingUiState) {
                     modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun EmptyTrainingState(
-    modifier: Modifier,
-    message: String,
-    showUploadButton: Boolean,
-    showReturnToGameButton: Boolean = false,
-    onReturnToGame: () -> Unit = {},
-    onNavigateToUpload: () -> Unit,
-    onSwitchToAllMode: () -> Unit
-) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = if (showReturnToGameButton) Icons.Default.CheckCircle else Icons.Default.Info,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(48.dp)
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(modifier = Modifier.height(20.dp))
-        if (showReturnToGameButton) {
-            Button(
-                onClick = onReturnToGame,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("← Вернуться к разбору партии")
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-        }
-        if (showUploadButton) {
-            Button(
-                onClick = onNavigateToUpload,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Upload, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Загрузить партию (PGN)")
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-        }
-        OutlinedButton(
-            onClick = onSwitchToAllMode,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Открыть общий тактический банк")
         }
     }
 }

@@ -296,3 +296,44 @@ fun AnimatedContentSwitcher(
         content()
     }
 }
+
+/** Скелетон для списка карточек (партий, задач, статистики). */
+@Composable
+fun ListSkeleton(
+    itemCount: Int = 3,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        repeat(itemCount) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SkeletonBox(height = 20.dp, width = 200.dp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    SkeletonBox(height = 14.dp, width = 120.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SkeletonBox(height = 14.dp, width = 80.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        SkeletonBox(height = 14.dp, width = 60.dp)
+                    }
+                }
+            }
+        }
+    }
+}

@@ -42,6 +42,7 @@ import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.presentation.ui.components.CommonUI.EmptyState
+import com.example.chessmentor.presentation.ui.components.CommonUI.ListSkeleton
 import com.example.chessmentor.presentation.ui.components.CommonUI.MessageCard
 import com.example.chessmentor.presentation.ui.components.CommonUI.MessageType
 import com.example.chessmentor.presentation.ui.components.util.MISSING_ACCURACY
@@ -231,7 +232,11 @@ fun GamesListScreen(
             }
         }
 
-        if (indexedGames.isEmpty()) {
+        if (isLoading && indexedGames.isEmpty()) {
+            item {
+                ListSkeleton(itemCount = 3)
+            }
+        } else if (indexedGames.isEmpty()) {
             item {
                 EmptyState(
                     icon = Icons.Default.AssignmentTurnedIn,
