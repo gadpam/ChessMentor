@@ -34,6 +34,8 @@ import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.repository.EngineSettingsRepository
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.presentation.ui.components.AnalysisProgressDialog
+import com.example.chessmentor.presentation.ui.components.CommonUI.MessageCard
+import com.example.chessmentor.presentation.ui.components.CommonUI.MessageType
 import com.example.chessmentor.presentation.ui.components.EngineStatusBanner
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import com.example.chessmentor.presentation.viewmodel.PgnImportPreview
@@ -163,9 +165,10 @@ fun UploadGameScreen(
 
         if (message.isNotEmpty()) {
             item {
-                UploadMessage(
+                MessageCard(
+                    type = if (message.startsWith("Ошибка")) MessageType.Error else MessageType.Info,
+                    title = if (message.startsWith("Ошибка")) "Ошибка" else "Информация",
                     message = message,
-                    isLoading = isLoading,
                     onDismiss = { gameViewModel.clearMessage() }
                 )
             }
@@ -638,54 +641,6 @@ private fun EngineSettingsCard(
                 contentDescription = "Открыть",
                 tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.5f)
             )
-        }
-    }
-}
-
-@Composable
-private fun UploadMessage(
-    message: String,
-    isLoading: Boolean,
-    onDismiss: () -> Unit
-) {
-    val isError = message.startsWith("Ошибка")
-
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isError) MaterialTheme.colorScheme.errorContainer
-            else MaterialTheme.colorScheme.tertiaryContainer
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = if (isError) Icons.Default.Error else Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = if (isError) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (isError) MaterialTheme.colorScheme.onErrorContainer
-                    else MaterialTheme.colorScheme.onTertiaryContainer
-                )
-            }
-            if (!isLoading) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Закрыть")
-                }
-            }
         }
     }
 }

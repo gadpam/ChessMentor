@@ -1,5 +1,7 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -41,7 +43,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LastPage
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -90,6 +91,8 @@ import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.example.chessmentor.presentation.ui.components.BoardThemes
 import com.example.chessmentor.presentation.ui.components.ChessBoard
+import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
+import com.example.chessmentor.presentation.ui.components.CommonUI.ListSkeleton
 import com.example.chessmentor.presentation.ui.components.SoundManager
 import com.example.chessmentor.presentation.viewmodel.ChessMentorViewModelFactory
 import com.example.chessmentor.presentation.viewmodel.HintLevel
@@ -151,6 +154,15 @@ fun TrainingScreen(
     var selectedSquare by remember { mutableStateOf<Square?>(null) }
     var pendingPromotion by remember { mutableStateOf<Pair<Square, Square>?>(null) }
     val shakeOffset = remember { Animatable(0f) }
+    val solvePulse = remember { Animatable(0f) }
+
+    // Микро-анимация при правильном ходе: пульсирующая зелёная граница доски
+    LaunchedEffect(uiState.isSolved) {
+        if (uiState.isSolved) {
+            solvePulse.animateTo(1f, animationSpec = tween(150))
+            solvePulse.animateTo(0f, animationSpec = tween(600))
+        }
+    }
 
     val boardTheme = remember(preferredTheme) {
         BoardThemes.getByName(preferredTheme)
@@ -311,24 +323,24 @@ fun TrainingScreen(
         val activeSummary = uiState.sessionSummary
         when {
             uiState.isLoading -> {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(innerPadding),
-                    contentAlignment = Alignment.Center
+                        .padding(innerPadding)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
-                        uiState.feedbackMessage?.let { loadingText ->
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = loadingText,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 24.dp)
-                            )
-                        }
+                    ListSkeleton(itemCount = 3)
+                    uiState.feedbackMessage?.let { loadingText ->
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = loadingText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 24.dp)
+                        )
                     }
                 }
             }
@@ -348,17 +360,21 @@ fun TrainingScreen(
             }
 
             !uiState.hasActiveExercise -> {
-                EmptyTrainingState(
+                val isFromGame = uiState.mode is TrainingMode.FromGame && onReturnToGame != null
+                val action = when {
+                    isFromGame -> { onReturnToGame?.invoke() to "Вернуться к разбору партии" }
+                    uiState.hasNoUserMistakes -> { onNavigateToUpload to "Загрузить партию (PGN)" }
+                    else -> { { viewModel.selectMode(TrainingMode.All) } to "Открыть общий тактический банк" }
+                }
+                BrandEmptyState(
+                    icon = if (isFromGame) Icons.Default.CheckCircle else Icons.Default.Info,
+                    title = uiState.feedbackMessage ?: "Нет доступных задач в выбранном режиме.",
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
                         .padding(24.dp),
-                    message = uiState.feedbackMessage ?: "Нет доступных задач в выбранном режиме.",
-                    showUploadButton = uiState.hasNoUserMistakes,
-                    showReturnToGameButton = uiState.mode is TrainingMode.FromGame && onReturnToGame != null,
-                    onReturnToGame = { onReturnToGame?.invoke() },
-                    onNavigateToUpload = onNavigateToUpload,
-                    onSwitchToAllMode = { viewModel.selectMode(TrainingMode.All) }
+                    onAction = action.first,
+                    actionLabel = action.second
                 )
             }
 
@@ -379,11 +395,20 @@ fun TrainingScreen(
                     ExerciseMetaStrip(uiState = uiState)
 
                     // Шахматная доска
+                    val solveBorderColor by animateColorAsState(
+                        if (uiState.isSolved) MaterialTheme.colorScheme.positive else MaterialTheme.colorScheme.outlineVariant,
+                        animationSpec = tween(300)
+                    )
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
-                            .graphicsLayer { translationX = shakeOffset.value },
+                            .graphicsLayer { translationX = shakeOffset.value }
+                            .border(
+                                width = (3f * solvePulse.value).dp,
+                                color = solveBorderColor.copy(alpha = 0.3f + 0.7f * solvePulse.value),
+                                shape = RoundedCornerShape(8.dp)
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         val isFreeAnalysis = uiState.isFreeAnalysisMode &&
@@ -798,64 +823,6 @@ private fun ExerciseMetaStrip(uiState: TrainingUiState) {
 }
 
 @Composable
-private fun EmptyTrainingState(
-    modifier: Modifier,
-    message: String,
-    showUploadButton: Boolean,
-    showReturnToGameButton: Boolean = false,
-    onReturnToGame: () -> Unit = {},
-    onNavigateToUpload: () -> Unit,
-    onSwitchToAllMode: () -> Unit
-) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = if (showReturnToGameButton) Icons.Default.CheckCircle else Icons.Default.Info,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(48.dp)
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(modifier = Modifier.height(20.dp))
-        if (showReturnToGameButton) {
-            Button(
-                onClick = onReturnToGame,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("← Вернуться к разбору партии")
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-        }
-        if (showUploadButton) {
-            Button(
-                onClick = onNavigateToUpload,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Upload, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Загрузить партию (PGN)")
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-        }
-        OutlinedButton(
-            onClick = onSwitchToAllMode,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Открыть общий тактический банк")
-        }
-    }
-}
-
-@Composable
 private fun PromotionPickerDialog(
     side: Side,
     onPieceSelected: (PieceType) -> Unit,
@@ -981,12 +948,49 @@ internal fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
         }
     }
     if (showDetails) {
-        AlertDialog(
-            onDismissRequest = { showDetails = false },
-            title = { Text("Пояснение к задаче") },
-            text = { Text(details.joinToString("\n\n"), modifier = Modifier.verticalScroll(rememberScrollState())) },
-            confirmButton = { TextButton(onClick = { showDetails = false }) { Text("К доске") } }
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            AnimatedVisibility(
+                visible = showDetails,
+                enter = expandVertically(animationSpec = tween(250)),
+                exit = collapseVertically(animationSpec = tween(250))
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Пояснение к задаче",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = details.joinToString("\n\n"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(
+                            onClick = { showDetails = false },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("К доске")
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1293,27 +1297,57 @@ internal fun TrainingHelpControls(
     val offerPiece = !better && state.hintLevel == HintLevel.NONE
     val moveShown = state.betterMoveShown || state.hintLevel == HintLevel.FULL_SOLUTION
     val replay = state.isDailyAlreadySolved
-    AlertDialog(
-        onDismissRequest = { open = false },
-        title = { Text("Помощь в задаче") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!moveShown) HelpOption(
-                    title = if (offerPiece) "Подсказать фигуру" else "Показать ход",
-                    consequence = when {
-                        replay -> "Повтор без изменения рейтинга"
-                        !offerPiece || state.moveRevealedInExercise -> "Без прибавки к рейтингу"
-                        else -> "Прибавка за решение будет меньше"
-                    },
-                    onClick = { open = false; if (better) onBetterMove() else onHint() }
-                )
-                HelpOption(if (state.currentStepNumber > 1) "Показать оставшуюся линию" else "Показать всю линию",
-                    if (replay) "Просмотр без изменения рейтинга" else "Без прибавки. Не считается решённой самостоятельно.",
-                    onClick = { open = false; onReveal() })
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        AnimatedVisibility(
+            visible = open,
+            enter = expandVertically(animationSpec = tween(250)),
+            exit = collapseVertically(animationSpec = tween(250))
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Помощь в задаче",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (!moveShown) HelpOption(
+                            title = if (offerPiece) "Подсказать фигуру" else "Показать ход",
+                            consequence = when {
+                                replay -> "Повтор без изменения рейтинга"
+                                !offerPiece || state.moveRevealedInExercise -> "Без прибавки к рейтингу"
+                                else -> "Прибавка за решение будет меньше"
+                            },
+                            onClick = { open = false; if (better) onBetterMove() else onHint() }
+                        )
+                        HelpOption(if (state.currentStepNumber > 1) "Показать оставшуюся линию" else "Показать всю линию",
+                            if (replay) "Просмотр без изменения рейтинга" else "Без прибавки. Не считается решённой самостоятельно.",
+                            onClick = { open = false; onReveal() })
+                    }
+                    Button(
+                        onClick = { open = false },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("К доске")
+                    }
+                }
             }
-        },
-        confirmButton = { TextButton(onClick = { open = false }) { Text("К доске") } }
-    )
+        }
+    }
 }
 
 @Composable

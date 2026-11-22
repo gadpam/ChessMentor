@@ -42,6 +42,7 @@ import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.example.chessmentor.presentation.ui.components.*
+import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
 import com.example.chessmentor.presentation.viewmodel.BoardViewModel
 import com.example.chessmentor.presentation.viewmodel.EngineLineUiState
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
@@ -69,7 +70,14 @@ fun GameViewScreen(
     val game by gameViewModel.selectedGame
 
     if (game == null) {
-        NoGameSelectedPlaceholder(paddingValues = paddingValues)
+        BrandEmptyState(
+            icon = Icons.Default.SportsEsports,
+            title = "Игра не выбрана",
+            subtitle = "Откройте партию из библиотеки, чтобы начать её разбор с движком Stockfish",
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        )
         return
     }
 
@@ -88,30 +96,6 @@ fun GameViewScreen(
 }
 
 @Composable
-private fun NoGameSelectedPlaceholder(paddingValues: PaddingValues) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(paddingValues),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                imageVector = Icons.Default.SportsEsports,
-                contentDescription = null,
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "Игра не выбрана",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
 @Composable
 private fun GameViewScreenContent(
     paddingValues: PaddingValues,

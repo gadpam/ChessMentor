@@ -26,10 +26,12 @@ import com.example.chessmentor.domain.session.SessionState
 import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.usecase.LoginUserUseCase
 import com.example.chessmentor.domain.usecase.RegisterUserUseCase
+import com.example.chessmentor.presentation.ui.components.CommonUI.AnimatedContentSwitcher
+import com.example.chessmentor.presentation.ui.components.screen.AuthScreen
+import com.example.chessmentor.presentation.ui.components.screen.DashboardScreen
 import com.example.chessmentor.presentation.ui.components.screen.EngineSettingsScreen
 import com.example.chessmentor.presentation.ui.components.screen.GameViewScreen
 import com.example.chessmentor.presentation.ui.components.screen.GamesListScreen
-import com.example.chessmentor.presentation.ui.components.screen.HomeScreen
 import com.example.chessmentor.presentation.ui.components.screen.SettingsScreen
 import com.example.chessmentor.presentation.ui.components.screen.StatisticsScreen
 import com.example.chessmentor.presentation.ui.components.screen.SummaryScreen
@@ -417,14 +419,15 @@ private enum class MainTab(val screen: String, val label: String, val icon: Imag
     HOME("home", "Главная", Icons.Default.Home),
     GAMES("games", "Партии", Icons.Default.List),
     TASKS("training", "Задачи", Icons.Default.FitnessCenter),
-    STATS("stats", "Статистика", Icons.Default.Analytics)
+    STATS("stats", "Статистика", Icons.Default.Analytics),
+    SETTINGS("settings", "Настройки", Icons.Default.Settings)
 }
 
 @Composable
 internal fun ChessMentorBottomBar(currentScreen: String, onNavigate: (String) -> Unit) {
     val section = when (currentScreen) {
-        "summary", "upload" -> "games"
-        "settings" -> "home"
+        "summary", "upload", "game_view" -> "games"
+        "settings", "engine_settings" -> "settings"
         else -> currentScreen
     }
     val measurer = rememberTextMeasurer()
@@ -509,42 +512,51 @@ private fun NavigationHost(
     }
     val summaryState = key(reviewGameId) { rememberSaveableStateHolder() }
 
-    when (currentScreen) {
-        "home" -> HomeScreen(
-            paddingValues = paddingValues,
-            currentUser = currentUser,
-            gameViewModel = gameViewModel,
-            container = container,
-            onNavigateToSettings = { onScreenChange("settings") },
-            onNavigateToUpload = { onScreenChange("upload") },
-            onNavigateToTraining = { onScreenChange("training") },
-            onNavigateToDailyPuzzle = { onOpenTrainingWithMode(TrainingMode.Daily) },
-            onNavigateToSmartSession = { onOpenTrainingWithMode(TrainingMode.SmartSession) },
-            onOpenEngineSettings = { onOpenEngineSettings("home") },
-            onOpenGame = { game ->
-                gameViewModel.selectGame(game)
-                onScreenChange("summary")
-            },
-            message = message,
-            isLoading = isLoading,
-            onMessageDismiss = onMessageDismiss,
-            onLogout = onLogout,
-            onOpenTester = onOpenTester,
-            onRegister = onRegister,
-            onLogin = onLogin,
-            regNickname = regNickname,
-            regEmail = regEmail,
-            regPassword = regPassword,
-            regRating = regRating,
-            loginEmail = loginEmail,
-            loginPassword = loginPassword,
-            onRegNicknameChange = onRegNicknameChange,
-            onRegEmailChange = onRegEmailChange,
-            onRegPasswordChange = onRegPasswordChange,
-            onRegRatingChange = onRegRatingChange,
-            onLoginEmailChange = onLoginEmailChange,
-            onLoginPasswordChange = onLoginPasswordChange
-        )
+    AnimatedContentSwitcher(key = currentScreen) {
+        when (currentScreen) {
+            "home" -> {
+            if (currentUser == null) {
+                AuthScreen(
+                    paddingValues = paddingValues,
+                    message = message,
+                    isLoading = isLoading,
+                    onMessageDismiss = onMessageDismiss,
+                    onOpenTester = onOpenTester,
+                    onRegister = onRegister,
+                    onLogin = onLogin,
+                    regNickname = regNickname,
+                    regEmail = regEmail,
+                    regPassword = regPassword,
+                    regRating = regRating,
+                    loginEmail = loginEmail,
+                    loginPassword = loginPassword,
+                    onRegNicknameChange = onRegNicknameChange,
+                    onRegEmailChange = onRegEmailChange,
+                    onRegPasswordChange = onRegPasswordChange,
+                    onRegRatingChange = onRegRatingChange,
+                    onLoginEmailChange = onLoginEmailChange,
+                    onLoginPasswordChange = onLoginPasswordChange
+                )
+            } else {
+                val user = currentUser
+                DashboardScreen(
+                    paddingValues = paddingValues,
+                    user = user,
+                    gameViewModel = gameViewModel,
+                    container = container,
+                    onLogout = onLogout,
+                    onNavigateToUpload = { onScreenChange("upload") },
+                    onNavigateToDailyPuzzle = { onOpenTrainingWithMode(TrainingMode.Daily) },
+                    onNavigateToSmartSession = { onOpenTrainingWithMode(TrainingMode.SmartSession) },
+                    onOpenEngineSettings = { onOpenEngineSettings("home") },
+                    onOpenGame = { game ->
+                        gameViewModel.selectGame(game)
+                        onScreenChange("summary")
+                    },
+                    onNavigateToSettings = { onScreenChange("settings") }
+                )
+            }
+        }
 
         "games" -> GamesListScreen(
             paddingValues = paddingValues,
@@ -720,6 +732,7 @@ private fun NavigationHost(
             onCancelDownload = { gameViewModel.cancelEngineInit() }
         )
     }
+}
 }
 
 @Composable

@@ -19,6 +19,9 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -29,6 +32,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSnackbarHostState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -36,11 +40,20 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.rememberCoroutineScope
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
+import com.example.chessmentor.presentation.ui.components.CommonUI.ListSkeleton
+import com.example.chessmentor.presentation.ui.components.CommonUI.MessageCard
+import com.example.chessmentor.presentation.ui.components.CommonUI.MessageType
 import com.example.chessmentor.presentation.ui.components.util.MISSING_ACCURACY
 import com.example.chessmentor.presentation.ui.components.util.formatGameAccuracy
 import com.example.chessmentor.domain.pgn.PgnParser
@@ -89,6 +102,8 @@ fun GamesListScreen(
 ) {
     val games = gameViewModel.userGames.toList()
     val message by gameViewModel.message
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
     val isLoading by gameViewModel.isLoading
 
     val engineStatus by container.chessEngine.status.collectAsState()
@@ -219,16 +234,28 @@ fun GamesListScreen(
 
         if (message.isNotEmpty()) {
             item {
-                GamesListMessage(
+                MessageCard(
+                    type = if (message.startsWith("Ошибка")) MessageType.Error else MessageType.Info,
+                    title = if (message.startsWith("Ошибка")) "Ошибка" else "Информация",
                     message = message,
                     onDismiss = { gameViewModel.clearMessage() }
                 )
             }
         }
 
-        if (indexedGames.isEmpty()) {
+        if (isLoading && indexedGames.isEmpty()) {
             item {
-                EmptyGamesPlaceholder(onImportClick = onNavigateToUpload)
+                ListSkeleton(itemCount = 3)
+            }
+        } else if (indexedGames.isEmpty()) {
+            item {
+                BrandEmptyState(
+                    icon = Icons.Default.AssignmentTurnedIn,
+                    title = "Партий пока нет",
+                    subtitle = "Вставьте PGN из буфера или загрузите файл .pgn из Lichess / Chess.com",
+                    onAction = onNavigateToUpload,
+                    actionLabel = "Импортировать партии"
+                )
             }
         } else {
             // Поиск + сортировка + быстрые фильтры
@@ -290,12 +317,18 @@ fun GamesListScreen(
                                 requestedByLibrary = true
                             )
                         },
-                        onDelete = { game.id?.let { gameViewModel.deleteGame(it) } }
+                        onDelete = { gameId ->
+                            gameViewModel.deleteGame(gameId)
+                        },
+                        snackbarHostState = snackbarHostState,
+                        coroutineScope = coroutineScope
                     )
                 }
             }
         }
     }
+
+    SnackbarHost(hostState = snackbarHostState)
 
     LibraryAnalysisFeedback(
         requestedGameId = requestedGameId,
@@ -472,71 +505,6 @@ private fun NoMatchingGamesCard(query: String, filter: LibraryFilter, onShowAll:
 }
 
 @Composable
-private fun GamesListMessage(
-    message: String,
-    onDismiss: () -> Unit
-) {
-    val isError = message.startsWith("Ошибка")
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isError) MaterialTheme.colorScheme.errorContainer
-            else MaterialTheme.colorScheme.tertiaryContainer
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.weight(1f),
-                color = if (isError) MaterialTheme.colorScheme.onErrorContainer
-                else MaterialTheme.colorScheme.onTertiaryContainer
-            )
-            TextButton(onClick = onDismiss) {
-                Icon(Icons.Default.Clear, contentDescription = "Закрыть сообщение")
-            }
-        }
-    }
-}
-
-@Composable
-private fun EmptyGamesPlaceholder(onImportClick: () -> Unit) {
-    Card {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(Icons.Default.Inbox, null, modifier = Modifier.size(48.dp))
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = "Партий пока нет",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Вставьте PGN из буфера или загрузите файл .pgn из Lichess / Chess.com",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onImportClick) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Импортировать партии")
-            }
-        }
-    }
-}
-
-@Composable
 fun GameCard(
     game: Game,
     info: PgnParser.GameCardInfo = remember(game.id, game.pgnData, game.playerColor, game.timeControl, game.playedAt) {
@@ -547,11 +515,15 @@ fun GameCard(
     isBusy: Boolean = false,
     onClick: () -> Unit,
     onAnalyze: ((Long, Boolean) -> Unit)? = null,
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    snackbarHostState: SnackbarHostState? = null,
+    coroutineScope: CoroutineScope? = null
 ) {
     val id = game.id
-    var showDeleteDialog by rememberSaveable(id) { mutableStateOf(false) }
-    var menuOpen by remember(id) { mutableStateOf(false) }
+    var menuOpen by rememberSaveable(id) { mutableStateOf(false) }
+    var pendingDeleteGame by remember { mutableStateOf<Game?>(null) }
+    var deleteJob by remember { mutableStateOf<Job?>(null) }
+    val snackbarHost = LocalSnackbarHostState.current
     val white = game.playerColor == ChessColor.WHITE
     val detail = listOfNotNull(id?.takeIf { showNumber }?.let { "№$it" },
         info.dateLabel.takeIf { showDate }, info.timeControlLabel).joinToString(" · ")
@@ -608,8 +580,37 @@ fun GameCard(
                     Icon(Icons.Default.MoreVert, contentDescription = "Действия партии №$id")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text("Удалить партию") }, leadingIcon = { Icon(Icons.Default.Delete, null) },
-                        onClick = { menuOpen = false; showDeleteDialog = true })
+                    DropdownMenuItem(
+                        text = { Text("Удалить партию") },
+                        leadingIcon = { Icon(Icons.Default.Delete, null) },
+                        onClick = {
+                            menuOpen = false
+                            pendingDeleteGame = game
+                            deleteJob?.cancel()
+                            deleteJob = coroutineScope?.launch {
+                                delay(4000)
+                                if (pendingDeleteGame != null) {
+                                    onDelete?.invoke()
+                                    pendingDeleteGame = null
+                                }
+                            }
+                            snackbarHost.showSnackbar(
+                                snackbarMessage = {
+                                    Text(
+                                        text = "Партия «${info.title.removePrefix("vs ")}» удалена",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                },
+                                actionLabel = { Text("Отменить") },
+                                duration = SnackbarDuration.Indefinite
+                            ) { actionClicked ->
+                                if (actionClicked) {
+                                    deleteJob?.cancel()
+                                    pendingDeleteGame = null
+                                }
+                            }
+                        }
+                    )
                 }
             }
         }
@@ -627,47 +628,4 @@ fun GameCard(
     }
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-    if (showDeleteDialog && id != null && onDelete != null) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            containerColor = MaterialTheme.colorScheme.surface,
-            title = { Text("Удалить партию №$id?") },
-            text = {
-                Column(
-                    Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(info.title, style = MaterialTheme.typography.titleMedium)
-                    Text(listOf(info.dateLabel, info.timeControlLabel, info.outcome.displayName)
-                        .filter { it.isNotBlank() }.joinToString(" · "))
-                    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Отменить удаление нельзя", style = MaterialTheme.typography.titleMedium)
-                            Text("Будут удалены партия и её разбор, а также связанные с ней задачи и попытки их решения.",
-                                style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onDelete()
-                        showDeleteDialog = false
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("Удалить")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Отмена")
-                }
-            }
-        )
-    }
 }

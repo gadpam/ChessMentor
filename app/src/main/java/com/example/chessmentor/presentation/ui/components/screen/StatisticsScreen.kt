@@ -55,6 +55,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.ChessColor
+import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
+import com.example.chessmentor.presentation.ui.components.CommonUI.ListSkeleton
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator
@@ -188,7 +190,14 @@ fun StatisticsScreen(
                     }
                 } else {
                     item(key = "no_games_cta") {
-                        EmptyGamesAnalyticsCard(onNavigateToUpload = onNavigateToUpload)
+                        BrandEmptyState(
+                            icon = Icons.Default.CheckCircle,
+                            title = "Добавьте партии для полной аналитики",
+                            subtitle = "Импортируйте PGN с Lichess или Chess.com — приложение построит график точности, сравнит игру белыми и чёрными, разберёт фазы партии и цейтнот.",
+                            onAction = onNavigateToUpload,
+                            actionLabel = "Загрузить PGN",
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
+                        )
                     }
                 }
 
@@ -241,7 +250,14 @@ fun StatisticsScreen(
 
                 if (!report.repertoire.hasAnyOpenings) {
                     item(key = "empty_repertoire") {
-                        EmptyRepertoireCard(onNavigateToUpload = onNavigateToUpload)
+                        BrandEmptyState(
+                            icon = Icons.Default.MenuBook,
+                            title = "Дебютный репертуар пока пуст",
+                            subtitle = "Загрузите партии с тегами [ECO] / [Opening] или проанализируйте их движком — здесь появится статистика побед, точности и оценки выхода из каждого дебюта за белых и чёрных.",
+                            onAction = onNavigateToUpload,
+                            actionLabel = "Импортировать партии",
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
+                        )
                     }
                 } else {
                     val bestForColor = if (repertoireColor == ChessColor.WHITE) {
@@ -367,7 +383,13 @@ internal fun StatisticsPeriodLayout(
                 }
             }
         }
-        if (report != null) content(report)
+        if (report != null) {
+            content(report)
+        } else if (refreshing || cached == null) {
+            item(key = "stats_skeleton") {
+                ListSkeleton(itemCount = 4)
+            }
+        }
     }
 }
 
@@ -2537,87 +2559,6 @@ private fun ProblemThemesCard(
                             Text("Тренир.", style = MaterialTheme.typography.labelSmall)
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-// ==================== ПУСТЫЕ СОСТОЯНИЯ И ОБЩИЕ КОМПОНЕНТЫ ====================
-
-@Composable
-private fun EmptyGamesAnalyticsCard(onNavigateToUpload: (() -> Unit)?) {
-    Card(shape = RoundedCornerShape(16.dp)) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.CheckCircle,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp)
-            )
-            Text(
-                text = "Добавьте партии для полной аналитики",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
-            Text(
-                text = "Импортируйте PGN с Lichess или Chess.com — приложение построит график точности, " +
-                    "сравнит игру белыми и чёрными, разберёт фазы партии и цейтнот.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-            if (onNavigateToUpload != null) {
-                Button(onClick = onNavigateToUpload) {
-                    Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Загрузить PGN")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun EmptyRepertoireCard(onNavigateToUpload: (() -> Unit)?) {
-    Card(shape = RoundedCornerShape(16.dp)) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.MenuBook,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(34.dp)
-            )
-            Text(
-                text = "Дебютный репертуар пока пуст",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Загрузите партии с тегами [ECO] / [Opening] или проанализируйте их движком — " +
-                    "здесь появится статистика побед, точности и оценки выхода из каждого дебюта за белых и чёрных.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-            if (onNavigateToUpload != null) {
-                Button(onClick = onNavigateToUpload) {
-                    Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Импортировать партии")
                 }
             }
         }

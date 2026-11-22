@@ -17,8 +17,8 @@ enum class AppThemeMode(
 
     companion object {
         fun fromStorageKey(raw: String?): AppThemeMode {
-            val normalized = raw?.trim()?.lowercase(Locale.ROOT) ?: return SYSTEM
-            return entries.firstOrNull { it.storageKey == normalized } ?: SYSTEM
+            val normalized = raw?.trim()?.lowercase(Locale.ROOT) ?: return DARK
+            return entries.firstOrNull { it.storageKey == normalized } ?: DARK
         }
     }
 }

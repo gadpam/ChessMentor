@@ -693,7 +693,9 @@ private fun ChangePasswordCard(
     onSubmit: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    var showPasswords by remember { mutableStateOf(false) }
+    var showCurrentPassword by remember { mutableStateOf(false) }
+    var showNewPassword by remember { mutableStateOf(false) }
+    var showConfirmPassword by remember { mutableStateOf(false) }
 
     Card {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -718,31 +720,29 @@ private fun ChangePasswordCard(
             if (expanded) {
                 Spacer(Modifier.height(12.dp))
 
-                val transformation = if (showPasswords) {
-                    VisualTransformation.None
-                } else {
-                    PasswordVisualTransformation()
-                }
-
                 OutlinedTextField(
                     value = currentPassword,
                     onValueChange = onCurrentChange,
                     label = { Text("Текущий пароль") },
                     singleLine = true,
-                    visualTransformation = transformation,
+                    visualTransformation = if (showCurrentPassword) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Next
                     ),
                     trailingIcon = {
-                        IconButton(onClick = { showPasswords = !showPasswords }) {
+                        IconButton(onClick = { showCurrentPassword = !showCurrentPassword }) {
                             Icon(
-                                imageVector = if (showPasswords) {
+                                imageVector = if (showCurrentPassword) {
                                     Icons.Default.VisibilityOff
                                 } else {
                                     Icons.Default.Visibility
                                 },
-                                contentDescription = "Показать или скрыть пароль"
+                                contentDescription = if (showCurrentPassword) "Скрыть текущий пароль" else "Показать текущий пароль"
                             )
                         }
                     },
@@ -757,7 +757,11 @@ private fun ChangePasswordCard(
                     onValueChange = onNewChange,
                     label = { Text("Новый пароль (от 6 символов)") },
                     singleLine = true,
-                    visualTransformation = transformation,
+                    visualTransformation = if (showNewPassword) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Next
@@ -767,6 +771,49 @@ private fun ChangePasswordCard(
                     enabled = !isSaving
                 )
 
+                // Индикатор силы пароля
+                if (newPassword.isNotEmpty()) {
+                    val palette = LocalChessPalette.current
+                    val strength = when {
+                        newPassword.length < 6 -> Triple("Слабый", MaterialTheme.colorScheme.error, 0.33f)
+                        newPassword.length < 12 -> Triple("Средний", palette.caution, 0.66f)
+                        else -> Triple("Надёжный", palette.positive, 1f)
+                    }
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Надёжность пароля: ${strength.first}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = strength.second
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(4.dp)
+                                    .background(
+                                        strength.second.copy(alpha = 0.2f),
+                                        RoundedCornerShape(2.dp)
+                                    )
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .widthIn(max = strength.third.coerceAtLeast(0.01f).coerceAtMost(1f) * 100f, fill = false)
+                                        .height(4.dp)
+                                        .background(strength.second, RoundedCornerShape(2.dp))
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(10.dp))
 
                 val mismatch = confirmPassword.isNotEmpty() && confirmPassword != newPassword
@@ -775,11 +822,27 @@ private fun ChangePasswordCard(
                     onValueChange = onConfirmChange,
                     label = { Text("Повторите новый пароль") },
                     singleLine = true,
-                    visualTransformation = transformation,
+                    visualTransformation = if (showConfirmPassword) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Done
                     ),
+                    trailingIcon = {
+                        IconButton(onClick = { showConfirmPassword = !showConfirmPassword }) {
+                            Icon(
+                                imageVector = if (showConfirmPassword) {
+                                    Icons.Default.VisibilityOff
+                                } else {
+                                    Icons.Default.Visibility
+                                },
+                                contentDescription = if (showConfirmPassword) "Скрыть подтверждение пароля" else "Показать подтверждение пароля"
+                            )
+                        }
+                    },
                     isError = mismatch,
                     supportingText = if (mismatch) {
                         { Text("Пароли не совпадают") }

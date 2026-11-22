@@ -1,88 +1,96 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- ==================== ШАХМАТНАЯ ПАЛИТРА ==================== -->
+    <!-- ==================== ШАХМАТНАЯ ПАЛИТРА (доска) ==================== -->
     <!-- Светлая тема (светлая доска) -->
     <color name="chess_board_light">#F0D9B5</color>
     <color name="chess_board_dark">#B58863</color>
-    <color name="chess_board_accent">#646F40</color> <!-- Зеленый для выделения -->
+    <color name="chess_board_accent">#646F40</color>
 
     <!-- Темная тема (зеленая доска) -->
     <color name="chess_board_dark_light">#769656</color>
     <color name="chess_board_dark_dark">#EEeed2</color>
-    <color name="chess_board_dark_accent">#8CA982</color> <!-- Серый для выделения -->
+    <color name="chess_board_dark_accent">#8CA982</color>
 
-    <!-- ==================== MATERIAL 3 ПАЛИТРА ==================== -->
-    <!-- Light Theme Colors -->
-    <color name="md_theme_light_primary">#6750A4</color>
-    <color name="md_theme_light_onPrimary">#FFFFFF</color>
-    <color name="md_theme_light_primaryContainer">#EADDFF</color>
-    <color name="md_theme_light_onPrimaryContainer">#21005E</color>
-    <color name="md_theme_light_secondary">#625B71</color>
-    <color name="md_theme_light_onSecondary">#FFFFFF</color>
-    <color name="md_theme_light_secondaryContainer">#E8DEF8</color>
-    <color name="md_theme_light_onSecondaryContainer">#1D192B</color>
-    <color name="md_theme_light_tertiary">#7D5260</color>
-    <color name="md_theme_light_onTertiary">#FFFFFF</color>
-    <color name="md_theme_light_tertiaryContainer">#FFD8E4</color>
-    <color name="md_theme_light_onTertiaryContainer">#31111D</color>
-    <color name="md_theme_light_error">#BA1A1A</color>
-    <color name="md_theme_light_onError">#FFFFFF</color>
-    <color name="md_theme_light_errorContainer">#FFDAD6</color>
-    <color name="md_theme_light_onErrorContainer">#410002</color>
-    <color name="md_theme_light_background">#FFFBFE</color>
-    <color name="md_theme_light_onBackground">#1C1B1F</color>
-    <color name="md_theme_light_surface">#FFFBFE</color>
-    <color name="md_theme_light_onSurface">#1C1B1F</color>
-    <color name="md_theme_light_surfaceVariant">#E7E0EC</color>
-    <color name="md_theme_light_onSurfaceVariant">#49454F</color>
-    <color name="md_theme_light_outline">#79747E</color>
-    <color name="md_theme_light_inverseOnSurface">#F4EFF4</color>
-    <color name="md_theme_light_inverseSurface">#313033</color>
-    <color name="md_theme_light_inversePrimary">#D0BCFF</color>
-    <color name="md_theme_light_shadow">#000000</color>
+    <!-- ==================== ЕДИНАЯ БРЕНДОВАЯ ПАЛИТРА (зелёный ChessMentor) ==================== -->
+    <!-- Light Theme -->
+    <color name="brand_primary">#81B64C</color>
+    <color name="brand_onPrimary">#FFFFFF</color>
+    <color name="brand_primaryContainer">#E4F2D5</color>
+    <color name="brand_onPrimaryContainer">#1D380E</color>
+    <color name="brand_secondary">#4F6347</color>
+    <color name="brand_onSecondary">#FFFFFF</color>
+    <color name="brand_secondaryContainer">#E5ECE1</color>
+    <color name="brand_onSecondaryContainer">#1B2B17</color>
+    <color name="brand_tertiary">#2196F3</color>
+    <color name="brand_onTertiary">#FFFFFF</color>
+    <color name="brand_tertiaryContainer">#D6F3DC</color>
+    <color name="brand_onTertiaryContainer">#0E2B17</color>
+    <color name="brand_error">#D32F2F</color>
+    <color name="brand_onError">#FFFFFF</color>
+    <color name="brand_errorContainer">#FFE2DE</color>
+    <color name="brand_onErrorContainer">#410002</color>
+    <color name="brand_background">#FFFFFFFF</color>
+    <color name="brand_onBackground">#14210A</color>
+    <color name="brand_surface">#FFFFFFFF</color>
+    <color name="brand_onSurface">#14210A</color>
+    <color name="brand_surfaceVariant">#F4F5EF</color>
+    <color name="brand_onSurfaceVariant">#48524A</color>
+    <color name="brand_outline">#8C8C87</color>
+    <color name="brand_inverseOnSurface">#F4F5EF</color>
+    <color name="brand_inverseSurface">#303831</color>
+    <color name="brand_inversePrimary">#81B64C</color>
 
-    <!-- Dark Theme Colors -->
-    <color name="md_theme_dark_primary">#D0BCFF</color>
-    <color name="md_theme_dark_onPrimary">#381E72</color>
-    <color name="md_theme_dark_primaryContainer">#4F4784</color>
-    <color name="md_theme_dark_onPrimaryContainer">#EADDFF</color>
-    <color name="md_theme_dark_secondary">#CCC2DC</color>
-    <color name="md_theme_dark_onSecondary">#332D41</color>
-    <color name="md_theme_dark_secondaryContainer">#4A4458</color>
-    <color name="md_theme_dark_onSecondaryContainer">#E8DEF8</color>
-    <color name="md_theme_dark_tertiary">#EFB8C8</color>
-    <color name="md_theme_dark_onTertiary">#492532</color>
-    <color name="md_theme_dark_tertiaryContainer">#633B48</color>
-    <color name="md_theme_dark_onTertiaryContainer">#FFD8E4</color>
-    <color name="md_theme_dark_error">#FFB4AB</color>
-    <color name="md_theme_dark_onError">#690005</color>
-    <color name="md_theme_dark_errorContainer">#93000A</color>
-    <color name="md_theme_dark_onErrorContainer">#FFDAD6</color>
-    <color name="md_theme_dark_background">#1C1B1F</color>
-    <color name="md_theme_dark_onBackground">#E6E1E5</color>
-    <color name="md_theme_dark_surface">#1C1B1F</color>
-    <color name="md_theme_dark_onSurface">#E6E1E5</color>
-    <color name="md_theme_dark_surfaceVariant">#49454F</color>
-    <color name="md_theme_dark_onSurfaceVariant">#CAC4D0</color>
-    <color name="md_theme_dark_outline">#938F99</color>
-    <color name="md_theme_dark_inverseOnSurface">#1C1B1F</color>
-    <color name="md_theme_dark_inverseSurface">#E6E1E5</color>
-    <color name="md_theme_dark_inversePrimary">#6750A4</color>
-    <color name="md_theme_dark_shadow">#000000</color>
+    <!-- Dark Theme -->
+    <color name="brand_dark_primary">#81B64C</color>
+    <color name="brand_dark_onPrimary">#14210A</color>
+    <color name="brand_dark_primaryContainer">#34562B</color>
+    <color name="brand_dark_onPrimaryContainer">#E3F5D3</color>
+    <color name="brand_dark_secondary">#4F6347</color>
+    <color name="brand_dark_onSecondary">#E9E6E1</color>
+    <color name="brand_dark_secondaryContainer">#393632</color>
+    <color name="brand_dark_onSecondaryContainer">#E9E6E1</color>
+    <color name="brand_dark_tertiary">#2196F3</color>
+    <color name="brand_dark_onTertiary">#15371D</color>
+    <color name="brand_dark_tertiaryContainer">#27442D</color>
+    <color name="brand_dark_onTertiaryContainer">#D9F5DD</color>
+    <color name="brand_dark_error">#FFFFB4AB</color>
+    <color name="brand_dark_onError">#561D17</color>
+    <color name="brand_dark_errorContainer">#561D17</color>
+    <color name="brand_dark_onErrorContainer">#FFFFDAD5</color>
+    <color name="brand_dark_background">#131814</color>
+    <color name="brand_dark_onBackground">#E9E6E1</color>
+    <color name="brand_dark_surface">#131814</color>
+    <color name="brand_dark_onSurface">#E9E6E1</color>
+    <color name="brand_dark_surfaceVariant">#353D36</color>
+    <color name="brand_dark_onSurfaceVariant">#BFC7BC</color>
+    <color name="brand_dark_outline">#6B6660</color>
+    <color name="brand_dark_inverseOnSurface">#353D36</color>
+    <color name="brand_dark_inverseSurface">#E9E6E1</color>
+    <color name="brand_dark_inversePrimary">#81B64C</color>
+
+    <!-- ==================== ГРАДИЕНТЫ И АКЦЕНТЫ ==================== -->
+    <!-- Акцентный градиент для важных элементов (кнопки, выделения) -->
+    <color name="accent_gradient_start">#81B64C</color>
+    <color name="accent_gradient_end">#2196F3</color>
+
+    <!-- Цвет для пустых состояний и иллюстраций -->
+    <color name="empty_state_icon">#81B64C</color>
+    <color name="empty_state_icon_dark">#A6DBB4</color>
 
     <!-- ==================== ДОПОЛНИТЕЛЬНЫЕ ЦВЕТА ==================== -->
     <!-- Для Splash Screen -->
-    <color name="splash_background">#1C1B1F</color> <!-- Используем темный фон для сплеша -->
+    <color name="splash_background_light">#FFFFFFFF</color>
+    <color name="splash_background_dark">#131814</color>
 
     <!-- Для индикаторов загрузки и прогресса -->
-    <color name="loading_primary">@color/md_theme_light_primary</color>
-    <color name="loading_on_primary">@color/md_theme_light_onPrimary</color>
+    <color name="loading_primary">#81B64C</color>
+    <color name="loading_on_primary">#FFFFFF</color>
 
     <!-- Для карточек и фона -->
     <color name="card_background_light">#FFFFFF</color>
-    <color name="card_background_dark">#2C2B30</color>
+    <color name="card_background_dark">#1B211A</color>
 
     <!-- Для сообщений об ошибках -->
-    <color name="error_message">@color/md_theme_light_error</color>
-    <color name="error_on_message">@color/md_theme_light_onError</color>
+    <color name="error_message">#D32F2F</color>
+    <color name="error_on_message">#FFFFFF</color>
 </resources>
