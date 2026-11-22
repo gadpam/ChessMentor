@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Иконка психолога/советчика с шахматной фигурой -->
+    <path
+        android:fillColor="#275678"
+        android:pathData="M12,2 C6.48,2 2,6.48 2,12 S6.48,22 12,22 22,17.52 22,12 17.52,2 12,2 Z"/>
+    <path
+        android:fillColor="#ACD3EE"
+        android:pathData="M12,6 L16,8 L16,12 L12,14 L8,12 L8,8 Z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,10 L14,12 L14,14 L12,14 Z M10,10 L12,10 L12,12 L10,12 Z"/>
+</vector>

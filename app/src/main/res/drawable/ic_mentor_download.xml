@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Стрелка вниз в коробке (скачивание) -->
+    <path
+        android:fillColor="#81B64C"
+        android:pathData="M5,4 L19,4 L19,20 L5,20 Z M7,6 L17,6 L17,18 L7,18 Z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,20 L9,17 L12,17 L12,10 L15,10 L15,17 L12,17 Z M12,10 L13,6 L11,6 Z"/>
+</vector>

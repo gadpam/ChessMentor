@@ -1,0 +1,17 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Замок -->
+    <path
+        android:fillColor="#81B64C"
+        android:pathData="M12,17 L2,17 V13 C2,11.34 3.34,10 5,10 H19 C20.66,10 22,11.34 22,13 V17 Z"/>
+    <path
+        android:fillColor="#316446"
+        android:pathData="M8,13 H16 V11 C16,9.9 15.1,9 14,9 H10 C8.9,9 8,9.9 8,11 Z"/>
+    <!-- Замочная скважина -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,16 C11.45,16 11,15.55 11,15 C11,14.45 11.45,14 12,14 C12.55,14 13,14.45 13,15 C13,15.55 12.55,16 12,16 Z M12,14 L12,13 L12,12 Z"/>
+</vector>

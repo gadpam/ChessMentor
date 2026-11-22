@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.compose.foundation.painter.rememberVectorPainter
 import androidx.compose.material3.Badge
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,8 +15,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.vectorResource
+import com.example.chessmentor.R
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -365,22 +368,25 @@ private fun ChessMentorTopBar(
     TopAppBar(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val icon = when (currentScreen) {
-                    "games" -> Icons.Default.List
-                    "upload" -> Icons.Default.Upload
-                    "game_view" -> Icons.Default.Search
-                    "summary" -> Icons.Default.Insights
-                    "training" -> Icons.Default.FitnessCenter
-                    "stats" -> Icons.Default.Analytics
-                    "settings" -> Icons.Default.Settings
-                    "engine_settings" -> Icons.Default.Tune
-                    else -> Icons.Default.SportsEsports
+                val iconPainter = remember {
+                    val res = when (currentScreen) {
+                        "games" -> R.drawable.ic_mentor_games
+                        "upload" -> R.drawable.ic_mentor_upload
+                        "game_view" -> R.drawable.ic_mentor_search
+                        "summary" -> R.drawable.ic_mentor_emoji_events
+                        "training" -> R.drawable.ic_mentor_training
+                        "stats" -> R.drawable.ic_mentor_statistics
+                        "settings" -> R.drawable.ic_mentor_settings
+                        "engine_settings" -> R.drawable.ic_mentor_settings
+                        else -> R.drawable.ic_mentor_home
+                    }
+                    rememberVectorPainter(vectorResource(res))
                 }
-
                 Icon(
-                    imageVector = icon,
+                    painter = iconPainter,
                     contentDescription = null,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.onBackground
                 )
 
                 Spacer(modifier = Modifier.width(12.dp))
@@ -405,8 +411,9 @@ private fun ChessMentorTopBar(
             if (currentScreen != "home" && currentUser != null) {
                 IconButton(onClick = onNavigateBack) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Назад"
+                        painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_arrow_back)),
+                        contentDescription = "Назад",
+                        tint = MaterialTheme.colorScheme.onBackground
                     )
                 }
             }
@@ -418,12 +425,12 @@ private fun ChessMentorTopBar(
     )
 }
 
-private enum class MainTab(val screen: String, val label: String, val icon: ImageVector) {
-    HOME("home", "Главная", Icons.Default.Home),
-    GAMES("games", "Партии", Icons.Default.List),
-    TASKS("training", "Задачи", Icons.Default.FitnessCenter),
-    STATS("stats", "Статистика", Icons.Default.Analytics),
-    SETTINGS("settings", "Настройки", Icons.Default.Settings)
+private enum class MainTab(val screen: String, val label: String, val iconRes: Int) {
+    HOME("home", "Главная", R.drawable.ic_mentor_home),
+    GAMES("games", "Партии", R.drawable.ic_mentor_games),
+    TASKS("training", "Задачи", R.drawable.ic_mentor_training),
+    STATS("stats", "Статистика", R.drawable.ic_mentor_statistics),
+    SETTINGS("settings", "Настройки", R.drawable.ic_mentor_settings)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -452,8 +459,13 @@ internal fun ChessMentorBottomBar(currentScreen: String, dueReviewCount: Int, on
                 NavigationBarItem(
                     modifier = Modifier.weight(if (compact && !selected) 48f else widths[i].value),
                     icon = {
+                        val iconPainter = rememberVectorPainter(vectorResource(tab.iconRes))
                         Box(Modifier.size(24.dp)) {
-                            Icon(tab.icon, contentDescription = if (showLabel) null else tab.label)
+                            Icon(
+                                painter = iconPainter,
+                                contentDescription = if (showLabel) null else tab.label,
+                                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                             if (showBadge) {
                                 Badge(
                                     badgeContent = {
