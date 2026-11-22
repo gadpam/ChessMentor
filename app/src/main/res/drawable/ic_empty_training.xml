@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="200"
+    android:viewportHeight="200">
+    <!-- Тренировочная доска с целями -->
+    <path
+        android:fillColor="#81B64C"
+        android:pathData="M60,60 L140,60 L140,140 L60,140 Z"/>
+    <path
+        android:fillColor="#316446"
+        android:pathData="M70,70 L130,70 L130,130 L70,130 Z"/>
+    <!-- Цели на доске -->
+    <circle android:fillColor="#2196F3" android:cx="85" android:cy="85" android:r="8"/>
+    <circle android:fillColor="#2196F3" android:cx="115" android:cy="115" android:r="8"/>
+    <circle android:fillColor="#2196F3" android:cx="115" android:cy="85" android:r="6"/>
+    <circle android:fillColor="#2196F3" android:cx="85" android:cy="115" android:r="6"/>
+    <!-- Фигура игрока -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M100,150 L95,158 L100,162 L105,158 Z M100,140 L98,146 L100,150 L102,146 Z"/>
+</vector>

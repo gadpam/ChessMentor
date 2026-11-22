@@ -40,6 +40,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.painterResource
+import com.example.chessmentor.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -250,7 +252,7 @@ fun GamesListScreen(
         } else if (indexedGames.isEmpty()) {
             item {
                 BrandEmptyState(
-                    icon = Icons.Default.AssignmentTurnedIn,
+                    painter = painterResource(R.drawable.ic_empty_games),
                     title = "Партий пока нет",
                     subtitle = "Вставьте PGN из буфера или загрузите файл .pgn из Lichess / Chess.com",
                     onAction = onNavigateToUpload,

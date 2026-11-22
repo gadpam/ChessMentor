@@ -1,0 +1,25 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="200"
+    android:viewportHeight="200">
+    <!-- График точности -->
+    <path
+        android:fillColor="#81B64C"
+        android:pathData="M40,160 L40,40 L160,40 L160,160 Z"/>
+    <path
+        android:fillColor="#316446"
+        android:pathData="M50,150 L50,50 L150,50 L150,150 Z"/>
+    <!-- Линии графика -->
+    <path
+        android:fillColor="#2196F3"
+        android:pathData="M50,140 L80,110 L110,130 L140,90 L140,150 L50,150 Z M50,140 L80,110 L110,130 L140,90 Z"/>
+    <path
+        android:fillColor="#2196F3"
+        android:pathData="M50,145 L80,115 L110,135 L140,95 Z"/>
+    <!-- Точки на графике -->
+    <circle android:fillColor="#FFFFFF" android:cx="50" android:cy="140" android:r="4"/>
+    <circle android:fillColor="#FFFFFF" android:cx="80" android:cy="110" android:r="4"/>
+    <circle android:fillColor="#FFFFFF" android:cx="110" android:cy="130" android:r="4"/>
+    <circle android:fillColor="#FFFFFF" android:cx="140" android:cy="90" android:r="4"/>
+</vector>
