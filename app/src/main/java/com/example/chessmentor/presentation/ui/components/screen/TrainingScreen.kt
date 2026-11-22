@@ -46,12 +46,10 @@ import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -497,20 +495,46 @@ fun TrainingScreen(
 
     pendingPromotion?.let { (from, to) ->
         val promoSide = if (uiState.isFreeAnalysisMode) uiState.board.sideToMove else uiState.playerSide
-        PromotionPickerDialog(
-            side = promoSide,
-            onPieceSelected = { pieceType ->
-                pendingPromotion = null
-                val promotionMove = ChessMoveUtils.createMove(
-                    from = from,
-                    to = to,
-                    side = promoSide,
-                    promotion = pieceType
+        val options = remember(promoSide) {
+            if (promoSide == Side.WHITE) {
+                listOf(
+                    Triple(PieceType.QUEEN, "♕", "Ферзь"),
+                    Triple(PieceType.ROOK, "♖", "Ладья"),
+                    Triple(PieceType.BISHOP, "♗", "Слон"),
+                    Triple(PieceType.KNIGHT, "♘", "Конь")
                 )
-                viewModel.onMoveMade(promotionMove)
-            },
-            onDismiss = { pendingPromotion = null }
-        )
+            } else {
+                listOf(
+                    Triple(PieceType.QUEEN, "♛", "Ферзь"),
+                    Triple(PieceType.ROOK, "♜", "Ладья"),
+                    Triple(PieceType.BISHOP, "♝", "Слон"),
+                    Triple(PieceType.KNIGHT, "♞", "Конь")
+                )
+            }
+        }
+        Box(Modifier.fillMaxWidth()) {
+            DropdownMenu(
+                expanded = true,
+                onDismissRequest = { pendingPromotion = null }
+            ) {
+                options.forEach { (pieceType, symbol, title) ->
+                    DropdownMenuItem(
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        text = { Text("$symbol $title", fontWeight = FontWeight.Medium) },
+                        onClick = {
+                            pendingPromotion = null
+                            val promotionMove = ChessMoveUtils.createMove(
+                                from = from,
+                                to = to,
+                                side = promoSide,
+                                promotion = pieceType
+                            )
+                            viewModel.onMoveMade(promotionMove)
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -831,79 +855,6 @@ private fun ExerciseMetaStrip(uiState: TrainingUiState) {
     }
 }
 
-@Composable
-private fun PromotionPickerDialog(
-    side: Side,
-    onPieceSelected: (PieceType) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val options = remember(side) {
-        if (side == Side.WHITE) {
-            listOf(
-                Triple(PieceType.QUEEN, "♕", "Ферзь"),
-                Triple(PieceType.ROOK, "♖", "Ладья"),
-                Triple(PieceType.BISHOP, "♗", "Слон"),
-                Triple(PieceType.KNIGHT, "♘", "Конь")
-            )
-        } else {
-            listOf(
-                Triple(PieceType.QUEEN, "♛", "Ферзь"),
-                Triple(PieceType.ROOK, "♜", "Ладья"),
-                Triple(PieceType.BISHOP, "♝", "Слон"),
-                Triple(PieceType.KNIGHT, "♞", "Конь")
-            )
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "Превращение пешки",
-                fontWeight = FontWeight.Bold
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "Выберите фигуру:",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    options.forEach { (pieceType, symbol, title) ->
-                        Surface(
-                            onClick = { onPieceSelected(pieceType) },
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(text = symbol, fontSize = 28.sp)
-                                Text(
-                                    text = title,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Отмена")
-            }
-        }
-    )
-}
 
 @Composable
 internal fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
@@ -1075,7 +1026,7 @@ private fun SessionHeader(
             }
             IconButton(
                 onClick = onToggleSound,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     imageVector = if (soundEnabled) {
@@ -1193,14 +1144,14 @@ private fun BottomControlPanel(
                                 IconButton(
                                     onClick = onReviewFirst,
                                     enabled = canBack,
-                                    modifier = Modifier.size(34.dp)
+                                    modifier = Modifier.size(48.dp)
                                 ) {
                                     Icon(Icons.Default.FirstPage, contentDescription = "В начало", modifier = Modifier.size(20.dp))
                                 }
                                 IconButton(
                                     onClick = onReviewPrev,
                                     enabled = canBack,
-                                    modifier = Modifier.size(34.dp)
+                                    modifier = Modifier.size(48.dp)
                                 ) {
                                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Ход назад", modifier = Modifier.size(20.dp))
                                 }
@@ -1215,14 +1166,14 @@ private fun BottomControlPanel(
                                 IconButton(
                                     onClick = onReviewNext,
                                     enabled = canForward,
-                                    modifier = Modifier.size(34.dp)
+                                    modifier = Modifier.size(48.dp)
                                 ) {
                                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Ход вперёд", modifier = Modifier.size(20.dp))
                                 }
                                 IconButton(
                                     onClick = onReviewLast,
                                     enabled = canForward,
-                                    modifier = Modifier.size(34.dp)
+                                    modifier = Modifier.size(48.dp)
                                 ) {
                                     Icon(Icons.Default.LastPage, contentDescription = "В конец", modifier = Modifier.size(20.dp))
                                 }

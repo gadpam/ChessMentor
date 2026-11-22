@@ -59,6 +59,7 @@ import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
 import com.example.chessmentor.presentation.ui.components.CommonUI.ListSkeleton
+import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator
@@ -430,7 +431,7 @@ private fun PeriodSelectorRow(
             modifier = Modifier.size(48.dp)
         ) {
             if (isRefreshing) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp).semantics { contentDescription = "Загружаем статистику" }, strokeWidth = 2.dp)
+                SkeletonBox(modifier = Modifier.size(18.dp).semantics { contentDescription = "Загружаем статистику" })
             } else {
                 Icon(
                     imageVector = Icons.Default.Refresh,

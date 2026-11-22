@@ -37,6 +37,7 @@ import com.example.chessmentor.presentation.ui.components.AnalysisProgressDialog
 import com.example.chessmentor.presentation.ui.components.CommonUI.MessageCard
 import com.example.chessmentor.presentation.ui.components.CommonUI.MessageType
 import com.example.chessmentor.presentation.ui.components.EngineStatusBanner
+import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import com.example.chessmentor.presentation.viewmodel.PgnImportPreview
 import kotlinx.coroutines.Dispatchers
@@ -562,15 +563,22 @@ internal fun PgnLivePreviewCard(
                 TextButton(onClick = { confirmCopy = true }, enabled = !isLoading, modifier = Modifier.fillMaxWidth()) {
                     Text("Создать отдельную копию")
                 }
-                if (confirmCopy) AlertDialog(
-                    onDismissRequest = { confirmCopy = false },
-                    title = { Text("Создать копию партии №$id?") },
-                    text = { Text("В библиотеке появится вторая запись. Stockfish разберёт копию; сохранённая партия не изменится.") },
-                    confirmButton = { TextButton(enabled = !isLoading, onClick = { confirmCopy = false; onCopy() }) {
-                        Text("Создать и разобрать")
-                    } },
-                    dismissButton = { TextButton(onClick = { confirmCopy = false }) { Text("Отмена") } }
-                )
+                if (confirmCopy) {
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Создать копию партии №$id?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("В библиотеке появится вторая запись. Stockfish разберёт копию; сохранённая партия не изменится.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { confirmCopy = false }) { Text("Отмена") }
+                            Button(onClick = { confirmCopy = false; onCopy() }, enabled = !isLoading) {
+                                Text("Создать и разобрать")
+                            }
+                        }
+                    }
+                } else {
+                    TextButton(onClick = { confirmCopy = true }, enabled = !isLoading, modifier = Modifier.fillMaxWidth()) {
+                        Text("Создать отдельную копию")
+                    }
+                }
             }
         }
     }
@@ -858,11 +866,7 @@ internal fun UploadForm(
                     enabled = !isLoading && importableCount > 0
                 ) {
                     if (isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.dp
-                        )
+                        SkeletonBox(height = 22.dp, width = 22.dp)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Импортируем...")
                     } else {
@@ -904,11 +908,7 @@ internal fun UploadForm(
                     enabled = !isLoading && validSingle
                 ) {
                     if (isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.dp
-                        )
+                        SkeletonBox(height = 22.dp, width = 22.dp)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Загружаем...")
                     } else {

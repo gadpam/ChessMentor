@@ -110,7 +110,7 @@ fun EngineStatusBanner(
                         }
                         IconButton(
                             onClick = onCancel,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(48.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
@@ -270,10 +270,7 @@ private fun BannerBusyRow(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(20.dp),
-            strokeWidth = 2.5.dp
-        )
+        SkeletonBox(height = 20.dp, width = 20.dp)
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -315,30 +312,51 @@ fun NnueManagementCard(
     var confirmRedownload by remember { mutableStateOf(false) }
 
     if (confirmRedownload) {
-        AlertDialog(
-            onDismissRequest = { confirmRedownload = false },
-            title = { Text("Перекачать нейросеть NNUE?") },
-            text = {
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
+            ),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 Text(
-                    "Текущий файл ${NnueIntegrity.NET_NAME} будет удалён и заново скачан с официального сервера Stockfish с проверкой SHA-256. Потребуется подключение к интернету."
+                    text = "Перекачать нейросеть NNUE?",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onErrorContainer
                 )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        confirmRedownload = false
-                        onForceRedownload()
-                    }
+                Text(
+                    text = "Текущий файл ${NnueIntegrity.NET_NAME} будет удалён и заново скачан с официального сервера Stockfish с проверкой SHA-256. Потребуется подключение к интернету.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    textAlign = TextAlign.Center,
+                    maxLines = 4
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Text("Перекачать")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmRedownload = false }) {
-                    Text("Отмена")
+                    Button(
+                        onClick = {
+                            confirmRedownload = false
+                            onForceRedownload()
+                        },
+                        modifier = Modifier.width(110.dp)
+                    ) {
+                        Text("Перекачать")
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    TextButton(onClick = { confirmRedownload = false }) {
+                        Text("Отмена")
+                    }
                 }
             }
-        )
+        }
     }
 
     Card(modifier = modifier.fillMaxWidth()) {

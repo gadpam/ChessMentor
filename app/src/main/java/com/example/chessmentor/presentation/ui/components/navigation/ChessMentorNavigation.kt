@@ -31,6 +31,7 @@ import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.usecase.LoginUserUseCase
 import com.example.chessmentor.domain.usecase.RegisterUserUseCase
 import com.example.chessmentor.presentation.ui.components.CommonUI.AnimatedContentSwitcher
+import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.presentation.ui.components.screen.AuthScreen
 import com.example.chessmentor.presentation.ui.components.screen.DashboardScreen
 import com.example.chessmentor.presentation.ui.components.screen.EngineSettingsScreen
@@ -784,7 +785,8 @@ private fun SessionRestoringView(paddingValues: PaddingValues) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            CircularProgressIndicator(strokeWidth = 3.dp)
+            SkeletonBox(height = 24.dp, modifier = Modifier.width(200.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = "Загрузка профиля…",
                 style = MaterialTheme.typography.bodyMedium,

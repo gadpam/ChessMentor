@@ -4,6 +4,7 @@ package com.example.chessmentor.presentation.ui.components.screen
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -210,34 +211,6 @@ fun SettingsScreen(
         }
     }
 
-    if (showLogoutDialog) {
-        AlertDialog(
-            onDismissRequest = { showLogoutDialog = false },
-            title = { Text("Выйти из аккаунта?") },
-            text = {
-                Text(
-                    "Все ваши партии, разборы и прогресс тренировок останутся сохранены на устройстве и восстановятся при следующем входе."
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showLogoutDialog = false
-                        viewModel.logout(onLogout)
-                    },
-                    colors = ButtonDefaults.filledTonalButtonColors()
-                ) {
-                    Text("Выйти")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLogoutDialog = false }) {
-                    Text("Отмена")
-                }
-            }
-        )
-    }
-
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -361,6 +334,55 @@ fun SettingsScreen(
                 Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Выйти из аккаунта")
                 Spacer(Modifier.width(8.dp))
                 Text("Выйти из аккаунта")
+            }
+        }
+
+        if (showLogoutDialog) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Выйти из аккаунта?",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Text(
+                            text = "Все ваши партии, разборы и прогресс тренировок останутся сохранены на устройстве и восстановятся при следующем входе.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            maxLines = 4
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Button(
+                                onClick = {
+                                    showLogoutDialog = false
+                                    viewModel.logout(onLogout)
+                                },
+                                colors = ButtonDefaults.filledTonalButtonColors(),
+                                modifier = Modifier.width(110.dp)
+                            ) {
+                                Text("Выйти")
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            TextButton(onClick = { showLogoutDialog = false }) {
+                                Text("Отмена")
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -866,7 +888,7 @@ private fun ChangePasswordCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     if (isSaving) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        SkeletonBox(height = 18.dp, width = 18.dp)
                         Spacer(Modifier.width(8.dp))
                     }
                     Text("Обновить пароль")
@@ -913,7 +935,7 @@ private fun DataBackupCard(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 if (isExporting) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    SkeletonBox(height = 18.dp, width = 18.dp)
                 } else {
                     Icon(
                         imageVector = Icons.Default.Download,
@@ -931,7 +953,7 @@ private fun DataBackupCard(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 if (isImporting) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    SkeletonBox(height = 18.dp, width = 18.dp)
                 } else {
                     Icon(
                         imageVector = Icons.Default.Upload,
