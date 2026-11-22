@@ -17,17 +17,17 @@ import androidx.core.view.WindowCompat
 import com.example.chessmentor.domain.session.AppThemeMode
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFFAFDAB8),
+    primary = Color(0xFF81B64C),
     onPrimary = Color(0xFF14210A),
     primaryContainer = Color(0xFF34562B),
     onPrimaryContainer = Color(0xFFE3F5D3),
 
-    secondary = Color(0xFFB5CBB0),
-    onSecondary = Color(0xFF21341E),
+    secondary = Color(0xFF4F6347),
+    onSecondary = Color(0xFFE9E6E1),
     secondaryContainer = Color(0xFF393632),
     onSecondaryContainer = Color(0xFFE9E6E1),
 
-    tertiary = Color(0xFF9AC9A0),
+    tertiary = Color(0xFF2196F3),
     onTertiary = Color(0xFF15371D),
     tertiaryContainer = Color(0xFF27442D),
     onTertiaryContainer = Color(0xFFD9F5DD),
@@ -47,14 +47,14 @@ private val DarkColorScheme = darkColorScheme(
     onSurfaceVariant = TextSecondaryDark,
     outline = Color(0xFF6B6660),
 
-    error = Color(0xFFFFB4AA),
+    error = Color(0xFFFFB4AB),
     onError = Color(0xFF561D17),
     errorContainer = Color(0xFF561D17),
     onErrorContainer = Color(0xFFFFDAD5)
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF316446),
+    primary = Color(0xFF81B64C),
     onPrimary = Color.White,
     primaryContainer = Color(0xFFE4F2D5),
     onPrimaryContainer = Color(0xFF1D380E),
@@ -64,7 +64,7 @@ private val LightColorScheme = lightColorScheme(
     secondaryContainer = Color(0xFFE5ECE1),
     onSecondaryContainer = Color(0xFF1B2B17),
 
-    tertiary = Color(0xFF336A44),
+    tertiary = Color(0xFF2196F3),
     onTertiary = Color.White,
     tertiaryContainer = Color(0xFFD6F3DC),
     onTertiaryContainer = Color(0xFF0E2B17),

@@ -41,6 +41,9 @@ import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.presentation.ui.components.CommonUI.EmptyState
+import com.example.chessmentor.presentation.ui.components.CommonUI.MessageCard
+import com.example.chessmentor.presentation.ui.components.CommonUI.MessageType
 import com.example.chessmentor.presentation.ui.components.util.MISSING_ACCURACY
 import com.example.chessmentor.presentation.ui.components.util.formatGameAccuracy
 import com.example.chessmentor.domain.pgn.PgnParser
@@ -219,7 +222,9 @@ fun GamesListScreen(
 
         if (message.isNotEmpty()) {
             item {
-                GamesListMessage(
+                MessageCard(
+                    type = if (message.startsWith("Ошибка")) MessageType.Error else MessageType.Info,
+                    title = if (message.startsWith("Ошибка")) "Ошибка" else "Информация",
                     message = message,
                     onDismiss = { gameViewModel.clearMessage() }
                 )
@@ -228,7 +233,13 @@ fun GamesListScreen(
 
         if (indexedGames.isEmpty()) {
             item {
-                EmptyGamesPlaceholder(onImportClick = onNavigateToUpload)
+                EmptyState(
+                    icon = Icons.Default.AssignmentTurnedIn,
+                    title = "Партий пока нет",
+                    subtitle = "Вставьте PGN из буфера или загрузите файл .pgn из Lichess / Chess.com",
+                    onAction = onNavigateToUpload,
+                    actionLabel = "Импортировать партии"
+                )
             }
         } else {
             // Поиск + сортировка + быстрые фильтры
@@ -472,71 +483,6 @@ private fun NoMatchingGamesCard(query: String, filter: LibraryFilter, onShowAll:
 }
 
 @Composable
-private fun GamesListMessage(
-    message: String,
-    onDismiss: () -> Unit
-) {
-    val isError = message.startsWith("Ошибка")
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isError) MaterialTheme.colorScheme.errorContainer
-            else MaterialTheme.colorScheme.tertiaryContainer
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.weight(1f),
-                color = if (isError) MaterialTheme.colorScheme.onErrorContainer
-                else MaterialTheme.colorScheme.onTertiaryContainer
-            )
-            TextButton(onClick = onDismiss) {
-                Icon(Icons.Default.Clear, contentDescription = "Закрыть сообщение")
-            }
-        }
-    }
-}
-
-@Composable
-private fun EmptyGamesPlaceholder(onImportClick: () -> Unit) {
-    Card {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(Icons.Default.Inbox, null, modifier = Modifier.size(48.dp))
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = "Партий пока нет",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Вставьте PGN из буфера или загрузите файл .pgn из Lichess / Chess.com",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onImportClick) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Импортировать партии")
-            }
-        }
-    }
-}
-
-@Composable
 fun GameCard(
     game: Game,
     info: PgnParser.GameCardInfo = remember(game.id, game.pgnData, game.playerColor, game.timeControl, game.playedAt) {
@@ -551,7 +497,7 @@ fun GameCard(
 ) {
     val id = game.id
     var showDeleteDialog by rememberSaveable(id) { mutableStateOf(false) }
-    var menuOpen by remember(id) { mutableStateOf(false) }
+    var menuOpen by rememberSaveable(id) { mutableStateOf(false) }
     val white = game.playerColor == ChessColor.WHITE
     val detail = listOfNotNull(id?.takeIf { showNumber }?.let { "№$it" },
         info.dateLabel.takeIf { showDate }, info.timeControlLabel).joinToString(" · ")

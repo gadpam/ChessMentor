@@ -693,7 +693,9 @@ private fun ChangePasswordCard(
     onSubmit: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    var showPasswords by remember { mutableStateOf(false) }
+    var showCurrentPassword by remember { mutableStateOf(false) }
+    var showNewPassword by remember { mutableStateOf(false) }
+    var showConfirmPassword by remember { mutableStateOf(false) }
 
     Card {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -718,31 +720,29 @@ private fun ChangePasswordCard(
             if (expanded) {
                 Spacer(Modifier.height(12.dp))
 
-                val transformation = if (showPasswords) {
-                    VisualTransformation.None
-                } else {
-                    PasswordVisualTransformation()
-                }
-
                 OutlinedTextField(
                     value = currentPassword,
                     onValueChange = onCurrentChange,
                     label = { Text("Текущий пароль") },
                     singleLine = true,
-                    visualTransformation = transformation,
+                    visualTransformation = if (showCurrentPassword) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Next
                     ),
                     trailingIcon = {
-                        IconButton(onClick = { showPasswords = !showPasswords }) {
+                        IconButton(onClick = { showCurrentPassword = !showCurrentPassword }) {
                             Icon(
-                                imageVector = if (showPasswords) {
+                                imageVector = if (showCurrentPassword) {
                                     Icons.Default.VisibilityOff
                                 } else {
                                     Icons.Default.Visibility
                                 },
-                                contentDescription = "Показать или скрыть пароль"
+                                contentDescription = if (showCurrentPassword) "Скрыть текущий пароль" else "Показать текущий пароль"
                             )
                         }
                     },
@@ -757,7 +757,11 @@ private fun ChangePasswordCard(
                     onValueChange = onNewChange,
                     label = { Text("Новый пароль (от 6 символов)") },
                     singleLine = true,
-                    visualTransformation = transformation,
+                    visualTransformation = if (showNewPassword) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Next
@@ -775,11 +779,27 @@ private fun ChangePasswordCard(
                     onValueChange = onConfirmChange,
                     label = { Text("Повторите новый пароль") },
                     singleLine = true,
-                    visualTransformation = transformation,
+                    visualTransformation = if (showConfirmPassword) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Done
                     ),
+                    trailingIcon = {
+                        IconButton(onClick = { showConfirmPassword = !showConfirmPassword }) {
+                            Icon(
+                                imageVector = if (showConfirmPassword) {
+                                    Icons.Default.VisibilityOff
+                                } else {
+                                    Icons.Default.Visibility
+                                },
+                                contentDescription = if (showConfirmPassword) "Скрыть подтверждение пароля" else "Показать подтверждение пароля"
+                            )
+                        }
+                    },
                     isError = mismatch,
                     supportingText = if (mismatch) {
                         { Text("Пароли не совпадают") }

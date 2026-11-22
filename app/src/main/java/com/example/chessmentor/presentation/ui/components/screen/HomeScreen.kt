@@ -1,6 +1,7 @@
 // presentation/ui/screen/HomeScreen.kt
 package com.example.chessmentor.presentation.ui.components.screen
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.engine.EngineStatus
+import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.User
@@ -41,6 +43,9 @@ import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.presentation.ui.components.BoardThemes
 import com.example.chessmentor.presentation.ui.components.ChessBoard
+import com.example.chessmentor.presentation.ui.components.CommonUI.MessageCard
+import com.example.chessmentor.presentation.ui.components.CommonUI.MessageType
+import com.example.chessmentor.presentation.ui.components.CommonUI.EmptyState
 import com.example.chessmentor.presentation.ui.components.EngineStatusBanner
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import com.github.bhlangonijr.chesslib.Board
@@ -152,6 +157,8 @@ private fun AuthScreenContent(
         if (message.isNotEmpty()) {
             item {
                 MessageCard(
+                    type = if (message.startsWith("Ошибка")) MessageType.Error else MessageType.Info,
+                    title = if (message.startsWith("Ошибка")) "Ошибка" else "Информация",
                     message = message,
                     onDismiss = onMessageDismiss
                 )
@@ -195,45 +202,6 @@ private fun AuthScreenContent(
                 onLogin = onLogin,
                 onRegister = onRegister
             )
-        }
-    }
-}
-
-@Composable
-private fun MessageCard(
-    message: String,
-    onDismiss: () -> Unit
-) {
-    val isError = message.startsWith("Ошибка")
-
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isError) MaterialTheme.colorScheme.errorContainer
-            else MaterialTheme.colorScheme.tertiaryContainer
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                if (isError) Icons.Default.Error else Icons.Default.CheckCircle,
-                null,
-                tint = if (isError) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.tertiary
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                message,
-                modifier = Modifier.weight(1f),
-                color = if (isError) MaterialTheme.colorScheme.onErrorContainer
-                else MaterialTheme.colorScheme.onTertiaryContainer
-            )
-            IconButton(onClick = onDismiss) {
-                Icon(Icons.Default.Close, null)
-            }
         }
     }
 }
@@ -660,7 +628,13 @@ fun DashboardContent(
 
         if (recentGames.isEmpty()) {
             item {
-                EmptyGamesCard()
+                EmptyState(
+                    icon = Icons.Default.AssignmentTurnedIn,
+                    title = "Партій ещё нет",
+                    subtitle = "Загрузите партию или начните новую игру, чтобы начать отслеживать свой прогресс.",
+                    onAction = onNavigateToUpload,
+                    actionLabel = "Загрузить партию"
+                )
             }
         } else {
             items(
@@ -791,26 +765,6 @@ fun DailyPuzzleWidget(
 }
 
 @Composable
-private fun EmptyGamesCard() {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier
-                .padding(24.dp)
-                .fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(Icons.Default.History, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("История пуста", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
 fun MiniGameCard(game: Game, onOpen: (Game) -> Unit) {
     GameCard(game = game, showDate = true, showNumber = true, onClick = { onOpen(game) })
 }
@@ -819,15 +773,29 @@ fun MiniGameCard(game: Game, onOpen: (Game) -> Unit) {
 private fun TipCard() {
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer
-        )
+            containerColor = LocalChessPalette.current.accentBackground
+        ),
+        border = BorderStroke(1.dp, LocalChessPalette.current.caution.copy(alpha = 0.35f)),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Row(modifier = Modifier.padding(16.dp)) {
-            Icon(Icons.Default.Lightbulb, null)
-            Spacer(Modifier.width(12.dp))
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Psychology,
+                contentDescription = null,
+                tint = LocalChessPalette.current.caution,
+                modifier = Modifier.size(24.dp)
+            )
             Text(
-                "Совет: Контролируйте центр доски пешками в начале партии.",
-                style = MaterialTheme.typography.bodyMedium
+                text = "Совет тренера: Контролируйте центр доски пешками в начале партии — это даёт пространство для фигур и ограничивает противника.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                lineHeight = 22.sp,
+                modifier = Modifier.weight(1f)
             )
         }
     }
