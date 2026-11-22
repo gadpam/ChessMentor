@@ -36,7 +36,6 @@ import com.example.chessmentor.domain.usecase.UploadGameUseCase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 
 class AppContainer private constructor(private val context: Context) {
 
@@ -217,9 +216,6 @@ class AppContainer private constructor(private val context: Context) {
         )
     }
 
-    // Очистка ресурсов
-    fun cleanup() {
-        appScope.cancel()
-        chessEngine.destroy()
-    }
+    /** Live library snapshot, including cancellation cleanup by a previous analysis owner. */
+    internal fun observeUserGames(userId: Long) = gameDao.observeByUserId(userId)
 }

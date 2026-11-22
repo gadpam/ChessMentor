@@ -375,10 +375,6 @@ class AnalyzeGameUseCase(
         var prevCapturedValue = 0
         var prevPlyWinLoss = 0.0
 
-        // Если движок не смог оценить позицию, разбор прерывается: подстановка
-        // «предыдущей оценки» давала бы правдоподобные, но выдуманные точность,
-        // ACPL и количество ошибок, которые затем навсегда сохранялись бы в БД.
-        var analysisError: EngineAnalysisException? = null
 
         halfMoves.forEachIndexed { index, move ->
             coroutineContext.ensureActive()
@@ -548,18 +544,15 @@ class AnalyzeGameUseCase(
                 throw e
             } catch (e: Exception) {
                 // Сбой одного поиска делает агрегаты по всей партии недостоверными,
-                // поэтому останавливаемся и отдаём пользователю понятную ошибку.
+                // поэтому останавливаемся сразу: остальные ходы не достоверны и не считаются.
                 Log.e(TAG, "Error analyzing move $moveNumber ($san): ${e.message}", e)
-                analysisError = EngineAnalysisException(
+                throw EngineAnalysisException(
                     "Не удалось оценить позицию на ходу $moveNumber ($san): " +
                         (e.message ?: "неизвестная ошибка"),
                     e
                 )
-                return@forEachIndexed
             }
         }
-
-        analysisError?.let { throw it }
 
         return AnalysisData(
             analyzedMoves = analyzedMoves,

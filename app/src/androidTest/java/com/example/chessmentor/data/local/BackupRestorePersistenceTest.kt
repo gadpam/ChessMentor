@@ -15,6 +15,7 @@ import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.TacticalPattern
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.repository.TransactionRunner
 import com.example.chessmentor.domain.session.AppThemeMode
 import com.example.chessmentor.domain.usecase.ImportUserBackupUseCase
 import java.util.UUID
@@ -142,5 +143,43 @@ class BackupRestorePersistenceTest {
             val orphan = incoming.personalExercises.single().copy(sourceGameIndex = incoming.games.size)
             Codec.encode(incoming.copy(personalExercises = listOf(orphan)))
         }
+    }
+
+    @Test fun rollbackAfterSuccessfulWriteLeavesExistingProgressIntact() = runBlocking {
+        val raw = Codec.encode(snapshot())
+        val userId = seedProgress(raw)
+        val before = readProgress(userId)
+
+        // Входящая копия с другими данными будет записана в транзакцию, но затем
+        // транзакция упадёт (симуляция сбоя посередине записи). Ожидаем откат:
+        // в БД не должно остаться ни одной записи из входящей копии.
+        val incoming = snapshot().copy(
+            profile = snapshot().profile.copy(rating = 2100),
+            games = listOf(snapshot().games.single().copy(pgnData = "1. d4 d5 *"))
+        )
+        val incomingRaw = Codec.encode(incoming)
+
+        withDatabase { db ->
+            val runner = object : TransactionRunner {
+                override suspend fun <T> run(block: suspend () -> T): T {
+                    return RoomTransactionRunner(db).run {
+                        val result = block()
+                        throw RuntimeException("имитация сбоя после записи в транзакцию")
+                    }
+                }
+            }
+            val importer = ImportUserBackupUseCase(
+                RoomUserRepository(db.userDao()), RoomGameRepository(db.gameDao()),
+                RoomMistakeRepository(db.mistakeDao()), RoomAnalyzedMoveRepository(db.analyzedMoveDao()),
+                RoomExerciseRepository(db.exerciseDao()),
+                engineSettingsRepository = null,
+                transactionRunner = runner
+            )
+            val result = importer.execute(ImportUserBackupUseCase.Input(userId, incomingRaw))
+            assertTrue("Ожидалась ошибка импорта, получено $result", result is ImportUserBackupUseCase.Result.Error)
+        }
+
+        // База не изменилась: откат транзакции отменил все записи, включая рейтинг и партии.
+        assertEquals(before, readProgress(userId))
     }
 }
