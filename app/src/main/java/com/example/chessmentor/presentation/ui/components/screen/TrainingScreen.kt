@@ -117,7 +117,8 @@ fun TrainingScreen(
     onModeConsumed: () -> Unit = {},
     onNavigateToUpload: () -> Unit = {},
     onReturnToGame: (() -> Unit)? = null,
-    onUserUpdated: (User) -> Unit = {}
+    onUserUpdated: (User) -> Unit = {},
+    onDueReviewCountChange: (Int) -> Unit = {}
 ) {
     val context = LocalContext.current
     val factory = remember(container) { ChessMentorViewModelFactory(container) }
@@ -133,6 +134,11 @@ fun TrainingScreen(
     }
     LaunchedEffect(soundEnabled) {
         soundManager.setEnabled(soundEnabled)
+    }
+
+    // Сообщаем навигации о количестве задач на повторение — для бейджа на вкладке «Задачи»
+    LaunchedEffect(uiState.dueReviewCount) {
+        onDueReviewCountChange(uiState.dueReviewCount)
     }
 
     LaunchedEffect(userId, initialModeKey) {

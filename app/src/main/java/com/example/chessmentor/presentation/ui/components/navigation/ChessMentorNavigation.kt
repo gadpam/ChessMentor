@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.Badge
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -66,6 +67,7 @@ fun ChessMentorApp(
     var engineSettingsReturnScreen by rememberSaveable { mutableStateOf("upload") }
     var isLoading by remember { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf("") }
+    var dueReviewCount by remember { mutableStateOf(0) }
 
     // Форма регистрации (пароли не сохраняем в Bundle)
     var regNickname by rememberSaveable { mutableStateOf("") }
@@ -141,6 +143,7 @@ fun ChessMentorApp(
             if (currentUser != null && currentScreen !in setOf("training", "game_view", "engine_settings")) {
                 ChessMentorBottomBar(
                     currentScreen = currentScreen,
+                    dueReviewCount = dueReviewCount,
                     onNavigate = { target ->
                         if (currentScreen == "game_view") {
                             boardViewModel.dismissEngineLine()
@@ -423,8 +426,9 @@ private enum class MainTab(val screen: String, val label: String, val icon: Imag
     SETTINGS("settings", "Настройки", Icons.Default.Settings)
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ChessMentorBottomBar(currentScreen: String, onNavigate: (String) -> Unit) {
+internal fun ChessMentorBottomBar(currentScreen: String, dueReviewCount: Int, onNavigate: (String) -> Unit) {
     val section = when (currentScreen) {
         "summary", "upload", "game_view" -> "games"
         "settings", "engine_settings" -> "settings"
@@ -444,9 +448,28 @@ internal fun ChessMentorBottomBar(currentScreen: String, onNavigate: (String) ->
             MainTab.entries.forEachIndexed { i, tab ->
                 val selected = section == tab.screen
                 val showLabel = !compact || selected
+                val showBadge = tab.screen == "training" && dueReviewCount > 0
                 NavigationBarItem(
                     modifier = Modifier.weight(if (compact && !selected) 48f else widths[i].value),
-                    icon = { Icon(tab.icon, contentDescription = if (showLabel) null else tab.label) },
+                    icon = {
+                        Box(Modifier.size(24.dp)) {
+                            Icon(tab.icon, contentDescription = if (showLabel) null else tab.label)
+                            if (showBadge) {
+                                Badge(
+                                    badgeContent = {
+                                        Text(
+                                            text = dueReviewCount.coerceAtMost(9).toString(),
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                            color = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    },
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.align(Alignment.TopEnd)
+                                        .offset(x = 4.dp, y = -4.dp)
+                                )
+                            }
+                        }
+                    },
                     label = if (showLabel) { { Text(tab.label, style = style, maxLines = 1) } } else null,
                     selected = selected,
                     onClick = { onNavigate(tab.screen) }
@@ -589,7 +612,8 @@ private fun NavigationHost(
                     },
                     onPracticeMistake = { gameId, moveNumber ->
                         onOpenGameMistakeTraining("game_view", gameId, moveNumber)
-                    }
+                    },
+                    onNavigateBack = handleNavigateBack
                 )
             } else {
                 LaunchedEffect(Unit) {
@@ -669,7 +693,8 @@ private fun NavigationHost(
                     onLeaveTraining = onLeaveTraining,
                     onNavigateToUpload = { onScreenChange("upload") },
                     onReturnToGame = onReturnToGameFromTraining,
-                    onUserUpdated = onUserUpdated
+                    onUserUpdated = onUserUpdated,
+                    onDueReviewCountChange = { dueReviewCount = it }
                 )
             } else {
                 LaunchedEffect(Unit) {
