@@ -4,9 +4,9 @@ import com.example.chessmentor.data.engine.AnalysisLine
 import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
-import com.example.chessmentor.domain.entity.EngineStatus
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.repository.AnalyzedMoveRepository
 import com.example.chessmentor.domain.repository.EngineSettingsRepository
 import com.example.chessmentor.domain.repository.GameRepository
@@ -28,7 +28,9 @@ import org.junit.Test
  */
 class EngineFailureMidGameTest {
 
-    private const val GAME_PGN = "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7"
+    companion object {
+        private const val GAME_PGN = "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7"
+    }
 
     // Движок отвечает на стартовую позицию и два хода, затем возвращает null —
     // симулируем сбой Stockfish посередине партии (на ходу 3, после 2 успешных поисков).
@@ -64,7 +66,7 @@ class EngineFailureMidGameTest {
         var deletedIds = mutableListOf<Long>()
 
         override suspend fun findById(id: Long): Game? =
-            Game(id = id, userId = 1L, pgnData = GAME_PGN, playerColor = ChessColor.WHITE, playedAt = 1L)
+            Game(id = id, userId = 1L, pgnData = EngineFailureMidGameTest.GAME_PGN, playerColor = ChessColor.WHITE, playedAt = 1L)
 
         override suspend fun findByUserId(userId: Long): List<Game> = emptyList()
         override suspend fun findByUserIdAndStatus(userId: Long, status: AnalysisStatus): List<Game> = emptyList()
