@@ -91,7 +91,7 @@ import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.example.chessmentor.presentation.ui.components.BoardThemes
 import com.example.chessmentor.presentation.ui.components.ChessBoard
-import com.example.chessmentor.presentation.ui.components.CommonUI.EmptyState
+import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
 import com.example.chessmentor.presentation.ui.components.CommonUI.ListSkeleton
 import com.example.chessmentor.presentation.ui.components.SoundManager
 import com.example.chessmentor.presentation.viewmodel.ChessMentorViewModelFactory
@@ -366,7 +366,7 @@ fun TrainingScreen(
                     uiState.hasNoUserMistakes -> { onNavigateToUpload to "Загрузить партию (PGN)" }
                     else -> { { viewModel.selectMode(TrainingMode.All) } to "Открыть общий тактический банк" }
                 }
-                EmptyState(
+                BrandEmptyState(
                     icon = if (isFromGame) Icons.Default.CheckCircle else Icons.Default.Info,
                     title = uiState.feedbackMessage ?: "Нет доступных задач в выбранном режиме.",
                     modifier = Modifier

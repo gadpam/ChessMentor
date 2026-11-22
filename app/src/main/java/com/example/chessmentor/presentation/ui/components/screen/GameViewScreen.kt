@@ -42,7 +42,7 @@ import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.example.chessmentor.presentation.ui.components.*
-import com.example.chessmentor.presentation.ui.components.CommonUI.EmptyState
+import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
 import com.example.chessmentor.presentation.viewmodel.BoardViewModel
 import com.example.chessmentor.presentation.viewmodel.EngineLineUiState
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
@@ -70,7 +70,7 @@ fun GameViewScreen(
     val game by gameViewModel.selectedGame
 
     if (game == null) {
-        EmptyState(
+        BrandEmptyState(
             icon = Icons.Default.SportsEsports,
             title = "Игра не выбрана",
             subtitle = "Откройте партию из библиотеки, чтобы начать её разбор с движком Stockfish",

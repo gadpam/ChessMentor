@@ -19,6 +19,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.LinearGradient
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -336,4 +339,206 @@ fun ListSkeleton(
             }
         }
     }
+}
+
+/** Стеклянная карточка с градиентной границей и мягкой тенью — визуальный акцент. */
+@Composable
+fun GlassCard(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val gradientBrush = Brush.linearGradient(
+        colors = listOf(
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f),
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+        ),
+        start = Alignment.TopStart,
+        end = Alignment.BottomRight,
+        tileMode = TileMode.Clamp
+    )
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+        ),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+        modifier = modifier
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(gradientBrush, RoundedCornerShape(16.dp))
+                .alpha(0.12f)
+        )
+        Column(modifier = Modifier.padding(16.dp)) {
+            content()
+        }
+    }
+}
+
+/** Кнопка с градиентом бренда — для главных CTA на экране. */
+@Composable
+fun BrandButton(
+    onClick: () -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    val gradientBrush = Brush.linearGradient(
+        colors = if (enabled) {
+            listOf(
+                MaterialTheme.colorScheme.primary,
+                MaterialTheme.colorScheme.tertiary
+            )
+        } else {
+            listOf(
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
+            )
+        },
+        start = Alignment.CenterStart,
+        end = Alignment.CenterEnd
+    )
+
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.Transparent,
+            contentColor = if (enabled) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(gradientBrush, RoundedCornerShape(12.dp))
+                .alpha(if (enabled) 1f else 0.4f)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = if (enabled) MaterialTheme.colorScheme.onPrimary
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+            )
+        }
+    }
+}
+
+/** Выразительное пустое состояние с декоративным градиентным фоном и большой иконкой. */
+@Composable
+fun BrandEmptyState(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    onAction: (() -> Unit)? = null,
+    actionLabel: String? = null,
+    modifier: Modifier = Modifier
+) {
+    val palette = LocalChessPalette.current
+    val bgGradient = Brush.linearGradient(
+        colors = listOf(
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.05f),
+            MaterialTheme.colorScheme.background.copy(alpha = 0.02f)
+        ),
+        start = Alignment.TopCenter,
+        end = Alignment.BottomCenter
+    )
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(bgGradient),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(96.dp)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.tertiary
+                        ),
+                        start = Alignment.TopLeft,
+                        end = Alignment.BottomRight
+                    ),
+                    CircleShape
+                )
+                .padding(4.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(88.dp)
+                    .background(MaterialTheme.colorScheme.background, CircleShape)
+                    .padding(4.dp)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 32.dp)
+        )
+
+        subtitle?.let {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 56.dp),
+                lineHeight = 22.sp
+            )
+        }
+
+        if (onAction != null && actionLabel != null) {
+            Spacer(modifier = Modifier.height(28.dp))
+            BrandButton(
+                onClick = onAction,
+                label = actionLabel,
+                modifier = Modifier.padding(horizontal = 32.dp).width(200.dp)
+            )
+        }
+    }
+}
+
+/** Декоративный брендовый акцент — тонкая цветная линия для разделения секций. */
+@Composable
+fun BrandAccent(
+    color: Color = MaterialTheme.colorScheme.primary,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(3.dp)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(color.copy(alpha = 0.8f), color.copy(alpha = 0.1f)),
+                    start = Alignment.CenterStart,
+                    end = Alignment.CenterEnd
+                )
+            )
+    )
 }

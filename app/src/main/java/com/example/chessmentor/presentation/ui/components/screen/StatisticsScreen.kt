@@ -55,7 +55,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.ChessColor
-import com.example.chessmentor.presentation.ui.components.CommonUI.EmptyState
+import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
 import com.example.chessmentor.presentation.ui.components.CommonUI.ListSkeleton
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnParser
@@ -190,7 +190,7 @@ fun StatisticsScreen(
                     }
                 } else {
                     item(key = "no_games_cta") {
-                        EmptyState(
+                        BrandEmptyState(
                             icon = Icons.Default.CheckCircle,
                             title = "Добавьте партии для полной аналитики",
                             subtitle = "Импортируйте PGN с Lichess или Chess.com — приложение построит график точности, сравнит игру белыми и чёрными, разберёт фазы партии и цейтнот.",
@@ -250,7 +250,7 @@ fun StatisticsScreen(
 
                 if (!report.repertoire.hasAnyOpenings) {
                     item(key = "empty_repertoire") {
-                        EmptyState(
+                        BrandEmptyState(
                             icon = Icons.Default.MenuBook,
                             title = "Дебютный репертуар пока пуст",
                             subtitle = "Загрузите партии с тегами [ECO] / [Opening] или проанализируйте их движком — здесь появится статистика побед, точности и оценки выхода из каждого дебюта за белых и чёрных.",

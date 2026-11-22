@@ -50,7 +50,7 @@ import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
-import com.example.chessmentor.presentation.ui.components.CommonUI.EmptyState
+import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
 import com.example.chessmentor.presentation.ui.components.CommonUI.ListSkeleton
 import com.example.chessmentor.presentation.ui.components.CommonUI.MessageCard
 import com.example.chessmentor.presentation.ui.components.CommonUI.MessageType
@@ -249,7 +249,7 @@ fun GamesListScreen(
             }
         } else if (indexedGames.isEmpty()) {
             item {
-                EmptyState(
+                BrandEmptyState(
                     icon = Icons.Default.AssignmentTurnedIn,
                     title = "Партий пока нет",
                     subtitle = "Вставьте PGN из буфера или загрузите файл .pgn из Lichess / Chess.com",

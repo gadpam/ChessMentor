@@ -43,9 +43,10 @@ import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.presentation.ui.components.BoardThemes
 import com.example.chessmentor.presentation.ui.components.ChessBoard
+import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
+import com.example.chessmentor.presentation.ui.components.CommonUI.BrandButton
 import com.example.chessmentor.presentation.ui.components.CommonUI.MessageCard
 import com.example.chessmentor.presentation.ui.components.CommonUI.MessageType
-import com.example.chessmentor.presentation.ui.components.CommonUI.EmptyState
 import com.example.chessmentor.presentation.ui.components.EngineStatusBanner
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import com.github.bhlangonijr.chesslib.Board
@@ -628,7 +629,7 @@ fun DashboardScreen(
 
         if (recentGames.isEmpty()) {
             item {
-                EmptyState(
+                BrandEmptyState(
                     icon = Icons.Default.AssignmentTurnedIn,
                     title = "Партій ещё нет",
                     subtitle = "Загрузите партию или начните новую игру, чтобы начать отслеживать свой прогресс.",

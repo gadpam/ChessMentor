@@ -4,9 +4,11 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.Shapes
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
@@ -14,7 +16,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat.Type
 import com.example.chessmentor.domain.session.AppThemeMode
+
+/** Брендовые формы с вариациями скругления для визуального разнообразия. */
+internal val MentorShapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(28.dp),
+    full = RoundedCornerShape(50.dp)
+)
 
 private val DarkColorScheme = darkColorScheme(
     primary = Color(0xFF81B64C),
@@ -107,8 +122,27 @@ fun ChessMentorTheme(
         SideEffect {
             val activity = view.context.findActivity() ?: return@SideEffect
             val window = activity.window
-            window.statusBarColor = colorScheme.background.toArgb()
-            window.navigationBarColor = colorScheme.surface.toArgb()
+
+            // Edge-to-edge: контент под системными панелями
+            ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { _, insets ->
+                val systemBars = insets.getInsets(Type.systemBars())
+                window.decorView.setPadding(
+                    systemBars.left,
+                    systemBars.top,
+                    systemBars.right,
+                    systemBars.bottom
+                )
+                insets
+            }
+
+            window.statusBarColor = Color.Transparent.toArgb()
+            window.navigationBarColor = Color.Transparent.toArgb()
+            window.decorView.systemUiVisibility = (
+                android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            )
+
             val insetsController = WindowCompat.getInsetsController(window, view)
             insetsController.isAppearanceLightStatusBars = !darkTheme
             insetsController.isAppearanceLightNavigationBars = !darkTheme
@@ -116,7 +150,12 @@ fun ChessMentorTheme(
     }
 
     CompositionLocalProvider(LocalChessPalette provides if (darkTheme) DarkChessPalette else LightChessPalette) {
-        MaterialTheme(colorScheme = colorScheme, typography = MentorTypography, content = content)
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = MentorTypography,
+            shapes = MentorShapes,
+            content = content
+        )
     }
 }
 
