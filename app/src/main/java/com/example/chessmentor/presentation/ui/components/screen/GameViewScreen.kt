@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -65,7 +66,8 @@ fun GameViewScreen(
     boardViewModel: BoardViewModel = viewModel(),
     chessEngine: ChessEngine? = null,
     onOpenSummary: (() -> Unit)? = null,
-    onPracticeMistake: ((gameId: Long, moveNumber: Int) -> Unit)? = null
+    onPracticeMistake: ((gameId: Long, moveNumber: Int) -> Unit)? = null,
+    onNavigateBack: (() -> Unit)? = null
 ) {
     val game by gameViewModel.selectedGame
 
@@ -90,7 +92,8 @@ fun GameViewScreen(
             user = user,
             chessEngine = chessEngine,
             onOpenSummary = onOpenSummary,
-            onPracticeMistake = onPracticeMistake
+            onPracticeMistake = onPracticeMistake,
+            onNavigateBack = onNavigateBack
         )
     }
 }
@@ -105,7 +108,8 @@ private fun GameViewScreenContent(
     user: User?,
     chessEngine: ChessEngine?,
     onOpenSummary: (() -> Unit)?,
-    onPracticeMistake: ((gameId: Long, moveNumber: Int) -> Unit)?
+    onPracticeMistake: ((gameId: Long, moveNumber: Int) -> Unit)?,
+    onNavigateBack: (() -> Unit)?
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -361,6 +365,15 @@ private fun GameViewScreenContent(
             .fillMaxSize()
             .padding(paddingValues)
             .background(MaterialTheme.colorScheme.background)
+            .detectDragGestures(
+                onDragStart = { },
+                onDragEnd = { end ->
+                    // Swipe back с левого края экрана
+                    if (end.position.x < 60.dp.toPx() && end.position.x - end.startPosition.x > 80.dp.toPx()) {
+                        onNavigateBack?.invoke()
+                    }
+                }
+            )
     ) {
         // 1. Верхняя полоска игрока + часы + кнопки (переворот, Stockfish, Сводка)
         ReviewPlayerToolbar(
