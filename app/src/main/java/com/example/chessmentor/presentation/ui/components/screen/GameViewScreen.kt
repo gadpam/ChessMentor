@@ -1100,7 +1100,7 @@ private fun VariationSandboxPanel(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Undo,
-                        contentDescription = null,
+                        contentDescription = "Отменить ход",
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
@@ -1114,7 +1114,7 @@ private fun VariationSandboxPanel(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Psychology,
-                            contentDescription = null,
+                            contentDescription = "Оценить позицию",
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
@@ -1271,7 +1271,7 @@ internal fun AnalyzedMoveInfoCard(
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(quality.getIcon(), contentDescription = null, modifier = Modifier.size(24.dp))
+                Icon(quality.getIcon(), contentDescription = titleText, modifier = Modifier.size(24.dp))
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Row(

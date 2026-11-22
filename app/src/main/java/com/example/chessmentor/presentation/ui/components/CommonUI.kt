@@ -56,7 +56,7 @@ fun EmptyState(
         ) {
             Icon(
                 imageVector = icon,
-                contentDescription = null,
+                contentDescription = title,
                 tint = palette.accent,
                 modifier = Modifier.size(32.dp)
             )
@@ -136,7 +136,7 @@ fun MessageCard(
                 ) {
                     Icon(
                         imageVector = icon,
-                        contentDescription = null,
+                        contentDescription = title,
                         tint = color,
                         modifier = Modifier.size(20.dp)
                     )
@@ -248,7 +248,7 @@ fun MetricCard(
         ) {
             Icon(
                 imageVector = icon,
-                contentDescription = null,
+                contentDescription = label,
                 tint = color,
                 modifier = Modifier.size(24.dp)
             )

@@ -88,7 +88,7 @@ fun EngineStatusBanner(
                     ) {
                         Icon(
                             imageVector = Icons.Default.CloudDownload,
-                            contentDescription = null,
+                            contentDescription = "Загрузка нейросети Stockfish",
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(22.dp)
                         )
@@ -154,7 +154,7 @@ fun EngineStatusBanner(
                     ) {
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
+                            contentDescription = "Stockfish готов к анализу",
                             tint = MaterialTheme.colorScheme.tertiary,
                             modifier = Modifier.size(20.dp)
                         )
@@ -185,7 +185,7 @@ fun EngineStatusBanner(
                             } else {
                                 Icons.Default.ErrorOutline
                             },
-                            contentDescription = null,
+                            contentDescription = if (isCancelled) "Загрузка приостановлена" else "Ошибка Stockfish NNUE",
                             tint = if (isCancelled) {
                                 MaterialTheme.colorScheme.onSecondaryContainer
                             } else {
@@ -231,7 +231,7 @@ fun EngineStatusBanner(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Tune,
-                                        contentDescription = null,
+                                        contentDescription = "Настройки движка",
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
@@ -245,7 +245,7 @@ fun EngineStatusBanner(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Refresh,
-                                        contentDescription = null,
+                                        contentDescription = "Повторить",
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
@@ -352,7 +352,7 @@ fun NnueManagementCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Memory,
-                    contentDescription = null,
+                    contentDescription = "Нейросеть NNUE",
                     tint = MaterialTheme.colorScheme.primary
                 )
                 Spacer(modifier = Modifier.width(12.dp))
@@ -383,7 +383,7 @@ fun NnueManagementCard(
                         onClick = onDownloadOrRetry,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.CloudDownload, contentDescription = "Проверить и запустить", modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Проверить и запустить")
                     }
@@ -418,7 +418,7 @@ fun NnueManagementCard(
                         onClick = onCancelDownload,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Close, contentDescription = "Приостановить загрузку", modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Приостановить загрузку")
                     }
@@ -481,7 +481,7 @@ fun NnueManagementCard(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.VerifiedUser,
-                                contentDescription = null,
+                                contentDescription = "Проверить SHA-256",
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -494,7 +494,7 @@ fun NnueManagementCard(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
-                                contentDescription = null,
+                                contentDescription = "Перекачать",
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -535,7 +535,7 @@ fun NnueManagementCard(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.CloudDownload,
-                                contentDescription = null,
+                                contentDescription = "Возобновить загрузку NNUE",
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))

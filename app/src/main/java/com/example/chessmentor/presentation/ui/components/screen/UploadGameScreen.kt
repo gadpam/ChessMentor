@@ -344,7 +344,7 @@ internal fun PgnLivePreviewCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Error,
-                    contentDescription = null,
+                    contentDescription = "Проверьте запись PGN",
                     tint = MaterialTheme.colorScheme.error
                 )
                 Spacer(modifier = Modifier.width(10.dp))
@@ -383,7 +383,7 @@ internal fun PgnLivePreviewCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.LibraryAdd,
-                        contentDescription = null,
+                        contentDescription = "Архив PGN",
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -463,7 +463,7 @@ internal fun PgnLivePreviewCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
+                        contentDescription = "Распознана одна партия",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(18.dp)
                     )
@@ -601,7 +601,7 @@ private fun EngineSettingsCard(
         ) {
             Icon(
                 imageVector = Icons.Default.Settings,
-                contentDescription = null,
+                contentDescription = "Настройки импорта",
                 tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(22.dp)
             )
@@ -691,7 +691,7 @@ internal fun UploadForm(
                 ) {
                     Icon(
                         imageVector = Icons.Default.ContentPaste,
-                        contentDescription = null,
+                        contentDescription = "Вставить из буфера обмена",
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -706,7 +706,7 @@ internal fun UploadForm(
                 ) {
                     Icon(
                         imageVector = Icons.Default.FolderOpen,
-                        contentDescription = null,
+                        contentDescription = "Выбрать файл .pgn",
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -738,7 +738,7 @@ internal fun UploadForm(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Description,
-                            contentDescription = null,
+                            contentDescription = "Исходный файл PGN",
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.width(10.dp))
@@ -784,7 +784,7 @@ internal fun UploadForm(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isLoading,
                     leadingIcon = {
-                        Icon(Icons.Default.Person, contentDescription = null)
+                        Icon(Icons.Default.Person, contentDescription = "Ник для выбора цвета")
                     }
                 )
             }
@@ -840,7 +840,7 @@ internal fun UploadForm(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isLoading && validSingle,
                     leadingIcon = {
-                        Icon(Icons.Default.Timer, contentDescription = null)
+                        Icon(Icons.Default.Timer, contentDescription = "Контроль времени")
                     }
                 )
             }
@@ -866,7 +866,7 @@ internal fun UploadForm(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Импортируем...")
                     } else {
-                        Icon(Icons.Default.LibraryAdd, contentDescription = null)
+                        Icon(Icons.Default.LibraryAdd, contentDescription = "Импортировать в библиотеку")
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = if (importableCount > 0) {
@@ -888,7 +888,7 @@ internal fun UploadForm(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Analytics,
-                            contentDescription = null,
+                            contentDescription = "Импортировать и разобрать",
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -912,7 +912,7 @@ internal fun UploadForm(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Загружаем...")
                     } else {
-                        Icon(Icons.Default.Analytics, contentDescription = null)
+                        Icon(Icons.Default.Analytics, contentDescription = "Импортировать партию и разобрать")
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Импортировать партию и разобрать")
                     }
@@ -928,7 +928,7 @@ internal fun UploadForm(
                     ) {
                         Icon(
                             imageVector = Icons.Default.BookmarkAdd,
-                            contentDescription = null,
+                            contentDescription = "Сохранить в библиотеку без анализа",
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -982,7 +982,7 @@ private fun ColorChoiceChip(
             {
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = null,
+                    contentDescription = "Выбрано",
                     modifier = Modifier.size(16.dp)
                 )
             }

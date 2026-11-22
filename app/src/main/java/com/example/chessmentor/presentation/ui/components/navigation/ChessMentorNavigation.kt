@@ -384,7 +384,7 @@ private fun ChessMentorTopBar(
                 }
                 Icon(
                     painter = iconPainter,
-                    contentDescription = null,
+                    contentDescription = "Назад",
                     modifier = Modifier.size(28.dp),
                     tint = MaterialTheme.colorScheme.onBackground
                 )

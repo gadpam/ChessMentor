@@ -640,7 +640,7 @@ private fun SessionSummaryCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.EmojiEvents,
-                    contentDescription = null,
+                    contentDescription = summary.headline,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(40.dp)
                 )
@@ -720,7 +720,7 @@ private fun SessionSummaryCard(
                 .height(48.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null)
+            Icon(Icons.Default.PlayArrow, contentDescription = "Начать новую сессию")
             Spacer(Modifier.width(8.dp))
             Text("Новая сессия (10 задач)", fontWeight = FontWeight.Bold)
         }
@@ -1155,7 +1155,7 @@ private fun BottomControlPanel(
                             contentPadding = PaddingValues(horizontal = 10.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.PlayArrow, contentDescription = "Показать лучший ход движка", modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 text = uiState.analysisBestMoveSan?.let { "Ход $it" } ?: "Ход движка",
@@ -1237,7 +1237,7 @@ private fun BottomControlPanel(
                             contentPadding = PaddingValues(horizontal = 10.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Icon(Icons.Default.Analytics, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Analytics, contentDescription = "Анализ позиции", modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("Анализ", fontSize = 12.sp)
                         }
@@ -1266,7 +1266,7 @@ private fun BottomControlPanel(
                         } else {
                             Icons.AutoMirrored.Filled.ArrowForward
                         },
-                        contentDescription = null
+                        contentDescription = if (isFinalSessionPuzzle) "Завершить сессию" else "Перейти к следующей задаче"
                     )
                 }
             } else {

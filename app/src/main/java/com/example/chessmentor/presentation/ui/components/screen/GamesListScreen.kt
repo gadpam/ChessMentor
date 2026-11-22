@@ -371,7 +371,7 @@ internal fun LibraryAnalysisFeedback(
 @Composable
 internal fun AddGameButton(onAdd: () -> Unit) {
     TextButton(onClick = onAdd, modifier = Modifier.heightIn(min = 48.dp)) {
-        Icon(Icons.Default.Add, contentDescription = null)
+        Icon(Icons.Default.Add, contentDescription = "Добавить партию")
         Text("Добавить")
     }
 }
@@ -405,7 +405,7 @@ private fun LibrarySearchAndFilters(
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),
                 leadingIcon = {
-                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Search, contentDescription = "Поиск партий", modifier = Modifier.size(20.dp))
                 },
                 trailingIcon = if (searchQuery.isNotEmpty()) {
                     {
@@ -435,7 +435,7 @@ private fun LibrarySearchAndFilters(
                             },
                             text = { Text(option.label, style = MaterialTheme.typography.bodyLarge) },
                             trailingIcon = {
-                                if (option == activeSort) Icon(Icons.Default.Check, contentDescription = null,
+                                if (option == activeSort) Icon(Icons.Default.Check, contentDescription = "Выбрано",
                                     tint = MaterialTheme.colorScheme.primary)
                             },
                             onClick = { onSortChange(option) }

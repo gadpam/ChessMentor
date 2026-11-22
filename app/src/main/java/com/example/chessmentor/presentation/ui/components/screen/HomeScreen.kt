@@ -789,7 +789,7 @@ private fun TipCard() {
         ) {
             Icon(
                 imageVector = Icons.Default.Psychology,
-                contentDescription = null,
+                contentDescription = "Совет тренера",
                 tint = LocalChessPalette.current.caution,
                 modifier = Modifier.size(24.dp)
             )

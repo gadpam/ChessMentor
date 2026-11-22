@@ -83,7 +83,7 @@ fun CompactMistakeCard(
                 ) {
                     Icon(
                         imageVector = mistake.mistakeType.getIcon(),
-                        contentDescription = null,
+                        contentDescription = title,
                         tint = accentColor,
                         modifier = Modifier.size(18.dp)
                     )
@@ -138,7 +138,7 @@ fun CompactMistakeCard(
                 if (onRevealAnswer == null) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = null,
+                        contentDescription = "Показать лучший ход",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
                     )
@@ -258,7 +258,7 @@ fun CompactPositionCard(
         ) {
             Icon(
                 imageVector = icon,
-                contentDescription = null,
+                contentDescription = text,
                 tint = color,
                 modifier = Modifier.size(22.dp)
             )
@@ -288,7 +288,7 @@ fun CompactPositionCard(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Psychology,
-                        contentDescription = null,
+                        contentDescription = "Анализ позиции Stockfish",
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))

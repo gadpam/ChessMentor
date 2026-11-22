@@ -276,7 +276,7 @@ private fun SummaryActionRow(
         ) {
             Icon(
                 imageVector = Icons.Default.PlayArrow,
-                contentDescription = null,
+                contentDescription = "Интерактивный разбор на доске",
                 modifier = Modifier.size(22.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
@@ -293,7 +293,7 @@ private fun SummaryActionRow(
             ) {
                 Icon(
                     imageVector = Icons.Default.FitnessCenter,
-                    contentDescription = null,
+                    contentDescription = "Отработать ошибки партии",
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -329,7 +329,7 @@ private fun CoachSummaryCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.School,
-                    contentDescription = null,
+                    contentDescription = "Тренерский вывод",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
@@ -370,7 +370,7 @@ private fun CoachSummaryCard(
                     Spacer(modifier = Modifier.width(4.dp))
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
+                        contentDescription = "Разобрать переломный ход",
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -581,7 +581,7 @@ private fun NoEvaluationsPlaceholder() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
                 imageVector = Icons.Default.Timeline,
-                contentDescription = null,
+                contentDescription = "График недоступен",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                 modifier = Modifier.size(32.dp)
             )
@@ -623,7 +623,7 @@ private fun ReanalyzeHint(
         ) {
             Icon(
                 imageVector = Icons.Default.Info,
-                contentDescription = null,
+                contentDescription = "Информация о графике",
                 tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(20.dp)
             )
@@ -1325,7 +1325,7 @@ fun KeyMomentItemCompact(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.width(70.dp)
     ) {
-        Icon(quality.getIcon(), contentDescription = null, modifier = Modifier.size(24.dp))
+        Icon(quality.getIcon(), contentDescription = quality.getDisplayName(), modifier = Modifier.size(24.dp))
 
         Text(
             text = "$count",
@@ -1387,7 +1387,7 @@ fun KeyMomentRow(
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(moment.quality.getIcon(), contentDescription = null, modifier = Modifier.size(22.dp))
+            Icon(moment.quality.getIcon(), contentDescription = moment.quality.getDisplayName(), modifier = Modifier.size(22.dp))
 
             Spacer(modifier = Modifier.width(10.dp))
 
