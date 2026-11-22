@@ -107,7 +107,7 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun ChessMentorTheme(
-    themeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    themeMode: AppThemeMode = AppThemeMode.DARK,
     darkTheme: Boolean = when (themeMode) {
         AppThemeMode.SYSTEM -> isSystemInDarkTheme()
         AppThemeMode.LIGHT -> false

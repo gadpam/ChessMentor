@@ -197,7 +197,7 @@ class ExportUserBackupUseCase(
             rating = user.rating,
             isSoundEnabled = user.isSoundEnabled,
             preferredBoardTheme = user.preferredTheme,
-            appThemeMode = sessionRepository?.themeMode?.value ?: AppThemeMode.SYSTEM,
+            appThemeMode = sessionRepository?.themeMode?.value ?: AppThemeMode.DARK,
             chessUsernameHint = sessionRepository?.getChessUsernameHint(userId),
             engineSettings = engineSettingsRepository?.getSettings()
         )
