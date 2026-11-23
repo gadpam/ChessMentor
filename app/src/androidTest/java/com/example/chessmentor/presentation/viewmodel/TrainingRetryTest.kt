@@ -78,4 +78,36 @@ class TrainingRetryTest {
             container.userRepository.deleteById(uid)
         }
     }
+
+    @Test fun initAfterSessionSummaryWithExplicitModeClearsSummaryAndLoadsNewMode() = runBlocking {
+        val container = AppContainer.getInstance(InstrumentationRegistry.getInstrumentation().targetContext)
+        val user = container.userRepository.save(User(nickname = "ModeSwitch", email = "modeswitch${System.nanoTime()}@test.local", passwordHash = "test"))
+        val uid = requireNotNull(user.id)
+        val vm = TrainingViewModel(container)
+        suspend fun awaitState(predicate: (TrainingUiState) -> Boolean) = withTimeout(15_000L) {
+            while (!withContext(Dispatchers.Main) { predicate(vm.uiState.value) }) delay(20)
+        }
+        try {
+            withContext(Dispatchers.Main) { vm.init(user, TrainingMode.SmartSession) }
+            awaitState { !it.isLoading && it.hasActiveExercise }
+            repeat(10) {
+                withContext(Dispatchers.Main) { vm.onSkipExercise() }
+                awaitState { !it.isLoading }
+            }
+            awaitState { it.sessionSummary != null }
+            withContext(Dispatchers.Main) { vm.init(user, TrainingMode.Daily) }
+            awaitState { !it.isLoading && it.sessionSummary == null && it.mode == TrainingMode.Daily }
+            assertEquals(TrainingMode.Daily, vm.uiState.value.mode)
+            assertTrue(vm.uiState.value.hasActiveExercise)
+
+            withContext(Dispatchers.Main) { vm.showInitializationError("Ошибка теста") }
+            val errState = withContext(Dispatchers.Main) { vm.uiState.value }
+            assertTrue(errState.isInitializationError)
+            assertTrue(!errState.isLoading)
+            assertEquals("Ошибка теста", errState.feedbackMessage)
+        } finally {
+            vm.viewModelScope.cancel()
+            container.userRepository.deleteById(uid)
+        }
+    }
 }

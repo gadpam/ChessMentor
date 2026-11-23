@@ -312,55 +312,61 @@ fun NnueManagementCard(
 ) {
     var confirmRedownload by remember { mutableStateOf(false) }
 
-    if (confirmRedownload) {
-        Card(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
-            ),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        if (confirmRedownload) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
+                ),
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Text(
-                    text = "Перекачать нейросеть NNUE?",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onErrorContainer
-                )
-                Text(
-                    text = "Текущий файл ${NnueIntegrity.NET_NAME} будет удалён и заново скачан с официального сервера Stockfish с проверкой SHA-256. Потребуется подключение к интернету.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    textAlign = TextAlign.Center,
-                    maxLines = 4
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Button(
-                        onClick = {
-                            confirmRedownload = false
-                            onForceRedownload()
-                        },
-                        modifier = Modifier.width(110.dp)
+                    Text(
+                        text = "Перекачать нейросеть NNUE?",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Text(
+                        text = "Текущий файл ${NnueIntegrity.NET_NAME} будет удалён и заново скачан с официального сервера Stockfish с проверкой SHA-256. Потребуется подключение к интернету.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        textAlign = TextAlign.Center
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        Text("Перекачать")
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    TextButton(onClick = { confirmRedownload = false }) {
-                        Text("Отмена")
+                        Button(
+                            onClick = {
+                                confirmRedownload = false
+                                onForceRedownload()
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Text("Перекачать")
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        TextButton(
+                            onClick = { confirmRedownload = false },
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Text("Отмена")
+                        }
                     }
                 }
             }
         }
-    }
 
-    Card(modifier = modifier.fillMaxWidth()) {
+        Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -570,6 +576,7 @@ fun NnueManagementCard(
                 }
             }
         }
+    }
     }
 }
 

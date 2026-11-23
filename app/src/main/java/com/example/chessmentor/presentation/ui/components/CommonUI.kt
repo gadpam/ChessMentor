@@ -6,7 +6,6 @@ import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalett
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -19,7 +18,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.LinearGradient
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -57,8 +55,9 @@ fun EmptyState(
         Box(
             modifier = Modifier
                 .size(80.dp)
-                .background(palette.accentBackground)
                 .clip(CircleShape)
+                .background(palette.accentBackground),
+            contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
@@ -345,12 +344,12 @@ fun GlassCard(
 ) {
     val gradientBrush = Brush.linearGradient(
         colors = listOf(
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
-            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f),
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.10f),
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.04f)
         ),
-        start = Offset(0f, 0f),
-        end = Offset(1f, 1f),
+        start = Offset.Zero,
+        end = Offset.Infinite,
         tileMode = TileMode.Clamp
     )
 
@@ -362,12 +361,12 @@ fun GlassCard(
         border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
         modifier = modifier
     ) {
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(gradientBrush, RoundedCornerShape(16.dp))
-        )
-        Column(modifier = Modifier.padding(16.dp)) {
+                .background(gradientBrush)
+                .padding(16.dp)
+        ) {
             content()
         }
     }
@@ -381,7 +380,7 @@ fun BrandButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true
 ) {
-    val gradientBrush = Brush.linearGradient(
+    val gradientBrush = Brush.horizontalGradient(
         colors = if (enabled) {
             listOf(
                 MaterialTheme.colorScheme.primary,
@@ -392,17 +391,17 @@ fun BrandButton(
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
             )
-        },
-        start = Offset(0f, 0.5f),
-        end = Offset(1f, 0.5f)
+        }
     )
 
     Button(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier,
+        modifier = modifier.heightIn(min = 48.dp),
+        contentPadding = PaddingValues(0.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = Color.Transparent,
+            disabledContainerColor = Color.Transparent,
             contentColor = if (enabled) MaterialTheme.colorScheme.onPrimary
             else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
         ),
@@ -411,14 +410,18 @@ fun BrandButton(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 48.dp)
                 .background(gradientBrush, RoundedCornerShape(12.dp))
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center
         ) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
                 color = if (enabled) MaterialTheme.colorScheme.onPrimary
-                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
         }
     }
@@ -435,21 +438,21 @@ fun BrandEmptyState(
     actionLabel: String? = null,
     modifier: Modifier = Modifier
 ) {
-    val palette = LocalChessPalette.current
-    val bgGradient = Brush.linearGradient(
+    val bgGradient = Brush.verticalGradient(
         colors = listOf(
             MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
             MaterialTheme.colorScheme.tertiary.copy(alpha = 0.05f),
             MaterialTheme.colorScheme.background.copy(alpha = 0.02f)
-        ),
-        start = Offset(0.5f, 0f),
-        end = Offset(0.5f, 1f)
+        )
     )
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(bgGradient),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(modifier)
+            .clip(RoundedCornerShape(16.dp))
+            .background(bgGradient)
+            .padding(vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -462,30 +465,37 @@ fun BrandEmptyState(
                             MaterialTheme.colorScheme.primary,
                             MaterialTheme.colorScheme.tertiary
                         ),
-                        start = Offset(0f, 0f),
-                        end = Offset(1f, 1f)
+                        start = Offset.Zero,
+                        end = Offset.Infinite
                     ),
                     CircleShape
                 )
-                .padding(4.dp)
+                .padding(4.dp),
+            contentAlignment = Alignment.Center
         ) {
             Box(
                 modifier = Modifier
                     .size(88.dp)
                     .background(MaterialTheme.colorScheme.background, CircleShape)
-                    .padding(4.dp)
+                    .padding(4.dp),
+                contentAlignment = Alignment.Center
             ) {
-                if (painter != null) {
-                    Image(
+                when {
+                    painter != null -> Image(
                         painter = painter,
                         contentDescription = title,
                         modifier = Modifier.size(48.dp)
                     )
-                } else {
-                    Icon(
-                        imageVector = icon!!,
+                    icon != null -> Icon(
+                        imageVector = icon,
                         contentDescription = title,
-                        tint = MaterialTheme.colorScheme.onPrimary,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(40.dp)
+                    )
+                    else -> Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = title,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(40.dp)
                     )
                 }
@@ -500,7 +510,7 @@ fun BrandEmptyState(
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 32.dp)
+            modifier = Modifier.padding(horizontal = 24.dp)
         )
 
         subtitle?.let {
@@ -510,17 +520,20 @@ fun BrandEmptyState(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 56.dp),
+                modifier = Modifier.padding(horizontal = 24.dp),
                 lineHeight = 22.sp
             )
         }
 
         if (onAction != null && actionLabel != null) {
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(24.dp))
             BrandButton(
                 onClick = onAction,
                 label = actionLabel,
-                modifier = Modifier.padding(horizontal = 32.dp).width(200.dp)
+                modifier = Modifier
+                    .padding(horizontal = 24.dp)
+                    .widthIn(max = 320.dp)
+                    .fillMaxWidth()
             )
         }
     }
@@ -537,10 +550,8 @@ fun BrandAccent(
             .fillMaxWidth()
             .height(3.dp)
             .background(
-                Brush.linearGradient(
-                    colors = listOf(color.copy(alpha = 0.8f), color.copy(alpha = 0.1f)),
-                    start = Offset(0f, 0.5f),
-                    end = Offset(1f, 0.5f)
+                Brush.horizontalGradient(
+                    colors = listOf(color.copy(alpha = 0.8f), color.copy(alpha = 0.1f))
                 )
             )
     )

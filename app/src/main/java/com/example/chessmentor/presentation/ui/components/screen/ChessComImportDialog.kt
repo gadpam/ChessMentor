@@ -12,6 +12,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.chessmentor.data.chesscom.ArchiveGame
 import com.example.chessmentor.data.chesscom.ChessComArchive
 import kotlinx.coroutines.CancellationException
@@ -20,6 +22,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ChessComImportDialog(
     savedName: String?, rememberSource: (String?) -> Unit,
@@ -61,89 +64,159 @@ internal fun ChessComImportDialog(
         }
     }
     val colors = MaterialTheme.colorScheme
-    Column(
-        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Text("Партии с Chess.com", style = MaterialTheme.typography.headlineSmall)
-                Text("Публичный архив завершённых партий. Пароль не нужен. ChessMentor не связан с Chess.com.",
-                    style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
-                if (source == null) {
-                    OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = name, onValueChange = { name = it }, label = { Text("Ник на Chess.com") }, singleLine = true)
-                    Button(onClick = { source = name.trim() }, enabled = ChessComArchive.nickname.matches(name.trim())) {
-                        Text("Загрузить архив")
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .heightIn(max = 680.dp),
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 6.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Партии с Chess.com", style = MaterialTheme.typography.headlineSmall)
+                    Text(
+                        "Публичный архив завершённых партий. Пароль не нужен. ChessMentor не связан с Chess.com.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant
+                    )
+                    if (source == null) {
+                        OutlinedTextField(
+                            modifier = Modifier.fillMaxWidth(),
+                            value = name,
+                            onValueChange = { name = it },
+                            label = { Text("Ник на Chess.com") },
+                            singleLine = true
+                        )
+                        Button(
+                            onClick = { source = name.trim() },
+                            enabled = ChessComArchive.nickname.matches(name.trim())
+                        ) {
+                            Text("Загрузить архив")
+                        }
+                    } else {
+                        Text("Игрок: $source", style = MaterialTheme.typography.titleMedium)
+                        TextButton(onClick = { source = null }) { Text("Сменить ник") }
                     }
-                } else {
-                    Text("Игрок: $source", style = MaterialTheme.typography.titleMedium)
-                    TextButton(onClick = { source = null }) { Text("Сменить ник") }
-                }
-                if (remembered != null) {
-                    TextButton(onClick = { source = null; name = ""; remembered = null; rememberSource(null) }) { Text("Забыть ник") }
-                }
-                val month = period
-                if (month != null) {
-                    HorizontalDivider()
-                    Text("Месяц: $month", style = MaterialTheme.typography.titleMedium)
-                    val index = months.indexOf(month)
-                    Row {
-                        TextButton(onClick = { period = months[index + 1] }, enabled = index >= 0 && index < months.lastIndex) { Text("Раньше") }
-                        TextButton(onClick = { period = months[index - 1] }, enabled = index > 0) { Text("Позже") }
-                    }
-                }
-                when {
-                    busy -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        Text("Загружаем публичный архив…", style = MaterialTheme.typography.bodyMedium)
-                    }
-                    error != null -> Surface(shape = MaterialTheme.shapes.medium,
-                        color = colors.errorContainer, contentColor = colors.onErrorContainer) {
-                        Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                            Text("Архив не загружен", style = MaterialTheme.typography.titleMedium)
-                            Text(error.orEmpty(), style = MaterialTheme.typography.bodyMedium)
-                            TextButton(onClick = { retry++ }, colors = ButtonDefaults.textButtonColors(
-                                contentColor = colors.onErrorContainer)) { Text("Повторить") }
+                    if (remembered != null) {
+                        TextButton(onClick = { source = null; name = ""; remembered = null; rememberSource(null) }) {
+                            Text("Забыть ник")
                         }
                     }
-                    source == null -> Unit
-                    month == null -> Text("В публичном архиве пока нет партий.")
-                    games.isEmpty() -> Text("За этот месяц нет доступных партий в обычные шахматы.")
-                    else -> {
-                        Text("До 10 последних партий за месяц. Выберите нужные. Новые партии могут появляться с задержкой.")
-                        for (game in games) {
-                            val checked = game.fingerprint in selected
-                            val fill = if (checked) colors.primaryContainer else colors.surfaceVariant
-                            val ink = if (checked) colors.onPrimaryContainer else colors.onSurfaceVariant
-                            Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(fill).toggleable(value = checked, enabled = !game.inLibrary,
-                                role = Role.Checkbox, onValueChange = { selected = if (it) selected + game.fingerprint else selected - game.fingerprint })
-                                .heightIn(min = 48.dp).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(checked, onCheckedChange = null, enabled = !game.inLibrary)
-                                Spacer(Modifier.width(8.dp))
-                                Column {
-                                    Text(game.opponent, style = MaterialTheme.typography.titleMedium, color = ink)
-                                    Text("${dateFormat.format(Instant.ofEpochSecond(game.ended))} · ${game.side.getDisplayName()} · ${game.outcome}", style = MaterialTheme.typography.bodySmall, color = ink)
-                                    if (game.inLibrary) Text("Уже в библиотеке", style = MaterialTheme.typography.labelMedium, color = ink)
+                    val month = period
+                    if (month != null) {
+                        HorizontalDivider()
+                        Text("Месяц: $month", style = MaterialTheme.typography.titleMedium)
+                        val index = months.indexOf(month)
+                        Row {
+                            TextButton(
+                                onClick = { period = months[index + 1] },
+                                enabled = index >= 0 && index < months.lastIndex
+                            ) { Text("Раньше") }
+                            TextButton(
+                                onClick = { period = months[index - 1] },
+                                enabled = index > 0
+                            ) { Text("Позже") }
+                        }
+                    }
+                    when {
+                        busy -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            Text("Загружаем публичный архив…", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        error != null -> Surface(
+                            shape = MaterialTheme.shapes.medium,
+                            color = colors.errorContainer,
+                            contentColor = colors.onErrorContainer
+                        ) {
+                            Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                                Text("Архив не загружен", style = MaterialTheme.typography.titleMedium)
+                                Text(error.orEmpty(), style = MaterialTheme.typography.bodyMedium)
+                                TextButton(
+                                    onClick = { retry++ },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = colors.onErrorContainer)
+                                ) { Text("Повторить") }
+                            }
+                        }
+                        source == null -> Unit
+                        month == null -> Text("В публичном архиве пока нет партий.")
+                        games.isEmpty() -> Text("За этот месяц нет доступных партий в обычные шахматы.")
+                        else -> {
+                            Text("До 10 последних партий за месяц. Выберите нужные. Новые партии могут появляться с задержкой.")
+                            for (game in games) {
+                                val checked = game.fingerprint in selected
+                                val fill = if (checked) colors.primaryContainer else colors.surfaceVariant
+                                val ink = if (checked) colors.onPrimaryContainer else colors.onSurfaceVariant
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clip(MaterialTheme.shapes.medium)
+                                        .background(fill)
+                                        .toggleable(
+                                            value = checked,
+                                            enabled = !game.inLibrary,
+                                            role = Role.Checkbox,
+                                            onValueChange = {
+                                                selected = if (it) selected + game.fingerprint else selected - game.fingerprint
+                                            }
+                                        )
+                                        .heightIn(min = 48.dp)
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(checked, onCheckedChange = null, enabled = !game.inLibrary)
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(game.opponent, style = MaterialTheme.typography.titleMedium, color = ink)
+                                        Text(
+                                            "${dateFormat.format(Instant.ofEpochSecond(game.ended))} · ${game.side.getDisplayName()} · ${game.outcome}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = ink
+                                        )
+                                        if (game.inLibrary) {
+                                            Text("Уже в библиотеке", style = MaterialTheme.typography.labelMedium, color = ink)
+                                        }
+                                    }
+                                }
+                                game.libraryId?.let { id ->
+                                    TextButton(onClick = { onOpenSaved(id) }) { Text("Открыть партию №$id") }
                                 }
                             }
-                            game.libraryId?.let { id ->
-                                TextButton(onClick = { onOpenSaved(id) }) { Text("Открыть партию №$id") }
-                            }
                         }
                     }
                 }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Button(
-                    onClick = { onImport(games.filter { it.fingerprint in selected && !it.inLibrary }) },
-                    enabled = !busy && selected.isNotEmpty()
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Импортировать выбранные (${selected.size})")
-                }
-                TextButton(onClick = onClose) {
-                    Text("Закрыть")
+                    Button(
+                        onClick = { onImport(games.filter { it.fingerprint in selected && !it.inLibrary }) },
+                        enabled = !busy && selected.isNotEmpty()
+                    ) {
+                        Text("Импортировать выбранные (${selected.size})")
+                    }
+                    TextButton(onClick = onClose) {
+                        Text("Закрыть")
+                    }
                 }
             }
         }
+    }
+}

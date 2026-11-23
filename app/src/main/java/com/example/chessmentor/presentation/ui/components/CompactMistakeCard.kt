@@ -283,8 +283,8 @@ fun CompactPositionCard(
             if (onAnalyzePosition != null) {
                 OutlinedButton(
                     onClick = onAnalyzePosition,
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    modifier = Modifier.height(30.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.heightIn(min = 36.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Psychology,

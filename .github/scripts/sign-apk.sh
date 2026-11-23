@@ -7,6 +7,10 @@ apk=${2:?missing output APK}
 : "${KEYSTORE_B64:?}" "${STORE_PASSWORD:?}" "${KEY_ALIAS:?}" "${KEY_PASSWORD:?}"
 : "${VERSION_NAME:?}" "${VERSION_CODE:?}"
 tools="$ANDROID_HOME/build-tools/35.0.0"
+if [[ ! -d "$tools" ]]; then
+  echo "Missing Android build-tools 35.0.0 at $tools (install build-tools;35.0.0 first)." >&2
+  exit 1
+fi
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 printf '%s' "$KEYSTORE_B64" | base64 --decode > "$tmp/signing.jks"

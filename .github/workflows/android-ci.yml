@@ -74,10 +74,6 @@ jobs:
           java -version || true
           echo "=== Gradle version ==="
           ./gradlew --version || true
-          echo "=== CommonUI.kt imports ==="
-          grep -n "tween\|collapseHorizontally\|BottomRight\|AssignmentTurnedIn\|graphicsLayer\|Icons.Default.Close" app/src/main/java/com/example/chessmentor/presentation/ui/components/CommonUI.kt || true
-          echo "=== Drawable circle check ==="
-          grep -rl "<circle" app/src/main/res/drawable/ 2>/dev/null || echo "No <circle> in drawables"
 
       - name: Run JVM unit tests
         run: |
@@ -176,6 +172,9 @@ jobs:
             exit $STATUS
           }
 
+      - name: Compile Android instrumentation tests
+        run: ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace
+
       - name: Upload test, lint & Room schema artifacts
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -237,10 +236,6 @@ jobs:
           java -version || true
           echo "=== Gradle version ==="
           ./gradlew --version || true
-          echo "=== CommonUI.kt imports ==="
-          grep -n "tween\|collapseHorizontally\|BottomRight\|AssignmentTurnedIn\|graphicsLayer\|Icons.Default.Close" app/src/main/java/com/example/chessmentor/presentation/ui/components/CommonUI.kt || true
-          echo "=== Drawable circle check ==="
-          grep -rl "<circle" app/src/main/res/drawable/ 2>/dev/null || echo "No <circle> in drawables"
 
       - name: Assemble Debug & R8-minified Release APKs
         env:
@@ -332,7 +327,7 @@ jobs:
           name: chessmentor-apks
           path: artifacts
       - name: Prepare Android signing tools
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;34.0.0"'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0"'
       - name: Sign and verify a temporary copy (no release secrets)
         env:
           VERSION_NAME: ${{ inputs.version_name || '1.0' }}
@@ -351,7 +346,7 @@ jobs:
             bash .github/scripts/sign-apk.sh artifacts/apk/release/app-release-unsigned.apk "$tmp/test.apk"
 
   room-device-test:
-    name: Backup restore on Android (Room)
+    name: Instrumentation & Room Device Tests
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -361,9 +356,26 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
+      - name: Ensure Android SDK, NDK & CMake components
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;${NDK_VERSION}" \
+            "cmake;${CMAKE_VERSION}"
+      - name: Cache Stockfish CMake/NDK build outputs
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: app/.cxx
+          key: ndk-device-${{ runner.os }}-${{ env.NDK_VERSION }}-${{ env.CMAKE_VERSION }}-${{ hashFiles('app/src/main/cpp/**', 'app/build.gradle.kts') }}
+          restore-keys: |
+            ndk-device-${{ runner.os }}-${{ env.NDK_VERSION }}-${{ env.CMAKE_VERSION }}-
       - uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
+      - name: Ensure gradlew is executable
+        run: chmod +x ./gradlew
       - name: Build application and tests before booting the emulator
-        run: bash gradlew :app:assembleDebug :app:assembleDebugAndroidTest -Pandroid.injected.build.abi=x86_64 --no-daemon
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -Pandroid.injected.build.abi=x86_64 --no-daemon
       - name: Enable KVM for the emulator
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

@@ -13,15 +13,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -42,10 +38,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.painterResource
 import com.example.chessmentor.R
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.rememberCoroutineScope
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.AnalysisStatus
@@ -103,8 +95,6 @@ fun GamesListScreen(
 ) {
     val games = gameViewModel.userGames.toList()
     val message by gameViewModel.message
-    val snackbarHostState = remember { SnackbarHostState() }
-    val coroutineScope = rememberCoroutineScope()
     val isLoading by gameViewModel.isLoading
 
     val engineStatus by container.chessEngine.status.collectAsState()
@@ -320,16 +310,12 @@ fun GamesListScreen(
                         },
                         onDelete = {
                             game.id?.let { gameViewModel.deleteGame(it) }
-                        },
-                        snackbarHostState = snackbarHostState,
-                        coroutineScope = coroutineScope
+                        }
                     )
                 }
             }
         }
     }
-
-    SnackbarHost(hostState = snackbarHostState)
 
     LibraryAnalysisFeedback(
         requestedGameId = requestedGameId,
@@ -508,20 +494,19 @@ private fun NoMatchingGamesCard(query: String, filter: LibraryFilter, onShowAll:
 @Composable
 fun GameCard(
     game: Game,
-    info: PgnParser.GameCardInfo,
+    info: PgnParser.GameCardInfo = remember(game) { PgnParser.extractGameCardInfo(game) },
     showDate: Boolean = false,
     showNumber: Boolean = false,
     isBusy: Boolean = false,
     onClick: () -> Unit,
     onAnalyze: ((Long, Boolean) -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
-    snackbarHostState: SnackbarHostState? = null,
-    coroutineScope: CoroutineScope? = null
+    @Suppress("UNUSED_PARAMETER") snackbarHostState: SnackbarHostState? = null,
+    @Suppress("UNUSED_PARAMETER") coroutineScope: CoroutineScope? = null
 ) {
     val id = game.id
     var menuOpen by rememberSaveable(id) { mutableStateOf(false) }
-    var pendingDeleteGame by remember { mutableStateOf<Game?>(null) }
-    var deleteJob by remember { mutableStateOf<Job?>(null) }
+    var confirmDelete by rememberSaveable(id) { mutableStateOf(false) }
     val white = game.playerColor == ChessColor.WHITE
     val detail = listOfNotNull(id?.takeIf { showNumber }?.let { "№$it" },
         info.dateLabel.takeIf { showDate }, info.timeControlLabel).joinToString(" · ")
@@ -583,15 +568,7 @@ fun GameCard(
                         leadingIcon = { Icon(Icons.Default.Delete, null) },
                         onClick = {
                             menuOpen = false
-                            pendingDeleteGame = game
-                            deleteJob?.cancel()
-                            deleteJob = coroutineScope?.launch {
-                                delay(4000)
-                                if (pendingDeleteGame != null) {
-                                    onDelete?.invoke()
-                                    pendingDeleteGame = null
-                                }
-                            }
+                            confirmDelete = true
                         }
                     )
                 }
@@ -599,16 +576,77 @@ fun GameCard(
         }
     }
 
-    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface) {
-        BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp, vertical = 2.dp)) {
-            if (maxWidth < (255 * LocalDensity.current.fontScale).dp) {
-                Column { identity(); actions() }
-            } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { identity() }
-                actions()
+    if (confirmDelete && onDelete != null && id != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Удалить партию №$id?") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    val summaryLine = listOfNotNull(
+                        info.title.removePrefix("vs ").takeIf { it.isNotBlank() },
+                        info.dateLabel.takeIf { it.isNotBlank() },
+                        info.timeControlLabel,
+                        info.outcome.displayName
+                    ).joinToString(" · ")
+                    if (summaryLine.isNotBlank()) {
+                        Text(summaryLine, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Отменить удаление нельзя",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Будут удалены локальная запись партии, её разбор Stockfish, связанные задачи и история попыток.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        onDelete()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Удалить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Surface(onClick = onClick, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface) {
+            BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp, vertical = 2.dp)) {
+                if (maxWidth < (255 * LocalDensity.current.fontScale).dp) {
+                    Column { identity(); actions() }
+                } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { identity() }
+                    actions()
+                }
             }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
 }

@@ -47,7 +47,6 @@ import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.presentation.ui.components.BoardThemes
 import com.example.chessmentor.presentation.ui.components.ChessBoard
 import com.example.chessmentor.presentation.ui.components.BrandEmptyState
-import com.example.chessmentor.presentation.ui.components.BrandButton
 import com.example.chessmentor.presentation.ui.components.MessageCard
 import com.example.chessmentor.presentation.ui.components.MessageType
 import com.example.chessmentor.presentation.ui.components.EngineStatusBanner
@@ -627,7 +626,7 @@ fun DashboardScreen(
             item {
                 BrandEmptyState(
                     painter = painterResource(R.drawable.ic_empty_games),
-                    title = "Партій ещё нет",
+                    title = "Партий ещё нет",
                     subtitle = "Загрузите партию или начните новую игру, чтобы начать отслеживать свой прогресс.",
                     onAction = onNavigateToUpload,
                     actionLabel = "Загрузить партию"

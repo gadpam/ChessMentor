@@ -17,9 +17,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat.Type
 import com.example.chessmentor.domain.session.AppThemeMode
 
 /** Брендовые формы с вариациями скругления для визуального разнообразия. */
@@ -69,7 +66,7 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF81B64C),
+    primary = PrimaryGreenDark,
     onPrimary = Color.White,
     primaryContainer = Color(0xFFE4F2D5),
     onPrimaryContainer = Color(0xFF1D380E),
@@ -123,25 +120,9 @@ fun ChessMentorTheme(
             val activity = view.context.findActivity() ?: return@SideEffect
             val window = activity.window
 
-            // Edge-to-edge: контент под системными панелями
-            ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { _, insets ->
-                val systemBars = insets.getInsets(Type.systemBars())
-                window.decorView.setPadding(
-                    systemBars.left,
-                    systemBars.top,
-                    systemBars.right,
-                    systemBars.bottom
-                )
-                insets
-            }
-
+            WindowCompat.setDecorFitsSystemWindows(window, false)
             window.statusBarColor = Color.Transparent.toArgb()
             window.navigationBarColor = Color.Transparent.toArgb()
-            window.decorView.systemUiVisibility = (
-                android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
-                android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-                android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-            )
 
             val insetsController = WindowCompat.getInsetsController(window, view)
             insetsController.isAppearanceLightStatusBars = !darkTheme

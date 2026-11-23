@@ -356,6 +356,7 @@ private fun ThreadsSetting(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HashSetting(
     hashSizeMb: Int,
@@ -369,16 +370,16 @@ private fun HashSetting(
         subtitle = "Оперативная память для кэширования позиций",
         value = "$hashSizeMb МБ"
     ) {
-        Row(
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             hashOptions.forEach { size ->
                 FilterChip(
                     selected = hashSizeMb == size,
                     onClick = { onHashChange(size) },
-                    label = { Text("$size") },
-                    modifier = Modifier.weight(1f)
+                    label = { Text("$size МБ", maxLines = 1) }
                 )
             }
         }
@@ -498,7 +499,7 @@ private fun BottomButtons(
             onClick = onReset,
             modifier = Modifier
                 .weight(1f)
-                .height(48.dp)
+                .heightIn(min = 48.dp)
         ) {
             Text("По умолчанию")
         }
@@ -507,7 +508,7 @@ private fun BottomButtons(
             onClick = onSave,
             modifier = Modifier
                 .weight(1f)
-                .height(48.dp),
+                .heightIn(min = 48.dp),
             enabled = hasChanges
         ) {
             Text("Сохранить")

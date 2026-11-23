@@ -54,12 +54,12 @@ fun EvaluationBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(28.dp)
+            .heightIn(min = 28.dp)
             .clip(RoundedCornerShape(6.dp))
             .border(1.dp, borderColor, RoundedCornerShape(6.dp))
     ) {
         // Бар (белая и чёрная части)
-        Row(modifier = Modifier.fillMaxSize()) {
+        Row(modifier = Modifier.matchParentSize()) {
             // Белая часть (слева)
             Box(
                 modifier = Modifier
@@ -79,8 +79,9 @@ fun EvaluationBar(
         // Оценка поверх бара
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 12.dp),
+                .fillMaxWidth()
+                .heightIn(min = 28.dp)
+                .padding(horizontal = 12.dp, vertical = 3.dp),
             contentAlignment = textAlignment
         ) {
             Text(

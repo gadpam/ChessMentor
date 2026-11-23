@@ -256,7 +256,7 @@ fun SettingsScreen(
                 enabled = viewModel.hasProfileChanges,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp)
+                    .heightIn(min = 50.dp)
             ) {
                 Icon(Icons.Default.Save, contentDescription = "Сохранить изменения")
                 Spacer(Modifier.width(8.dp))
@@ -325,7 +325,7 @@ fun SettingsScreen(
                 onClick = { showLogoutDialog = true },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp),
+                    .heightIn(min = 48.dp),
                 colors = ButtonDefaults.outlinedButtonColors(
                     contentColor = MaterialTheme.colorScheme.error
                 ),
@@ -500,6 +500,7 @@ private fun ProfileCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ParametersCard(
     appThemeMode: AppThemeMode,
@@ -526,9 +527,10 @@ private fun ParametersCard(
             )
             Spacer(modifier = Modifier.height(8.dp))
 
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 AppThemeMode.entries.forEach { mode ->
                     val selected = appThemeMode == mode
@@ -538,11 +540,9 @@ private fun ParametersCard(
                         label = {
                             Text(
                                 text = mode.label,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                maxLines = 1
                             )
-                        },
-                        modifier = Modifier.weight(1f)
+                        }
                     )
                 }
             }
@@ -554,7 +554,12 @@ private fun ParametersCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = if (isSoundEnabled) {
                             Icons.AutoMirrored.Filled.VolumeUp
@@ -827,8 +832,8 @@ private fun ChangePasswordCard(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .widthIn(max = (strength.third.coerceAtLeast(0.01f).coerceAtMost(1f) * 100f).dp)
-                                        .height(4.dp)
+                                        .fillMaxWidth(strength.third.coerceIn(0.05f, 1f))
+                                        .fillMaxHeight()
                                         .background(strength.second, RoundedCornerShape(2.dp))
                                 )
                             }

@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,10 +21,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,6 +54,7 @@ import com.example.chessmentor.presentation.viewmodel.RetryMistakeUiState
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Piece
 import com.github.bhlangonijr.chesslib.PieceType
+import com.github.bhlangonijr.chesslib.Side
 import com.github.bhlangonijr.chesslib.Square
 import java.util.Locale
 import kotlin.math.abs
@@ -368,101 +370,115 @@ private fun GameViewScreenContent(
             .background(MaterialTheme.colorScheme.background)
 
     ) {
-        // 1. Верхняя полоска игрока + часы + кнопки (переворот, Stockfish, Сводка)
-        ReviewPlayerToolbar(
-            color = topColor,
-            nameLabel = topLabel,
-            materialAdvantage = topMaterialAdv,
-            clockSeconds = topClock,
-            isLiveEngineEnabled = isLiveEngine,
-            showEngineToggle = chessEngine != null,
-            onFlipBoard = { boardViewModel.toggleFlipBoard() },
-            onToggleEngine = {
-                chessEngine?.let {
-                    boardViewModel.toggleLiveEngine(it, isEngineBusy = isBackgroundAnalyzing)
-                }
-            },
-            onOpenSummary = onOpenSummary,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
-        )
-
-        // 2. Шкала оценки
-        EvaluationBar(
-            evaluation = currentEvaluation,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 2.dp)
-        )
-
-        // 3. Интерактивная шахматная доска (с бейджем качества хода и двойными стрелками)
-        GameBoardWithBadgeAndArrow(
-            board = board,
-            currentMistake = currentMistake,
-            currentAnalyzedMove = currentAnalyzedMove,
-            showQualityBadge = retryState == null && !isInVariation,
-            highlightedSquares = highlightedSquares,
-            selectedSquare = selectedSquare,
-            legalMoveSquares = legalMoveSquares,
-            legalCaptureSquares = legalCaptureSquares,
-            lastMove = lastMove,
-            arrows = arrowsList,
-            isFlipped = isFlipped,
-            theme = selectedTheme,
-            onSquareClick = if (canMoveOnBoard) { clicked ->
-                val from = selectedSquare
-                val piece = board.getPiece(clicked)
-                when {
-                    from == null -> {
-                        if (piece != Piece.NONE && piece.pieceSide == board.sideToMove) {
-                            selectedSquare = clicked
-                        }
-                    }
-                    clicked == from -> selectedSquare = null
-                    clicked in legalMoveSquares || clicked in legalCaptureSquares -> {
-                        if (ChessMoveUtils.isPawnPromotion(board, from, clicked)) {
-                            pendingPromotion = from to clicked
-                        } else {
-                            selectedSquare = null
-                            handleUserBoardMove(from, clicked, promotion = null)
-                        }
-                    }
-                    piece != Piece.NONE && piece.pieceSide == board.sideToMove -> {
-                        selectedSquare = clicked
-                    }
-                    else -> selectedSquare = null
-                }
-            } else {
-                null
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp)
-                .aspectRatio(1f)
-                .graphicsLayer { translationX = shakeOffset.value }
-        )
-
-        // 4. Нижняя полоска игрока + часы + индикатор режима (Ветка / Исправление)
-        ReviewBottomPlayerStrip(
-            color = bottomColor,
-            nameLabel = bottomLabel,
-            materialAdvantage = bottomMaterialAdv,
-            clockSeconds = bottomClock,
-            isRetryMode = retryState != null,
-            variationDepth = variationSteps.size,
-            hasRealEvaluations = hasRealEvaluations,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)
-        )
-
-        // 5. Адаптивная тренерская панель (прокручиваемая, никогда не обрезает комментарии)
-        val panelScroll = rememberScrollState()
-        Column(
+        // Основная область: панель игроков, оценка, доска и адаптивный скроллируемый блок комментариев
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .verticalScroll(panelScroll)
-                .padding(horizontal = 12.dp, vertical = 2.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            val boardSide = minOf(
+                (maxWidth - 24.dp).coerceAtLeast(160.dp),
+                (maxHeight * 0.50f).coerceAtLeast(180.dp)
+            )
+            Column(modifier = Modifier.fillMaxSize()) {
+                // 1. Верхняя полоска игрока + часы + кнопки (переворот, Stockfish, Сводка)
+                ReviewPlayerToolbar(
+                    color = topColor,
+                    nameLabel = topLabel,
+                    materialAdvantage = topMaterialAdv,
+                    clockSeconds = topClock,
+                    isLiveEngineEnabled = isLiveEngine,
+                    showEngineToggle = chessEngine != null,
+                    onFlipBoard = { boardViewModel.toggleFlipBoard() },
+                    onToggleEngine = {
+                        chessEngine?.let {
+                            boardViewModel.toggleLiveEngine(it, isEngineBusy = isBackgroundAnalyzing)
+                        }
+                    },
+                    onOpenSummary = onOpenSummary,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                )
+
+                // 2. Шкала оценки
+                EvaluationBar(
+                    evaluation = currentEvaluation,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 2.dp)
+                )
+
+                // 3. Интерактивная шахматная доска (с бейджем качества хода и двойными стрелками)
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    GameBoardWithBadgeAndArrow(
+                        board = board,
+                        currentMistake = currentMistake,
+                        currentAnalyzedMove = currentAnalyzedMove,
+                        showQualityBadge = retryState == null && !isInVariation,
+                        highlightedSquares = highlightedSquares,
+                        selectedSquare = selectedSquare,
+                        legalMoveSquares = legalMoveSquares,
+                        legalCaptureSquares = legalCaptureSquares,
+                        lastMove = lastMove,
+                        arrows = arrowsList,
+                        isFlipped = isFlipped,
+                        theme = selectedTheme,
+                        onSquareClick = if (canMoveOnBoard) { clicked ->
+                            val from = selectedSquare
+                            val piece = board.getPiece(clicked)
+                            when {
+                                from == null -> {
+                                    if (piece != Piece.NONE && piece.pieceSide == board.sideToMove) {
+                                        selectedSquare = clicked
+                                    }
+                                }
+                                clicked == from -> selectedSquare = null
+                                clicked in legalMoveSquares || clicked in legalCaptureSquares -> {
+                                    if (ChessMoveUtils.isPawnPromotion(board, from, clicked)) {
+                                        pendingPromotion = from to clicked
+                                    } else {
+                                        selectedSquare = null
+                                        handleUserBoardMove(from, clicked, promotion = null)
+                                    }
+                                }
+                                piece != Piece.NONE && piece.pieceSide == board.sideToMove -> {
+                                    selectedSquare = clicked
+                                }
+                                else -> selectedSquare = null
+                            }
+                        } else {
+                            null
+                        },
+                        modifier = Modifier
+                            .size(boardSide)
+                            .graphicsLayer { translationX = shakeOffset.value }
+                    )
+                }
+
+                // 4. Нижняя полоска игрока + часы + индикатор режима (Ветка / Исправление)
+                ReviewBottomPlayerStrip(
+                    color = bottomColor,
+                    nameLabel = bottomLabel,
+                    materialAdvantage = bottomMaterialAdv,
+                    clockSeconds = bottomClock,
+                    isRetryMode = retryState != null,
+                    variationDepth = variationSteps.size,
+                    hasRealEvaluations = hasRealEvaluations,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)
+                )
+
+                // 5. Адаптивная тренерская панель (прокручиваемая, никогда не обрезает комментарии)
+                val panelScroll = rememberScrollState()
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(panelScroll)
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
             val activeRetry = retryState
             val gameId = game.id
             when {
@@ -623,6 +639,8 @@ private fun GameViewScreenContent(
                     onClose = { boardViewModel.dismissEngineLine() }
                 )
             }
+                }
+            }
         }
 
         // 6. Горизонтальная лента ходов с цветовой индикацией качества
@@ -643,7 +661,7 @@ private fun GameViewScreenContent(
                 },
                 modifier = Modifier
                     .padding(vertical = 3.dp)
-                    .height(34.dp)
+                    .heightIn(min = 34.dp)
             )
         }
 
@@ -682,34 +700,59 @@ private fun GameViewScreenContent(
 
     // Выбор фигуры при превращении пешки (в режиме «Исправить» и в аналитической ветке)
     pendingPromotion?.let { (from, to) ->
-        Box(Modifier.fillMaxWidth()) {
-            DropdownMenu(
-                expanded = true,
-                onDismissRequest = { pendingPromotion = null }
-            ) {
-                listOf(
-                    PieceType.QUEEN to "♕ Ферзь",
-                    PieceType.ROOK to "♖ Ладья",
-                    PieceType.BISHOP to "♗ Слон",
-                    PieceType.KNIGHT to "♘ Конь"
-                ).forEach { (type, label) ->
-                    DropdownMenuItem(
-                        modifier = Modifier.heightIn(min = 48.dp),
-                        text = { Text(label, fontWeight = FontWeight.SemiBold) },
-                        onClick = {
-                            pendingPromotion = null
-                            selectedSquare = null
-                            handleUserBoardMove(from, to, promotion = type)
-                        }
-                    )
-                }
-                DropdownMenuItem(
-                    modifier = Modifier.heightIn(min = 48.dp),
-                    text = { Text("Отмена") },
-                    onClick = { pendingPromotion = null }
-                )
-            }
+        val promoOptions = if (board.sideToMove == Side.WHITE) {
+            listOf(
+                PieceType.QUEEN to "♕ Ферзь",
+                PieceType.ROOK to "♖ Ладья",
+                PieceType.BISHOP to "♗ Слон",
+                PieceType.KNIGHT to "♘ Конь"
+            )
+        } else {
+            listOf(
+                PieceType.QUEEN to "♛ Ферзь",
+                PieceType.ROOK to "♜ Ладья",
+                PieceType.BISHOP to "♝ Слон",
+                PieceType.KNIGHT to "♞ Конь"
+            )
         }
+        AlertDialog(
+            onDismissRequest = { pendingPromotion = null },
+            title = { Text("Превращение пешки") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    promoOptions.forEach { (type, label) ->
+                        Surface(
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .clip(MaterialTheme.shapes.medium)
+                                .clickable {
+                                    pendingPromotion = null
+                                    selectedSquare = null
+                                    handleUserBoardMove(from, to, promotion = type)
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(label, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { pendingPromotion = null }) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 
     AnalysisProgressDialog(
@@ -958,11 +1001,12 @@ private fun GameBoardWithBadgeAndArrow(
                 MoveQuality.MISSED_WIN
             )
             if (showForQuality || currentMistake != null) {
-                val badgeOffset = calculateBadgeOffset(lastMove.second, isFlipped, boardSize)
+                val badgeSize = (boardSize / 8 * 0.45f).coerceIn(18.dp, 26.dp)
+                val badgeOffset = calculateBadgeOffset(lastMove.second, isFlipped, boardSize, badgeSize)
                 MoveQualityBadge(
                     mistakeType = currentMistake?.mistakeType,
                     moveQuality = quality,
-                    size = 26.dp,
+                    size = badgeSize,
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .offset(x = badgeOffset.first, y = badgeOffset.second)
@@ -972,12 +1016,16 @@ private fun GameBoardWithBadgeAndArrow(
     }
 }
 
-private fun calculateBadgeOffset(square: Square, isFlipped: Boolean, boardSize: Dp): Pair<Dp, Dp> {
+private fun calculateBadgeOffset(
+    square: Square,
+    isFlipped: Boolean,
+    boardSize: Dp,
+    badgeSize: Dp = 26.dp
+): Pair<Dp, Dp> {
     val file = square.file.ordinal
     val rank = square.rank.ordinal
     val (dFile, dRank) = if (isFlipped) Pair(7 - file, rank) else Pair(file, 7 - rank)
     val sqSize = boardSize / 8
-    val badgeSize = 26.dp
     return Pair(sqSize * dFile + sqSize - badgeSize - 2.dp, sqSize * dRank + 2.dp)
 }
 
@@ -1072,6 +1120,7 @@ internal fun RetryMistakePanel(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun VariationSandboxPanel(
     steps: List<GameReviewHelper.VariationStep>,
@@ -1100,14 +1149,14 @@ private fun VariationSandboxPanel(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            Row(
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 OutlinedButton(
                     onClick = onStepBack,
-                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                    modifier = Modifier.height(28.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.heightIn(min = 36.dp)
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Undo,
@@ -1120,8 +1169,8 @@ private fun VariationSandboxPanel(
                 if (onAnalyzeWithEngine != null) {
                     OutlinedButton(
                         onClick = onAnalyzeWithEngine,
-                        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                        modifier = Modifier.height(28.dp)
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.heightIn(min = 36.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Psychology,
@@ -1134,8 +1183,8 @@ private fun VariationSandboxPanel(
                 }
                 FilledTonalButton(
                     onClick = onExitVariation,
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    modifier = Modifier.height(28.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.heightIn(min = 36.dp)
                 ) {
                     Text("Вернуться к партии", fontSize = 11.sp)
                 }
@@ -1214,8 +1263,8 @@ private fun EngineLineCard(
                 if (onPlayBestMove != null) {
                     FilledTonalButton(
                         onClick = onPlayBestMove,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        modifier = Modifier.height(28.dp)
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.heightIn(min = 36.dp)
                     ) {
                         Text("▶ Ход", fontSize = 11.sp)
                     }
@@ -1382,9 +1431,18 @@ internal fun ReviewNavigationBar(
             IconButton(onClick = onGoToNext, enabled = canGoForward) {
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий ход")
             }
-            Button(onClick = onNextKeyMoment, enabled = hasNextKeyMoment,
-                modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 6.dp)) {
-                Text("К моменту", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Button(
+                onClick = onNextKeyMoment,
+                enabled = hasNextKeyMoment,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    "К моменту",
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
             Box {
                 IconButton(onClick = { menuOpen = true }) {

@@ -78,6 +78,7 @@ data class TrainingUiState(
     val isSolved: Boolean = false,
     val isSolutionRevealed: Boolean = false,
     val isLoading: Boolean = false,
+    val isInitializationError: Boolean = false,
     val hasActiveExercise: Boolean = false,
     val hasNoUserMistakes: Boolean = false,
     val hintLevel: HintLevel = HintLevel.NONE,
@@ -170,7 +171,7 @@ class TrainingViewModel(
 
     private val semanticAnalyzer = container.semanticMistakeAnalyzer
 
-    private val _uiState = mutableStateOf(TrainingUiState())
+    private val _uiState = mutableStateOf(TrainingUiState(isLoading = true))
     val uiState: State<TrainingUiState> = _uiState
 
     private var currentUser: User? = null
@@ -231,6 +232,19 @@ class TrainingViewModel(
     // ИНИЦИАЛИЗАЦИЯ И ПЕРЕКЛЮЧЕНИЕ РЕЖИМОВ
     // ================================================================
 
+    fun showInitializationError(message: String) {
+        currentJob?.cancel()
+        currentExercise = null
+        _uiState.value = _uiState.value.copy(
+            isLoading = false,
+            isInitializationError = true,
+            hasActiveExercise = false,
+            isInputLocked = true,
+            sessionSummary = null,
+            feedbackMessage = message
+        )
+    }
+
     fun init(
         user: User,
         initialMode: TrainingMode? = null,
@@ -241,14 +255,16 @@ class TrainingViewModel(
         currentUser = user
 
         val modeChangedByNavigation = initialMode != null &&
-            (initialMode != _uiState.value.mode || initialMode is TrainingMode.FromGame)
+            (initialMode != _uiState.value.mode ||
+                initialMode is TrainingMode.FromGame ||
+                _uiState.value.sessionSummary != null)
 
         if (isNewUser) {
             interleavedQueue.clear()
             resetSmartSessionTrackers()
             completedRatedSittings = 0
             val targetMode = initialMode ?: TrainingMode.All
-            _uiState.value = TrainingUiState(mode = targetMode)
+            _uiState.value = TrainingUiState(mode = targetMode, isLoading = true)
             initializeExercisesAndLoad(targetMode)
         } else if (modeChangedByNavigation && initialMode != null) {
             selectMode(initialMode)
@@ -271,6 +287,7 @@ class TrainingViewModel(
         _uiState.value = _uiState.value.copy(
             mode = TrainingMode.SmartSession,
             isLoading = true,
+            isInitializationError = false,
             isInputLocked = true,
             hasNoUserMistakes = false,
             sessionSummary = null,
@@ -321,6 +338,7 @@ class TrainingViewModel(
         _uiState.value = _uiState.value.copy(
             mode = mode,
             isLoading = true,
+            isInitializationError = false,
             isInputLocked = true,
             hasNoUserMistakes = false,
             sessionSummary = null,
@@ -379,6 +397,7 @@ class TrainingViewModel(
         _uiState.value = _uiState.value.copy(
             mode = mode,
             isLoading = true,
+            isInitializationError = false,
             isInputLocked = true,
             hasNoUserMistakes = false,
             sessionSummary = null,

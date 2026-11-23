@@ -560,9 +560,6 @@ internal fun PgnLivePreviewCard(
                 Button(onClick = { onOpenExistingGame(id) }, enabled = !isLoading, modifier = Modifier.fillMaxWidth()) {
                     Text("Открыть партию №$id")
                 }
-                TextButton(onClick = { confirmCopy = true }, enabled = !isLoading, modifier = Modifier.fillMaxWidth()) {
-                    Text("Создать отдельную копию")
-                }
                 if (confirmCopy) {
                     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Создать копию партии №$id?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)

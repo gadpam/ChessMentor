@@ -8,7 +8,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -501,20 +501,63 @@ internal fun GraphMovePicker(
     ) {
         Text("Выбрать ход из списка")
     }
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = { expanded = false }
-    ) {
-        repeat(count) { index ->
-            DropdownMenuItem(
-                onClick = { expanded = false; onOpenReviewAtMove(index) },
-                modifier = Modifier.heightIn(min = 48.dp),
-                text = {
-                    Text(moveLabels[index], modifier = Modifier.weight(1f), fontFamily = FontFamily.Monospace)
-                    Text(ChessEngine.formatEvaluation(evaluations[index + 1]))
+    if (expanded) {
+        AlertDialog(
+            onDismissRequest = { expanded = false },
+            title = { Text("Ходы партии") },
+            text = {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    items(count) { index ->
+                        val isCurrent = index == currentMoveIndex
+                        Surface(
+                            color = if (isCurrent) {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                            } else {
+                                Color.Transparent
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .clickable {
+                                    expanded = false
+                                    onOpenReviewAtMove(index)
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = moveLabels[index],
+                                    modifier = Modifier.weight(1f),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                                )
+                                Text(
+                                    text = ChessEngine.formatEvaluation(evaluations[index + 1]),
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
                 }
-            )
-        }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { expanded = false }) {
+                    Text("Закрыть")
+                }
+            }
+        )
     }
 }
 
@@ -970,6 +1013,7 @@ private fun AccuracyIndicator(accuracy: Double) {
     val color = getAccuracyColor(accuracy)
     val rating = getAccuracyRating(accuracy)
 
+    val ringSize = (100 * LocalDensity.current.fontScale.coerceIn(1f, 1.4f)).dp
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -978,7 +1022,7 @@ private fun AccuracyIndicator(accuracy: Double) {
         // Круговой индикатор
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.size(100.dp)
+            modifier = Modifier.size(ringSize)
         ) {
             CircularProgressIndicator(
                 progress = { (accuracy / 100f).toFloat() },
@@ -987,19 +1031,23 @@ private fun AccuracyIndicator(accuracy: Double) {
                 strokeWidth = 8.dp,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant
             )
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 12.dp)
+            ) {
                 Text(
                     text = formatGameAccuracy(accuracy),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
                 )
             }
         }
 
-        Spacer(modifier = Modifier.width(24.dp))
+        Spacer(modifier = Modifier.width(20.dp))
 
-        Column {
+        Column(modifier = Modifier.weight(1f, fill = false)) {
             Text(
                 text = "Точность",
                 style = MaterialTheme.typography.titleMedium,
@@ -1132,29 +1180,34 @@ fun KeyMomentsCard(
             // Сильные и теоретические ходы
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 KeyMomentItemCompact(
                     quality = MoveQuality.BRILLIANT,
-                    count = brilliantCount
+                    count = brilliantCount,
+                    modifier = Modifier.weight(1f)
                 )
                 KeyMomentItemCompact(
                     quality = MoveQuality.GREAT_MOVE,
-                    count = greatCount
+                    count = greatCount,
+                    modifier = Modifier.weight(1f)
                 )
                 KeyMomentItemCompact(
                     quality = MoveQuality.BEST_MOVE,
-                    count = bestCount
+                    count = bestCount,
+                    modifier = Modifier.weight(1f)
                 )
                 if (bookCount > 0) {
                     KeyMomentItemCompact(
                         quality = MoveQuality.BOOK,
-                        count = bookCount
+                        count = bookCount,
+                        modifier = Modifier.weight(1f)
                     )
                 } else {
                     KeyMomentItemCompact(
                         quality = MoveQuality.GOOD,
-                        count = solidCount
+                        count = solidCount,
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -1166,25 +1219,29 @@ fun KeyMomentsCard(
             // Ошибки и упущенные возможности
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 KeyMomentItemCompact(
                     quality = MoveQuality.INACCURACY,
-                    count = inaccuracyCount
+                    count = inaccuracyCount,
+                    modifier = Modifier.weight(1f)
                 )
                 KeyMomentItemCompact(
                     quality = MoveQuality.MISTAKE,
-                    count = mistakeCount
+                    count = mistakeCount,
+                    modifier = Modifier.weight(1f)
                 )
                 if (missedWinCount > 0) {
                     KeyMomentItemCompact(
                         quality = MoveQuality.MISSED_WIN,
-                        count = missedWinCount
+                        count = missedWinCount,
+                        modifier = Modifier.weight(1f)
                     )
                 }
                 KeyMomentItemCompact(
                     quality = MoveQuality.BLUNDER,
-                    count = blunderCount
+                    count = blunderCount,
+                    modifier = Modifier.weight(1f)
                 )
             }
 
@@ -1314,11 +1371,12 @@ fun KeyMomentsCard(
 @Composable
 fun KeyMomentItemCompact(
     quality: MoveQuality,
-    count: Int
+    count: Int,
+    modifier: Modifier = Modifier
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.width(70.dp)
+        modifier = modifier.widthIn(min = 52.dp)
     ) {
         Icon(quality.getIcon(), contentDescription = quality.getDisplayName(), modifier = Modifier.size(24.dp))
 
@@ -1333,7 +1391,8 @@ fun KeyMomentItemCompact(
             text = getShortName(quality),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

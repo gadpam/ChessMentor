@@ -4,9 +4,6 @@ package com.example.chessmentor.presentation.ui.components.navigation
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Badge
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,13 +11,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import com.example.chessmentor.R
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -32,6 +27,13 @@ import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.usecase.LoginUserUseCase
 import com.example.chessmentor.domain.usecase.RegisterUserUseCase
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.text.style.TextOverflow
 import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.presentation.ui.components.screen.AuthScreen
 import com.example.chessmentor.presentation.ui.components.screen.DashboardScreen
@@ -152,6 +154,9 @@ fun ChessMentorApp(
                     onNavigate = { target ->
                         if (currentScreen == "game_view") {
                             boardViewModel.dismissEngineLine()
+                        }
+                        if (target != "training") {
+                            pendingTrainingModeKey = null
                         }
                         trainingReturnScreen = null
                         summaryReturnScreen = "games"
@@ -436,7 +441,7 @@ private enum class MainTab(val screen: String, val label: String, val iconRes: I
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ChessMentorBottomBar(currentScreen: String, dueReviewCount: Int, onNavigate: (String) -> Unit) {
+internal fun ChessMentorBottomBar(currentScreen: String, dueReviewCount: Int = 0, onNavigate: (String) -> Unit) {
     val section = when (currentScreen) {
         "summary", "upload", "game_view" -> "games"
         "settings", "engine_settings" -> "settings"
@@ -461,29 +466,32 @@ internal fun ChessMentorBottomBar(currentScreen: String, dueReviewCount: Int, on
                     modifier = Modifier.weight(if (compact && !selected) 48f else widths[i].value),
                     icon = {
                         val iconPainter = painterResource(tab.iconRes)
-                        Box(Modifier.size(24.dp)) {
+                        BadgedBox(
+                            badge = {
+                                if (showBadge) {
+                                    Badge(
+                                        containerColor = MaterialTheme.colorScheme.error,
+                                        contentColor = MaterialTheme.colorScheme.onError
+                                    ) {
+                                        Text(
+                                            text = dueReviewCount.coerceAtMost(9).toString(),
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp)
+                                        )
+                                    }
+                                }
+                            }
+                        ) {
                             Icon(
                                 painter = iconPainter,
                                 contentDescription = if (showLabel) null else tab.label,
+                                modifier = Modifier.size(24.dp),
                                 tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            if (showBadge) {
-                                Badge(
-                                    content = {
-                                        Text(
-                                            text = dueReviewCount.coerceAtMost(9).toString(),
-                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                            color = MaterialTheme.colorScheme.onErrorContainer
-                                        )
-                                    },
-                                    containerColor = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.align(Alignment.TopEnd)
-                                        .offset(x = 4.dp, y = -4.dp)
-                                )
-                            }
                         }
                     },
-                    label = if (showLabel) { { Text(tab.label, style = style, maxLines = 1) } } else null,
+                    label = if (showLabel) {
+                        { Text(tab.label, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    } else null,
                     selected = selected,
                     onClick = { onNavigate(tab.screen) }
                 )
@@ -550,7 +558,19 @@ private fun NavigationHost(
     }
     val summaryState = key(reviewGameId) { rememberSaveableStateHolder() }
 
-    AnimatedContent(targetState = currentScreen) { targetState ->
+    AnimatedContent(
+        targetState = currentScreen,
+        transitionSpec = {
+            val chromeDiffers = (initialState in setOf("training", "game_view", "engine_settings")) !=
+                (targetState in setOf("training", "game_view", "engine_settings"))
+            if (chromeDiffers) {
+                EnterTransition.None togetherWith ExitTransition.None
+            } else {
+                fadeIn(tween(150)) togetherWith fadeOut(tween(100))
+            }
+        },
+        label = "navigationScreen"
+    ) { targetState ->
         when (targetState) {
             "home" -> {
             if (currentUser == null) {

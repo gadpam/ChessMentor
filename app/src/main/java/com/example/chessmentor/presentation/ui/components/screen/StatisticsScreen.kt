@@ -483,12 +483,13 @@ private fun SectionSegmentedBar(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 9.dp, horizontal = 6.dp),
-                        horizontalArrangement = Arrangement.Center,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = section.title,
-                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.weight(1f, fill = false),
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             color = if (isSelected) {
                                 MaterialTheme.colorScheme.onPrimary
@@ -499,7 +500,6 @@ private fun SectionSegmentedBar(
                             overflow = TextOverflow.Ellipsis
                         )
                         if (badge != null) {
-                            Spacer(Modifier.width(5.dp))
                             Surface(
                                 shape = CircleShape,
                                 color = if (isSelected) {
@@ -513,6 +513,7 @@ private fun SectionSegmentedBar(
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
                                     color = if (isSelected) {
                                         MaterialTheme.colorScheme.onPrimary
                                     } else {
@@ -763,8 +764,8 @@ private fun CoachingPlanCard(
                     if (clickHandler != null && !action.actionLabel.isNullOrBlank()) {
                         FilledTonalButton(
                             onClick = clickHandler,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.height(32.dp)
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.heightIn(min = 36.dp)
                         ) {
                             Text(action.actionLabel, style = MaterialTheme.typography.labelMedium)
                         }
@@ -1222,6 +1223,7 @@ private fun GamePhaseCard(phases: PhaseOverview) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PhaseProgressRow(
     perf: PhasePerformance,
@@ -1239,12 +1241,13 @@ private fun PhaseProgressRow(
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            FlowRow(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
                     text = perf.phase.displayName,
@@ -1469,11 +1472,12 @@ private fun TimeControlsAndClockCard(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = "${tc.category.displayName} (${tc.gamesCount})",
+                            modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -1485,6 +1489,7 @@ private fun TimeControlsAndClockCard(
                                     append("точн. ${it.roundToInt()}%")
                                 }
                             },
+                            textAlign = TextAlign.End,
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1536,8 +1541,8 @@ private fun TimeControlsAndClockCard(
                             if ((timeTrouble.accuracyDropPercent ?: 0.0) >= 7.0 && onTrainVision != null) {
                                 TextButton(
                                     onClick = onTrainVision,
-                                    contentPadding = PaddingValues(0.dp),
-                                    modifier = Modifier.height(28.dp)
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                                    modifier = Modifier.heightIn(min = 36.dp)
                                 ) {
                                     Text("Прокачать тактическую зоркость →", style = MaterialTheme.typography.labelMedium)
                                 }
@@ -1763,7 +1768,9 @@ private fun RepertoireOverviewBanner(
                             text = "♔ За белых ($whiteCount)",
                             modifier = Modifier.fillMaxWidth(),
                             textAlign = TextAlign.Center,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 )
@@ -1776,7 +1783,9 @@ private fun RepertoireOverviewBanner(
                             text = "♚ За чёрных ($blackCount)",
                             modifier = Modifier.fillMaxWidth(),
                             textAlign = TextAlign.Center,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 )
@@ -1925,6 +1934,7 @@ private fun OpeningLinesListCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun OpeningLineItem(
     line: OpeningLineStat,
@@ -2055,12 +2065,15 @@ private fun OpeningLineItem(
                 }
 
                 if (onOpenLibrary != null || onOpenLatestGame != null) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         if (onOpenLibrary != null) {
                             FilledTonalButton(
                                 onClick = onOpenLibrary,
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                modifier = Modifier.height(32.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.heightIn(min = 36.dp)
                             ) {
                                 Icon(Icons.Default.Search, contentDescription = "Все партии", modifier = Modifier.size(15.dp))
                                 Spacer(Modifier.width(4.dp))
@@ -2070,8 +2083,8 @@ private fun OpeningLineItem(
                         if (onOpenLatestGame != null) {
                             OutlinedButton(
                                 onClick = onOpenLatestGame,
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                modifier = Modifier.height(32.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.heightIn(min = 36.dp)
                             ) {
                                 Text("Последняя", style = MaterialTheme.typography.labelMedium)
                             }
@@ -2461,16 +2474,18 @@ private fun PatternMasteryCard(
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = item.pattern.displayName,
+                            modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
                             text = "${item.masteryPercent}% (с 1-й: ${item.firstTryAccuracyPercent}%)",
+                            textAlign = TextAlign.End,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = color
