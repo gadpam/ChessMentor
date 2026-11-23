@@ -98,7 +98,7 @@ fun ChessMentorApp(
     val viewModelFactory = remember(container) { ChessMentorViewModelFactory(container) }
     val boardViewModel: BoardViewModel = viewModel(factory = viewModelFactory)
 
-    val handleNavigateBack: () -> Unit = {
+    fun handleNavigateBack() {
         currentScreen = when (currentScreen) {
             "training" -> {
                 val returnTarget = trainingReturnScreen
@@ -141,7 +141,7 @@ fun ChessMentorApp(
             if (currentScreen != "training") ChessMentorTopBar(
                 currentScreen = currentScreen,
                 currentUser = currentUser,
-                onNavigateBack = handleNavigateBack
+                onNavigateBack = ::handleNavigateBack
             )
         },
         bottomBar = {
@@ -218,7 +218,7 @@ fun ChessMentorApp(
                 currentScreen = "training"
                 Log.d(TAG, "Open game mistake training: game=$gameId move=$focusMoveNumber from=$fromScreen")
             },
-            onLeaveTraining = handleNavigateBack,
+            onLeaveTraining = ::handleNavigateBack,
             onReturnToGameFromTraining = if (
                 trainingReturnScreen != null && gameViewModel.selectedGame.value != null
             ) {
@@ -624,7 +624,7 @@ private fun NavigationHost(
                     onPracticeMistake = { gameId, moveNumber ->
                         onOpenGameMistakeTraining("game_view", gameId, moveNumber)
                     },
-                    onNavigateBack = handleNavigateBack
+                    onNavigateBack = ::handleNavigateBack
                 )
             } else {
                 LaunchedEffect(Unit) {
