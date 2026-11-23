@@ -1584,15 +1584,15 @@ internal fun ReviewNavigationBar(
     isInOverlay: Boolean,
     hasPreviousKeyMoment: Boolean,
     hasNextKeyMoment: Boolean,
-    bottomInset: Dp = 0.dp,
-    startInset: Dp = 0.dp,
-    endInset: Dp = 0.dp,
     onGoToStart: () -> Unit,
     onPreviousKeyMoment: () -> Unit,
     onGoToPrevious: () -> Unit,
     onGoToNext: () -> Unit,
     onNextKeyMoment: () -> Unit,
-    onGoToEnd: () -> Unit
+    onGoToEnd: () -> Unit,
+    bottomInset: Dp = 0.dp,
+    startInset: Dp = 0.dp,
+    endInset: Dp = 0.dp
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val canGoBack = currentMoveIndex > -1 || isInOverlay
