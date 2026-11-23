@@ -98,7 +98,7 @@ fun ChessMentorApp(
     val viewModelFactory = remember(container) { ChessMentorViewModelFactory(container) }
     val boardViewModel: BoardViewModel = viewModel(factory = viewModelFactory)
 
-    val handleNavigateBack: () -> Unit = {
+    fun handleNavigateBack() {
         currentScreen = when (currentScreen) {
             "training" -> {
                 val returnTarget = trainingReturnScreen
@@ -141,7 +141,7 @@ fun ChessMentorApp(
             if (currentScreen != "training") ChessMentorTopBar(
                 currentScreen = currentScreen,
                 currentUser = currentUser,
-                onNavigateBack = handleNavigateBack
+                onNavigateBack = ::handleNavigateBack
             )
         },
         bottomBar = {
@@ -218,7 +218,8 @@ fun ChessMentorApp(
                 currentScreen = "training"
                 Log.d(TAG, "Open game mistake training: game=$gameId move=$focusMoveNumber from=$fromScreen")
             },
-            onLeaveTraining = handleNavigateBack,
+            onLeaveTraining = ::handleNavigateBack,
+            onNavigateBack = ::handleNavigateBack,
             onReturnToGameFromTraining = if (
                 trainingReturnScreen != null && gameViewModel.selectedGame.value != null
             ) {
@@ -263,6 +264,7 @@ fun ChessMentorApp(
             onUserUpdated = { updated ->
                 gameViewModel.updateCurrentUser(updated)
             },
+            onDueReviewCountChange = { dueReviewCount = it },
             onLogout = {
                 val rememberedEmail = currentUser?.email ?: gameViewModel.lastLoginEmail.value
                 boardViewModel.dismissEngineLine()
@@ -370,22 +372,19 @@ private fun ChessMentorTopBar(
     TopAppBar(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val iconPainter = remember {
-                    val res = when (currentScreen) {
-                        "games" -> R.drawable.ic_mentor_games
-                        "upload" -> R.drawable.ic_mentor_upload
-                        "game_view" -> R.drawable.ic_mentor_search
-                        "summary" -> R.drawable.ic_mentor_emoji_events
-                        "training" -> R.drawable.ic_mentor_training
-                        "stats" -> R.drawable.ic_mentor_statistics
-                        "settings" -> R.drawable.ic_mentor_settings
-                        "engine_settings" -> R.drawable.ic_mentor_settings
-                        else -> R.drawable.ic_mentor_home
-                    }
-                    painterResource(res)
+                val res = when (currentScreen) {
+                    "games" -> R.drawable.ic_mentor_games
+                    "upload" -> R.drawable.ic_mentor_upload
+                    "game_view" -> R.drawable.ic_mentor_search
+                    "summary" -> R.drawable.ic_mentor_emoji_events
+                    "training" -> R.drawable.ic_mentor_training
+                    "stats" -> R.drawable.ic_mentor_statistics
+                    "settings" -> R.drawable.ic_mentor_settings
+                    "engine_settings" -> R.drawable.ic_mentor_settings
+                    else -> R.drawable.ic_mentor_home
                 }
                 Icon(
-                    painter = iconPainter,
+                    painter = painterResource(res),
                     contentDescription = "Назад",
                     modifier = Modifier.size(28.dp),
                     tint = MaterialTheme.colorScheme.onBackground
@@ -519,7 +518,9 @@ private fun NavigationHost(
     onOpenTrainingWithMode: (TrainingMode) -> Unit,
     onOpenGameMistakeTraining: (fromScreen: String, gameId: Long, focusMoveNumber: Int?) -> Unit,
     onLeaveTraining: () -> Unit,
+    onNavigateBack: () -> Unit,
     onReturnToGameFromTraining: (() -> Unit)?,
+    onDueReviewCountChange: (Int) -> Unit,
     onTrainingModeConsumed: () -> Unit,
     onOpenGamesWithFilter: (query: String, color: ChessColor?) -> Unit,
     onGamesFilterConsumed: () -> Unit,
@@ -627,7 +628,7 @@ private fun NavigationHost(
                     onPracticeMistake = { gameId, moveNumber ->
                         onOpenGameMistakeTraining("game_view", gameId, moveNumber)
                     },
-                    onNavigateBack = handleNavigateBack
+                    onNavigateBack = onNavigateBack
                 )
             } else {
                 LaunchedEffect(Unit) {
@@ -708,7 +709,7 @@ private fun NavigationHost(
                     onNavigateToUpload = { onScreenChange("upload") },
                     onReturnToGame = onReturnToGameFromTraining,
                     onUserUpdated = onUserUpdated,
-                    onDueReviewCountChange = { dueReviewCount = it }
+                    onDueReviewCountChange = onDueReviewCountChange
                 )
             } else {
                 LaunchedEffect(Unit) {

@@ -32,7 +32,6 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSnackbarHostState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -46,16 +45,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.rememberCoroutineScope
+import androidx.compose.runtime.rememberCoroutineScope
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
-import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
-import com.example.chessmentor.presentation.ui.components.CommonUI.ListSkeleton
-import com.example.chessmentor.presentation.ui.components.CommonUI.MessageCard
-import com.example.chessmentor.presentation.ui.components.CommonUI.MessageType
+import com.example.chessmentor.presentation.ui.components.BrandEmptyState
+import com.example.chessmentor.presentation.ui.components.ListSkeleton
+import com.example.chessmentor.presentation.ui.components.MessageCard
+import com.example.chessmentor.presentation.ui.components.MessageType
 import com.example.chessmentor.presentation.ui.components.util.MISSING_ACCURACY
 import com.example.chessmentor.presentation.ui.components.util.formatGameAccuracy
 import com.example.chessmentor.domain.pgn.PgnParser
@@ -319,8 +318,8 @@ fun GamesListScreen(
                                 requestedByLibrary = true
                             )
                         },
-                        onDelete = { gameId ->
-                            gameViewModel.deleteGame(gameId)
+                        onDelete = {
+                            game.id?.let { gameViewModel.deleteGame(it) }
                         },
                         snackbarHostState = snackbarHostState,
                         coroutineScope = coroutineScope
@@ -509,9 +508,7 @@ private fun NoMatchingGamesCard(query: String, filter: LibraryFilter, onShowAll:
 @Composable
 fun GameCard(
     game: Game,
-    info: PgnParser.GameCardInfo = remember(game.id, game.pgnData, game.playerColor, game.timeControl, game.playedAt) {
-        PgnParser.extractGameCardInfo(game)
-    },
+    info: PgnParser.GameCardInfo,
     showDate: Boolean = false,
     showNumber: Boolean = false,
     isBusy: Boolean = false,
@@ -525,7 +522,6 @@ fun GameCard(
     var menuOpen by rememberSaveable(id) { mutableStateOf(false) }
     var pendingDeleteGame by remember { mutableStateOf<Game?>(null) }
     var deleteJob by remember { mutableStateOf<Job?>(null) }
-    val snackbarHost = LocalSnackbarHostState.current
     val white = game.playerColor == ChessColor.WHITE
     val detail = listOfNotNull(id?.takeIf { showNumber }?.let { "№$it" },
         info.dateLabel.takeIf { showDate }, info.timeControlLabel).joinToString(" · ")
@@ -593,21 +589,6 @@ fun GameCard(
                                 delay(4000)
                                 if (pendingDeleteGame != null) {
                                     onDelete?.invoke()
-                                    pendingDeleteGame = null
-                                }
-                            }
-                            snackbarHost.showSnackbar(
-                                snackbarMessage = {
-                                    Text(
-                                        text = "Партия «${info.title.removePrefix("vs ")}» удалена",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                },
-                                actionLabel = { Text("Отменить") },
-                                duration = SnackbarDuration.Indefinite
-                            ) { actionClicked ->
-                                if (actionClicked) {
-                                    deleteJob?.cancel()
                                     pendingDeleteGame = null
                                 }
                             }

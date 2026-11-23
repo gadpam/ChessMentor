@@ -7,7 +7,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -367,16 +366,7 @@ private fun GameViewScreenContent(
             .fillMaxSize()
             .padding(paddingValues)
             .background(MaterialTheme.colorScheme.background)
-            .detectDragGestures(
-                onDragStart = { },
-                onDragEnd = { end ->
-                    val density = LocalDensity.current
-                    // Swipe back с левого края экрана
-                    if (end.position.x < with(density) { 60.dp.toPx() } && end.position.x - end.startPosition.x > with(density) { 80.dp.toPx() }) {
-                        onNavigateBack?.invoke()
-                    }
-                }
-            )
+
     ) {
         // 1. Верхняя полоска игрока + часы + кнопки (переворот, Stockfish, Сводка)
         ReviewPlayerToolbar(

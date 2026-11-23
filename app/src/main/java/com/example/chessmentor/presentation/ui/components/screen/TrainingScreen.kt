@@ -1,9 +1,11 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -21,8 +23,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.painter.rememberVectorPainter
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -74,6 +76,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -92,9 +95,10 @@ import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.example.chessmentor.presentation.ui.components.BoardThemes
 import com.example.chessmentor.presentation.ui.components.ChessBoard
-import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
-import com.example.chessmentor.presentation.ui.components.CommonUI.ListSkeleton
+import com.example.chessmentor.presentation.ui.components.BrandEmptyState
+import com.example.chessmentor.presentation.ui.components.ListSkeleton
 import com.example.chessmentor.presentation.ui.components.SoundManager
+import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import com.example.chessmentor.presentation.viewmodel.ChessMentorViewModelFactory
 import com.example.chessmentor.presentation.viewmodel.HintLevel
 import com.example.chessmentor.presentation.viewmodel.SessionStats
@@ -137,6 +141,8 @@ fun TrainingScreen(
         soundManager.setEnabled(soundEnabled)
     }
 
+    val uiState by viewModel.uiState
+
     // Сообщаем навигации о количестве задач на повторение — для бейджа на вкладке «Задачи»
     LaunchedEffect(uiState.dueReviewCount) {
         onDueReviewCountChange(uiState.dueReviewCount)
@@ -157,7 +163,6 @@ fun TrainingScreen(
         }
     }
 
-    val uiState by viewModel.uiState
     var selectedSquare by remember { mutableStateOf<Square?>(null) }
     var pendingPromotion by remember { mutableStateOf<Pair<Square, Square>?>(null) }
     val shakeOffset = remember { Animatable(0f) }
@@ -369,12 +374,11 @@ fun TrainingScreen(
             !uiState.hasActiveExercise -> {
                 val isFromGame = uiState.mode is TrainingMode.FromGame && onReturnToGame != null
                 val action = when {
-                    isFromGame -> { onReturnToGame?.invoke() to "Вернуться к разбору партии" }
-                    uiState.hasNoUserMistakes -> { onNavigateToUpload to "Загрузить партию (PGN)" }
-                    else -> { { viewModel.selectMode(TrainingMode.All) } to "Открыть общий тактический банк" }
+                    isFromGame -> Pair(onReturnToGame, "Вернуться к разбору партии")
+                    uiState.hasNoUserMistakes -> Pair(onNavigateToUpload, "Загрузить партию (PGN)")
+                    else -> Pair({ viewModel.selectMode(TrainingMode.All) }, "Открыть общий тактический банк")
                 }
                 BrandEmptyState(
-                    painter = rememberVectorPainter(vectorResource(R.drawable.ic_empty_training)),
                     title = uiState.feedbackMessage ?: "Нет доступных задач в выбранном режиме.",
                     modifier = Modifier
                         .fillMaxSize()
@@ -403,7 +407,7 @@ fun TrainingScreen(
 
                     // Шахматная доска
                     val solveBorderColor by animateColorAsState(
-                        if (uiState.isSolved) MaterialTheme.colorScheme.positive else MaterialTheme.colorScheme.outlineVariant,
+                        if (uiState.isSolved) LocalChessPalette.current.positive else MaterialTheme.colorScheme.outlineVariant,
                         animationSpec = tween(300)
                     )
                     Box(
@@ -914,8 +918,8 @@ internal fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
         ) {
             AnimatedVisibility(
                 visible = showDetails,
-                enter = expandVertically(animationSpec = tween(250)),
-                exit = collapseVertically(animationSpec = tween(250))
+                enter = fadeIn(initialAlpha = 0f, animationSpec = tween(250)),
+                exit = fadeOut(targetAlpha = 0f, animationSpec = tween(250))
             ) {
                 Card(
                     colors = CardDefaults.cardColors(
@@ -1263,8 +1267,8 @@ internal fun TrainingHelpControls(
     ) {
         AnimatedVisibility(
             visible = open,
-            enter = expandVertically(animationSpec = tween(250)),
-            exit = collapseVertically(animationSpec = tween(250))
+            enter = fadeIn(initialAlpha = 0f, animationSpec = tween(250)),
+            exit = fadeOut(targetAlpha = 0f, animationSpec = tween(250))
         ) {
             Card(
                 colors = CardDefaults.cardColors(

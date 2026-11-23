@@ -41,14 +41,15 @@ import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalett
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.presentation.ui.components.BoardThemes
 import com.example.chessmentor.presentation.ui.components.ChessBoard
-import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
-import com.example.chessmentor.presentation.ui.components.CommonUI.BrandButton
-import com.example.chessmentor.presentation.ui.components.CommonUI.MessageCard
-import com.example.chessmentor.presentation.ui.components.CommonUI.MessageType
+import com.example.chessmentor.presentation.ui.components.BrandEmptyState
+import com.example.chessmentor.presentation.ui.components.BrandButton
+import com.example.chessmentor.presentation.ui.components.MessageCard
+import com.example.chessmentor.presentation.ui.components.MessageType
 import com.example.chessmentor.presentation.ui.components.EngineStatusBanner
 import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
@@ -762,7 +763,7 @@ fun DailyPuzzleWidget(
 
 @Composable
 fun MiniGameCard(game: Game, onOpen: (Game) -> Unit) {
-    GameCard(game = game, showDate = true, showNumber = true, onClick = { onOpen(game) })
+    GameCard(game = game, info = PgnParser.extractGameCardInfo(game), showDate = true, showNumber = true, onClick = { onOpen(game) })
 }
 
 @Composable

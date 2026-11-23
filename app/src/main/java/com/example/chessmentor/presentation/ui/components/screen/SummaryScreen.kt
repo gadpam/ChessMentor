@@ -505,14 +505,15 @@ internal fun GraphMovePicker(
         expanded = expanded,
         onDismissRequest = { expanded = false }
     ) {
-        items(count) { index ->
+        repeat(count) { index ->
             DropdownMenuItem(
                 onClick = { expanded = false; onOpenReviewAtMove(index) },
-                modifier = Modifier.heightIn(min = 48.dp)
-            ) {
-                Text(moveLabels[index], modifier = Modifier.weight(1f), fontFamily = FontFamily.Monospace)
-                Text(ChessEngine.formatEvaluation(evaluations[index + 1]))
-            }
+                modifier = Modifier.heightIn(min = 48.dp),
+                text = {
+                    Text(moveLabels[index], modifier = Modifier.weight(1f), fontFamily = FontFamily.Monospace)
+                    Text(ChessEngine.formatEvaluation(evaluations[index + 1]))
+                }
+            )
         }
     }
 }
