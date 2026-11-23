@@ -379,7 +379,6 @@ fun GlassCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(gradientBrush, RoundedCornerShape(16.dp))
-                .graphicsLayer { alpha = 0.12f }
         )
         Column(modifier = Modifier.padding(16.dp)) {
             content()
