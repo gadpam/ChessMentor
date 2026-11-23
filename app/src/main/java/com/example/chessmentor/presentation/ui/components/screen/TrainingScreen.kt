@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.painter.rememberVectorPainter
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -136,6 +135,8 @@ fun TrainingScreen(
         soundManager.setEnabled(soundEnabled)
     }
 
+    val uiState by viewModel.uiState
+
     // Сообщаем навигации о количестве задач на повторение — для бейджа на вкладке «Задачи»
     LaunchedEffect(uiState.dueReviewCount) {
         onDueReviewCountChange(uiState.dueReviewCount)
@@ -156,7 +157,6 @@ fun TrainingScreen(
         }
     }
 
-    val uiState by viewModel.uiState
     var selectedSquare by remember { mutableStateOf<Square?>(null) }
     var pendingPromotion by remember { mutableStateOf<Pair<Square, Square>?>(null) }
     val shakeOffset = remember { Animatable(0f) }
@@ -373,7 +373,7 @@ fun TrainingScreen(
                     else -> { { viewModel.selectMode(TrainingMode.All) } to "Открыть общий тактический банк" }
                 }
                 BrandEmptyState(
-                    painter = rememberVectorPainter(vectorResource(R.drawable.ic_empty_training)),
+                    painter = androidx.compose.foundation.painter.rememberVectorPainter(vectorResource(R.drawable.ic_empty_training)),
                     title = uiState.feedbackMessage ?: "Нет доступных задач в выбранном режиме.",
                     modifier = Modifier
                         .fillMaxSize()
