@@ -82,7 +82,7 @@ jobs:
       - name: Run JVM unit tests
         run: |
           set -o pipefail
-          ./gradlew testDebugUnitTest --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-test.log || {
+          ./gradlew testDebugUnitTest --no-daemon --stacktrace --info 2>&1 | tee /tmp/gradle-test.log || {
             STATUS=$?
             python3 - /tmp/gradle-test.log "$GITHUB_WORKSPACE" <<'PY'
           import glob, re, sys, xml.etree.ElementTree as ET
@@ -93,10 +93,16 @@ jobs:
               rel = m.group(1).replace(ws, "")
               print(f"::error file={rel},line={m.group(2)},col={m.group(3)},title=Kotlin::{m.group(4)}")
               emitted += 1
-              if emitted >= 35: break
+              if emitted >= 50: break
           for m in re.finditer(r"^e: \[ksp\]\s+(.+)$", log, re.M):
               print(f"::error title=KSP::{m.group(1)}")
               emitted += 1
+              if emitted >= 50: break
+          for m in re.finditer(r"(?i)(warning|error|exception|failed|fail):\s*(.+)", log, re.M):
+              msg = m.group(0)[:500]
+              print(f"::warning title=Gradle::{msg}")
+              emitted += 1
+              if emitted >= 50: break
           for xml_path in sorted(glob.glob("app/build/test-results/testDebugUnitTest/*.xml")):
               root = ET.parse(xml_path).getroot()
               for tc in root.findall("testcase"):
@@ -105,9 +111,9 @@ jobs:
                       print(f"::error title=Test {tc.attrib.get('classname')}.{tc.attrib.get('name')}::{first_lines[:400]}")
                       emitted += 1
           lines = log.splitlines()
-          for i in range(0, len(lines), 25):
-              chunk = " | ".join(lines[i:i+25])
-              print(f"::error title=GradleLog::{chunk[:1000]}")
+          for i in range(0, len(lines), 15):
+              chunk = " | ".join(lines[i:i+15])
+              print(f"::error title=GradleLog::{chunk[:1200]}")
           PY
             exit $STATUS
           }
@@ -115,7 +121,9 @@ jobs:
           import glob, xml.etree.ElementTree as ET
           files = sorted(glob.glob("app/build/test-results/testDebugUnitTest/*.xml"))
           tests = sum(int(ET.parse(f).getroot().attrib.get("tests", 0)) for f in files)
-          print(f"::notice title=UnitTests::Passed {tests} JVM unit tests across {len(files)} test classes (0 failures)")
+          failures = sum(int(ET.parse(f).getroot().attrib.get("failures", 0)) for f in files)
+          errors = sum(int(ET.parse(f).getroot().attrib.get("errors", 0)) for f in files)
+          print(f"::notice title=UnitTests::Passed {tests} tests across {len(files)} classes (failures={failures}, errors={errors})")
           PY
 
       - name: Verify exported Room v5 schema
@@ -240,7 +248,7 @@ jobs:
           ORG_GRADLE_PROJECT_releaseVersionCode: ${{ inputs.version_code || '1' }}
         run: |
           set -o pipefail
-          ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-apk.log || {
+          ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace --info 2>&1 | tee /tmp/gradle-apk.log || {
             STATUS=$?
             python3 - /tmp/gradle-apk.log "$GITHUB_WORKSPACE" <<'PY'
           import re, sys
@@ -251,20 +259,25 @@ jobs:
               rel = m.group(1).replace(ws, "")
               print(f"::error file={rel},line={m.group(2)},col={m.group(3)},title=Kotlin::{m.group(4)}")
               emitted += 1
-              if emitted >= 25: break
+              if emitted >= 50: break
           for m in re.finditer(r"^([^\s:]+):(\d+):(\d+):\s+error:\s+(.+)$", log, re.M):
               rel = m.group(1).replace(ws, "")
               print(f"::error file={rel},line={m.group(2)},title=NDK::{m.group(4)}")
               emitted += 1
-              if emitted >= 35: break
+              if emitted >= 50: break
           for m in re.finditer(r"(?:Missing class .+|ERROR:\s*R8:.+|e: \[ksp\] .+)", log):
               print(f"::error title=Build::{m.group(0)[:400]}")
               emitted += 1
-              if emitted >= 40: break
+              if emitted >= 50: break
+          for m in re.finditer(r"(?i)(warning|error|exception|failed|fail):\s*(.+)", log, re.M):
+              msg = m.group(0)[:500]
+              print(f"::warning title=Gradle::{msg}")
+              emitted += 1
+              if emitted >= 50: break
           lines = log.splitlines()
-          for i in range(0, len(lines), 25):
-              chunk = " | ".join(lines[i:i+25])
-              print(f"::error title=AssembleGradleLog::{chunk[:1000]}")
+          for i in range(0, len(lines), 15):
+              chunk = " | ".join(lines[i:i+15])
+              print(f"::error title=AssembleGradleLog::{chunk[:1200]}")
           PY
             exit $STATUS
           }
