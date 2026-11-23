@@ -203,16 +203,19 @@ internal fun ChessComImportDialog(
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    itemVerticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Button(
                         onClick = { onImport(games.filter { it.fingerprint in selected && !it.inLibrary }) },
-                        enabled = !busy && selected.isNotEmpty()
+                        enabled = !busy && selected.isNotEmpty(),
+                        modifier = Modifier.align(Alignment.CenterVertically)
                     ) {
                         Text("Импортировать выбранные (${selected.size})")
                     }
-                    TextButton(onClick = onClose) {
+                    TextButton(
+                        onClick = onClose,
+                        modifier = Modifier.align(Alignment.CenterVertically)
+                    ) {
                         Text("Закрыть")
                     }
                 }

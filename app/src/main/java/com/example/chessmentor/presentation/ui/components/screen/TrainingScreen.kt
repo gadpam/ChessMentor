@@ -1183,8 +1183,7 @@ private fun BottomControlPanel(
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                        itemVerticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         if (uiState.reviewSteps.size > 1) {
                             val canBack = uiState.reviewStepIndex > 0
@@ -1194,7 +1193,10 @@ private fun BottomControlPanel(
                                 ?.moveLabel
                                 .orEmpty()
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.align(Alignment.CenterVertically),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 IconButton(
                                     onClick = onReviewFirst,
                                     enabled = canBack,
@@ -1238,7 +1240,9 @@ private fun BottomControlPanel(
 
                         OutlinedButton(
                             onClick = onToggleFreeAnalysis,
-                            modifier = Modifier.heightIn(min = 40.dp),
+                            modifier = Modifier
+                                .align(Alignment.CenterVertically)
+                                .heightIn(min = 40.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
