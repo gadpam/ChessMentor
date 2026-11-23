@@ -319,7 +319,7 @@ fun GamesListScreen(
                             )
                         },
                         onDelete = {
-                            gameViewModel.deleteGame(game.id)
+                            game.id?.let { gameViewModel.deleteGame(it) }
                         },
                         snackbarHostState = snackbarHostState,
                         coroutineScope = coroutineScope

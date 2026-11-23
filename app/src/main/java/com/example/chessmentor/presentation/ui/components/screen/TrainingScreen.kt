@@ -98,6 +98,7 @@ import com.example.chessmentor.presentation.ui.components.ChessBoard
 import com.example.chessmentor.presentation.ui.components.BrandEmptyState
 import com.example.chessmentor.presentation.ui.components.ListSkeleton
 import com.example.chessmentor.presentation.ui.components.SoundManager
+import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import com.example.chessmentor.presentation.viewmodel.ChessMentorViewModelFactory
 import com.example.chessmentor.presentation.viewmodel.HintLevel
 import com.example.chessmentor.presentation.viewmodel.SessionStats
@@ -373,9 +374,9 @@ fun TrainingScreen(
             !uiState.hasActiveExercise -> {
                 val isFromGame = uiState.mode is TrainingMode.FromGame && onReturnToGame != null
                 val action = when {
-                    isFromGame -> { onReturnToGame?.invoke() to "Вернуться к разбору партии" }
-                    uiState.hasNoUserMistakes -> { onNavigateToUpload to "Загрузить партию (PGN)" }
-                    else -> { { viewModel.selectMode(TrainingMode.All) } to "Открыть общий тактический банк" }
+                    isFromGame -> onReturnToGame to "Вернуться к разбору партии"
+                    uiState.hasNoUserMistakes -> onNavigateToUpload to "Загрузить партию (PGN)"
+                    else -> { viewModel.selectMode(TrainingMode.All) } to "Открыть общий тактический банк"
                 }
                 BrandEmptyState(
                     title = uiState.feedbackMessage ?: "Нет доступных задач в выбранном режиме.",
