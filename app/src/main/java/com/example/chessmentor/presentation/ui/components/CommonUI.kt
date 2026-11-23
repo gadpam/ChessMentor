@@ -291,7 +291,7 @@ fun AnimatedContentSwitcher(
     AnimatedContent(
         targetState = key,
         modifier = modifier
-    ) { targetState ->
+    ) {
         content()
     }
 }
