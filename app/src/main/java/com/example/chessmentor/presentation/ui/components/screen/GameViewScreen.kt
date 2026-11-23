@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,7 +46,7 @@ import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.example.chessmentor.presentation.ui.components.*
-import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
+import com.example.chessmentor.presentation.ui.components.BrandEmptyState
 import com.example.chessmentor.presentation.viewmodel.BoardViewModel
 import com.example.chessmentor.presentation.viewmodel.EngineLineUiState
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
@@ -100,7 +101,6 @@ fun GameViewScreen(
     }
 }
 
-@Composable
 @Composable
 private fun GameViewScreenContent(
     paddingValues: PaddingValues,
@@ -370,8 +370,9 @@ private fun GameViewScreenContent(
             .detectDragGestures(
                 onDragStart = { },
                 onDragEnd = { end ->
+                    val density = LocalDensity.current
                     // Swipe back с левого края экрана
-                    if (end.position.x < 60.dp.toPx() && end.position.x - end.startPosition.x > 80.dp.toPx()) {
+                    if (end.position.x < with(density) { 60.dp.toPx() } && end.position.x - end.startPosition.x > with(density) { 80.dp.toPx() }) {
                         onNavigateBack?.invoke()
                     }
                 }
