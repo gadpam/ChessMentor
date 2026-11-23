@@ -10,6 +10,7 @@ import com.example.chessmentor.R
 
 /** Кастомные иконки в стиле ChessMentor для замены Material Design иконок. */
 
+@Composable
 fun MentorIconHome(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_home)),
                    tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
                    size: Dp = 24.dp,
@@ -23,6 +24,7 @@ fun MentorIconHome(painter: Painter = rememberVectorPainter(vectorResource(R.dra
     )
 }
 
+@Composable
 fun MentorIconGames(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_games)),
                     tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
                     size: Dp = 24.dp,
@@ -36,6 +38,7 @@ fun MentorIconGames(painter: Painter = rememberVectorPainter(vectorResource(R.dr
     )
 }
 
+@Composable
 fun MentorIconTraining(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_training)),
                        tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
                        size: Dp = 24.dp,
@@ -49,6 +52,7 @@ fun MentorIconTraining(painter: Painter = rememberVectorPainter(vectorResource(R
     )
 }
 
+@Composable
 fun MentorIconStatistics(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_statistics)),
                          tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
                          size: Dp = 24.dp,
@@ -62,6 +66,7 @@ fun MentorIconStatistics(painter: Painter = rememberVectorPainter(vectorResource
     )
 }
 
+@Composable
 fun MentorIconSettings(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_settings)),
                        tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
                        size: Dp = 24.dp,
@@ -75,6 +80,7 @@ fun MentorIconSettings(painter: Painter = rememberVectorPainter(vectorResource(R
     )
 }
 
+@Composable
 fun MentorIconClose(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_close)),
                     tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                     size: Dp = 24.dp,
@@ -88,6 +94,7 @@ fun MentorIconClose(painter: Painter = rememberVectorPainter(vectorResource(R.dr
     )
 }
 
+@Composable
 fun MentorIconCheckCircle(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_check_circle)),
                           tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
                           size: Dp = 24.dp,
@@ -101,6 +108,7 @@ fun MentorIconCheckCircle(painter: Painter = rememberVectorPainter(vectorResourc
     )
 }
 
+@Composable
 fun MentorIconWarning(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_warning)),
                       tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.caution,
                       size: Dp = 24.dp,
@@ -114,6 +122,7 @@ fun MentorIconWarning(painter: Painter = rememberVectorPainter(vectorResource(R.
     )
 }
 
+@Composable
 fun MentorIconInfo(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_info)),
                    tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
                    size: Dp = 24.dp,
@@ -127,6 +136,7 @@ fun MentorIconInfo(painter: Painter = rememberVectorPainter(vectorResource(R.dra
     )
 }
 
+@Composable
 fun MentorIconSearch(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_search)),
                      tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                      size: Dp = 20.dp,
@@ -140,6 +150,7 @@ fun MentorIconSearch(painter: Painter = rememberVectorPainter(vectorResource(R.d
     )
 }
 
+@Composable
 fun MentorIconUpload(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_upload)),
                      tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
                      size: Dp = 24.dp,
@@ -153,6 +164,7 @@ fun MentorIconUpload(painter: Painter = rememberVectorPainter(vectorResource(R.d
     )
 }
 
+@Composable
 fun MentorIconDownload(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_download)),
                        tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
                        size: Dp = 24.dp,
@@ -166,6 +178,7 @@ fun MentorIconDownload(painter: Painter = rememberVectorPainter(vectorResource(R
     )
 }
 
+@Composable
 fun MentorIconLock(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_lock)),
                    tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
                    size: Dp = 24.dp,
@@ -179,6 +192,7 @@ fun MentorIconLock(painter: Painter = rememberVectorPainter(vectorResource(R.dra
     )
 }
 
+@Composable
 fun MentorIconPerson(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_person)),
                      tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
                      size: Dp = 24.dp,
@@ -192,6 +206,7 @@ fun MentorIconPerson(painter: Painter = rememberVectorPainter(vectorResource(R.d
     )
 }
 
+@Composable
 fun MentorIconMoreVert(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_more_vert)),
                        tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                        size: Dp = 24.dp,
@@ -205,6 +220,7 @@ fun MentorIconMoreVert(painter: Painter = rememberVectorPainter(vectorResource(R
     )
 }
 
+@Composable
 fun MentorIconRefresh(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_refresh)),
                       tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
                       size: Dp = 24.dp,
@@ -218,6 +234,7 @@ fun MentorIconRefresh(painter: Painter = rememberVectorPainter(vectorResource(R.
     )
 }
 
+@Composable
 fun MentorIconEmojiEvents(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_emoji_events)),
                           tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
                           size: Dp = 24.dp,
@@ -231,6 +248,7 @@ fun MentorIconEmojiEvents(painter: Painter = rememberVectorPainter(vectorResourc
     )
 }
 
+@Composable
 fun MentorIconPsychology(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_psychology)),
                          tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
                          size: Dp = 24.dp,
@@ -244,6 +262,7 @@ fun MentorIconPsychology(painter: Painter = rememberVectorPainter(vectorResource
     )
 }
 
+@Composable
 fun MentorIconArrowBack(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_arrow_back)),
                         tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
                         size: Dp = 24.dp,
@@ -257,6 +276,7 @@ fun MentorIconArrowBack(painter: Painter = rememberVectorPainter(vectorResource(
     )
 }
 
+@Composable
 fun MentorIconArrowForward(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_arrow_forward)),
                            tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
                            size: Dp = 24.dp,
@@ -270,6 +290,7 @@ fun MentorIconArrowForward(painter: Painter = rememberVectorPainter(vectorResour
     )
 }
 
+@Composable
 fun MentorIconVisibility(painter: Painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_visibility)),
                          tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                          size: Dp = 24.dp,
