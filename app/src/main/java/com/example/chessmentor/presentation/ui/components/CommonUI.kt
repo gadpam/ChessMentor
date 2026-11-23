@@ -4,13 +4,12 @@ package com.example.chessmentor.presentation.ui.components
 import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.contentTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.collapseHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
@@ -33,6 +33,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -160,7 +161,7 @@ fun MessageCard(
                 onDismiss?.let {
                     IconButton(onClick = it) {
                         Icon(
-                            imageVector = Icons.Default.Close,
+                            imageVector = Close,
                             contentDescription = "Закрыть",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp)
@@ -295,14 +296,13 @@ fun AnimatedContentSwitcher(
     AnimatedContent(
         targetState = key,
         modifier = modifier,
-        transitionSpec = {
-            fadeIn() +
+        transitionSpec = contentTransform { _, _ ->
+            (fadeIn() +
                 slideInVertically(
-                    initialOffsetY = { introHeight -> introHeight * 0.15f }
-                ) +
-                slideOutVertically(
-                    targetOffsetY = { targetHeight -> targetHeight * 0.15f }
-                )
+                    initialOffsetY = { introHeight -> (introHeight * 0.15f).toInt() }
+                )) then (slideOutVertically(
+                    targetOffsetY = { targetHeight -> (targetHeight * 0.15f).toInt() }
+                ))
         }
     ) { targetState ->
         content()
@@ -362,8 +362,8 @@ fun GlassCard(
             MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f),
             MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
         ),
-        start = Alignment.TopStart,
-        end = Alignment.BottomEnd,
+        start = Offset(0f, 0f),
+        end = Offset(1f, 1f),
         tileMode = TileMode.Clamp
     )
 
@@ -406,8 +406,8 @@ fun BrandButton(
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
             )
         },
-        start = Alignment.CenterStart,
-        end = Alignment.CenterEnd
+        start = Offset(0f, 0.5f),
+        end = Offset(1f, 0.5f)
     )
 
     Button(
@@ -456,8 +456,8 @@ fun BrandEmptyState(
             MaterialTheme.colorScheme.tertiary.copy(alpha = 0.05f),
             MaterialTheme.colorScheme.background.copy(alpha = 0.02f)
         ),
-        start = Alignment.TopCenter,
-        end = Alignment.BottomCenter
+        start = Offset(0.5f, 0f),
+        end = Offset(0.5f, 1f)
     )
 
     Column(
@@ -476,8 +476,8 @@ fun BrandEmptyState(
                             MaterialTheme.colorScheme.primary,
                             MaterialTheme.colorScheme.tertiary
                         ),
-                        start = Alignment.TopLeft,
-                        end = Alignment.BottomEnd
+                        start = Offset(0f, 0f),
+                        end = Offset(1f, 1f)
                     ),
                     CircleShape
                 )
@@ -553,8 +553,8 @@ fun BrandAccent(
             .background(
                 Brush.linearGradient(
                     colors = listOf(color.copy(alpha = 0.8f), color.copy(alpha = 0.1f)),
-                    start = Alignment.CenterStart,
-                    end = Alignment.CenterEnd
+                    start = Offset(0f, 0.5f),
+                    end = Offset(1f, 0.5f)
                 )
             )
     )
