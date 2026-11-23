@@ -104,12 +104,10 @@ jobs:
                       first_lines = " | ".join((fail.text or fail.attrib.get("message", "")).splitlines()[:4])
                       print(f"::error title=Test {tc.attrib.get('classname')}.{tc.attrib.get('name')}::{first_lines[:400]}")
                       emitted += 1
-          if emitted == 0:
-              tail = " | ".join(l.strip() for l in log.splitlines()[-35:] if l.strip())
-              print(f"::error title=Gradle::{tail[:900]}")
-          else:
-              echo "=== Full Gradle test log ==="
-              cat /tmp/gradle-test.log || true
+          lines = log.splitlines()
+          for i in range(0, len(lines), 25):
+              chunk = " | ".join(lines[i:i+25])
+              print(f"::error title=GradleLog::{chunk[:1000]}")
           PY
             exit $STATUS
           }
@@ -263,12 +261,10 @@ jobs:
               print(f"::error title=Build::{m.group(0)[:400]}")
               emitted += 1
               if emitted >= 40: break
-          if emitted == 0:
-              tail = " | ".join(l.strip() for l in log.splitlines()[-35:] if l.strip())
-              print(f"::error title=AssembleGradle::{tail[:900]}")
-          else:
-              echo "=== Full Gradle APK log ==="
-              cat /tmp/gradle-apk.log || true
+          lines = log.splitlines()
+          for i in range(0, len(lines), 25):
+              chunk = " | ".join(lines[i:i+25])
+              print(f"::error title=AssembleGradleLog::{chunk[:1000]}")
           PY
             exit $STATUS
           }
