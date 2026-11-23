@@ -12,10 +12,10 @@
         android:fillColor="#2196F3"
         android:pathData="M6,18 L10,14 L14,16 L18,10 L18,20 L6,20 Z M6,18 L10,14 L14,16 L18,10 Z"/>
     <!-- Точки на графике -->
-    <circle android:fillColor="#FFFFFF" android:cx="6" android:cy="18" android:r="1.5"/>
-    <circle android:fillColor="#FFFFFF" android:cx="10" android:cy="14" android:r="1.5"/>
-    <circle android:fillColor="#FFFFFF" android:cx="14" android:cy="16" android:r="1.5"/>
-    <circle android:fillColor="#FFFFFF" android:cx="18" android:cy="10" android:r="1.5"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M4.5,18 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M8.5,14 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M12.5,16 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M16.5,10 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0"/>
     <!-- Шахматная фигура в углу -->
     <path
         android:fillColor="#316446"
