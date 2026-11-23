@@ -470,7 +470,7 @@ internal fun ChessMentorBottomBar(currentScreen: String, dueReviewCount: Int, on
                             )
                             if (showBadge) {
                                 Badge(
-                                    badgeContent = {
+                                    content = {
                                         Text(
                                             text = dueReviewCount.coerceAtMost(9).toString(),
                                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
