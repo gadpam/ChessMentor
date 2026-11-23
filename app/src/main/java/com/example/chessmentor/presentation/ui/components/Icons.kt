@@ -115,7 +115,7 @@ fun MentorIconCheckCircle(painter: Painter = painterResource(R.drawable.ic_mento
 
 @Composable
 fun MentorIconWarning(painter: Painter = painterResource(R.drawable.ic_mentor_warning),
-                      tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.caution,
+                      tint: androidx.compose.ui.graphics.Color = androidx.compose.material3.MaterialTheme.colorScheme.error,
                       size: Dp = 24.dp,
                       modifier: Modifier = Modifier,
                       contentDescription: String? = null) {

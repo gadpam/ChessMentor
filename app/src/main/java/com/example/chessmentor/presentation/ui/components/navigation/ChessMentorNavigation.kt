@@ -381,7 +381,7 @@ private fun ChessMentorTopBar(
                         "engine_settings" -> R.drawable.ic_mentor_settings
                         else -> R.drawable.ic_mentor_home
                     }
-                    rememberVectorPainter(vectorResource(res))
+                    painterResource(res)
                 }
                 Icon(
                     painter = iconPainter,
@@ -412,7 +412,7 @@ private fun ChessMentorTopBar(
             if (currentScreen != "home" && currentUser != null) {
                 IconButton(onClick = onNavigateBack) {
                     Icon(
-                        painter = rememberVectorPainter(vectorResource(R.drawable.ic_mentor_arrow_back)),
+                        painter = painterResource(R.drawable.ic_mentor_arrow_back),
                         contentDescription = "Назад",
                         tint = MaterialTheme.colorScheme.onBackground
                     )
@@ -460,7 +460,7 @@ internal fun ChessMentorBottomBar(currentScreen: String, dueReviewCount: Int, on
                 NavigationBarItem(
                     modifier = Modifier.weight(if (compact && !selected) 48f else widths[i].value),
                     icon = {
-                        val iconPainter = rememberVectorPainter(vectorResource(tab.iconRes))
+                        val iconPainter = painterResource(tab.iconRes)
                         Box(Modifier.size(24.dp)) {
                             Icon(
                                 painter = iconPainter,
