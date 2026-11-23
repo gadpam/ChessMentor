@@ -285,14 +285,14 @@ fun MetricCard(
 @Composable
 fun AnimatedContentSwitcher(
     key: Any?,
-    content: @Composable () -> Unit,
+    content: @Composable (targetState: Any?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     AnimatedContent(
         targetState = key,
         modifier = modifier
-    ) {
-        content()
+    ) { targetState ->
+        content(targetState)
     }
 }
 
