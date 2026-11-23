@@ -374,9 +374,9 @@ fun TrainingScreen(
             !uiState.hasActiveExercise -> {
                 val isFromGame = uiState.mode is TrainingMode.FromGame && onReturnToGame != null
                 val action = when {
-                    isFromGame -> onReturnToGame to "Вернуться к разбору партии"
-                    uiState.hasNoUserMistakes -> onNavigateToUpload to "Загрузить партию (PGN)"
-                    else -> { viewModel.selectMode(TrainingMode.All) } to "Открыть общий тактический банк"
+                    isFromGame -> Pair(onReturnToGame, "Вернуться к разбору партии")
+                    uiState.hasNoUserMistakes -> Pair(onNavigateToUpload, "Загрузить партию (PGN)")
+                    else -> Pair({ viewModel.selectMode(TrainingMode.All) }, "Открыть общий тактический банк")
                 }
                 BrandEmptyState(
                     title = uiState.feedbackMessage ?: "Нет доступных задач в выбранном режиме.",
