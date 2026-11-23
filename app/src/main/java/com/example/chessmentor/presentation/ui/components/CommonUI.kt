@@ -480,7 +480,7 @@ fun BrandEmptyState(
                             MaterialTheme.colorScheme.tertiary
                         ),
                         start = Alignment.TopLeft,
-                        end = Alignment.BottomRight
+                        end = Alignment.BottomEnd
                     ),
                     CircleShape
                 )
