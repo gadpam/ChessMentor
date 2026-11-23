@@ -11,10 +11,10 @@
         android:fillColor="#316446"
         android:pathData="M70,70 L130,70 L130,130 L70,130 Z"/>
     <!-- Цели на доске -->
-    <circle android:fillColor="#2196F3" android:cx="85" android:cy="85" android:r="8"/>
-    <circle android:fillColor="#2196F3" android:cx="115" android:cy="115" android:r="8"/>
-    <circle android:fillColor="#2196F3" android:cx="115" android:cy="85" android:r="6"/>
-    <circle android:fillColor="#2196F3" android:cx="85" android:cy="115" android:r="6"/>
+    <path android:fillColor="#2196F3" android:pathData="M77,85 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0"/>
+    <path android:fillColor="#2196F3" android:pathData="M107,115 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0"/>
+    <path android:fillColor="#2196F3" android:pathData="M109,85 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0"/>
+    <path android:fillColor="#2196F3" android:pathData="M79,115 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0"/>
     <!-- Фигура игрока -->
     <path
         android:fillColor="#FFFFFF"
