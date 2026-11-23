@@ -369,12 +369,7 @@ private fun GameViewScreenContent(
             .background(MaterialTheme.colorScheme.background)
             .detectDragGestures(
                 onDragStart = { },
-                onDragEnd = { end ->
-                    // Swipe back с левого края экрана (end — Offset в пикселях, ~60dp ≈ 120px)
-                    if (end.x < 120f) {
-                        onNavigateBack?.invoke()
-                    }
-                }
+                onDragEnd = { }
             )
     ) {
         // 1. Верхняя полоска игрока + часы + кнопки (переворот, Stockfish, Сводка)
