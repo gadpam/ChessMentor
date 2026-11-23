@@ -1,6 +1,7 @@
 // presentation/ui/components/CommonUI.kt
 package com.example.chessmentor.presentation.ui.components
 
+import com.example.chessmentor.R
 import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.BorderStroke
