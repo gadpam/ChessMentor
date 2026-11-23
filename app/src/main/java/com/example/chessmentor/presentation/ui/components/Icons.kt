@@ -5,6 +5,7 @@ import androidx.compose.foundation.painter.rememberVectorPainter
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.chessmentor.R
 
