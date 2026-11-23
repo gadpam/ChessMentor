@@ -31,7 +31,7 @@ import com.example.chessmentor.domain.session.SessionState
 import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.usecase.LoginUserUseCase
 import com.example.chessmentor.domain.usecase.RegisterUserUseCase
-import com.example.chessmentor.presentation.ui.components.CommonUI.AnimatedContentSwitcher
+import com.example.chessmentor.presentation.ui.components.AnimatedContentSwitcher
 import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.presentation.ui.components.screen.AuthScreen
 import com.example.chessmentor.presentation.ui.components.screen.DashboardScreen
