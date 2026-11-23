@@ -372,7 +372,7 @@ private fun GameViewScreenContent(
                 onDragEnd = { end ->
                     val density = LocalDensity.current
                     // Swipe back с левого края экрана
-                    if (end.position.x < with(density) { 60.dp.toPx() } && end.position.x - end.startPosition.x > with(density) { 80.dp.toPx() }) {
+                    if (end.x < with(density) { 60.dp.toPx() }) {
                         onNavigateBack?.invoke()
                     }
                 }
