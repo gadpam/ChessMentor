@@ -1,8 +1,8 @@
 // presentation/ui/components/Icons.kt
 package com.example.chessmentor.presentation.ui.components
 
-import androidx.compose.foundation.Icon
 import androidx.compose.foundation.painter.rememberVectorPainter
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
