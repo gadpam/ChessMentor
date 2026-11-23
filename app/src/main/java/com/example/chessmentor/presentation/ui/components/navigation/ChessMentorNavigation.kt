@@ -219,6 +219,7 @@ fun ChessMentorApp(
                 Log.d(TAG, "Open game mistake training: game=$gameId move=$focusMoveNumber from=$fromScreen")
             },
             onLeaveTraining = ::handleNavigateBack,
+            onNavigateBack = ::handleNavigateBack,
             onReturnToGameFromTraining = if (
                 trainingReturnScreen != null && gameViewModel.selectedGame.value != null
             ) {
@@ -263,6 +264,7 @@ fun ChessMentorApp(
             onUserUpdated = { updated ->
                 gameViewModel.updateCurrentUser(updated)
             },
+            onDueReviewCountChange = { dueReviewCount = it },
             onLogout = {
                 val rememberedEmail = currentUser?.email ?: gameViewModel.lastLoginEmail.value
                 boardViewModel.dismissEngineLine()
@@ -516,7 +518,9 @@ private fun NavigationHost(
     onOpenTrainingWithMode: (TrainingMode) -> Unit,
     onOpenGameMistakeTraining: (fromScreen: String, gameId: Long, focusMoveNumber: Int?) -> Unit,
     onLeaveTraining: () -> Unit,
+    onNavigateBack: () -> Unit,
     onReturnToGameFromTraining: (() -> Unit)?,
+    onDueReviewCountChange: (Int) -> Unit,
     onTrainingModeConsumed: () -> Unit,
     onOpenGamesWithFilter: (query: String, color: ChessColor?) -> Unit,
     onGamesFilterConsumed: () -> Unit,
@@ -624,7 +628,7 @@ private fun NavigationHost(
                     onPracticeMistake = { gameId, moveNumber ->
                         onOpenGameMistakeTraining("game_view", gameId, moveNumber)
                     },
-                    onNavigateBack = ::handleNavigateBack
+                    onNavigateBack = onNavigateBack
                 )
             } else {
                 LaunchedEffect(Unit) {
@@ -705,7 +709,7 @@ private fun NavigationHost(
                     onNavigateToUpload = { onScreenChange("upload") },
                     onReturnToGame = onReturnToGameFromTraining,
                     onUserUpdated = onUserUpdated,
-                    onDueReviewCountChange = { dueReviewCount = it }
+                    onDueReviewCountChange = onDueReviewCountChange
                 )
             } else {
                 LaunchedEffect(Unit) {
