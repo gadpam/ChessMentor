@@ -32,7 +32,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSnackbarHostState
+import androidx.compose.material3.LocalSnackbarHostState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -46,7 +46,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.rememberCoroutineScope
+import androidx.compose.runtime.rememberCoroutineScope
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.AnalysisStatus
