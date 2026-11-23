@@ -154,7 +154,7 @@ fun MessageCard(
                 onDismiss?.let {
                     IconButton(onClick = it) {
                         Icon(
-                            imageVector = Icons.Default.Close,
+                            imageVector = Icons.Default.Clear,
                             contentDescription = "Закрыть",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp)
