@@ -951,17 +951,29 @@ class BoardViewModel : ViewModel() {
                         pvFormatted = GameReviewHelper.formatVariationLine(steps)
                     )
                 }
+                if (!isRequestStillCurrent(fen, isAlternativeBeforeMove)) return@launch
                 engineLineState.value = computed
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Live review engine analysis failed", e)
+                if (!isRequestStillCurrent(fen, isAlternativeBeforeMove)) return@launch
                 engineLineState.value = EngineLineUiState(
                     isLoading = false,
                     analyzedFen = fen,
                     errorMessage = "Ошибка анализа позиции"
                 )
             }
+        }
+    }
+
+    private fun isRequestStillCurrent(fen: String, isAlternativeBeforeMove: Boolean): Boolean {
+        if (isInRetryMode()) return false
+        return if (isAlternativeBeforeMove) {
+            !isInVariation() && currentMoveIndex.intValue >= 0 &&
+                getFenBeforeMove(currentMoveIndex.intValue) == fen
+        } else {
+            board.value.fen == fen
         }
     }
 

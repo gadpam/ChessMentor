@@ -192,6 +192,11 @@ class ImportUserBackupUseCase(
         snapshot.games.forEachIndexed { idx, entry ->
             val key = gameIdentityKey(entry.pgnData, entry.playerColor, entry.playedAt)
             val existing = existingByKey[key]
+            val normalizedStatus = if (entry.analysisStatus == AnalysisStatus.IN_PROGRESS) {
+                AnalysisStatus.PENDING
+            } else {
+                entry.analysisStatus
+            }
             if (existing == null) {
                 val saved = gameRepository.save(
                     Game(
@@ -200,7 +205,7 @@ class ImportUserBackupUseCase(
                         playerColor = entry.playerColor,
                         timeControl = entry.timeControl,
                         playedAt = entry.playedAt,
-                        analysisStatus = entry.analysisStatus,
+                        analysisStatus = normalizedStatus,
                         analyzedAt = entry.analyzedAt,
                         accuracy = entry.accuracy,
                         averageEvaluationLoss = entry.averageEvaluationLoss,

@@ -446,6 +446,38 @@ class UserProgressBackupTest {
         assertEquals(1, dst.moves.findByGameId(pending.id!!).size)
     }
 
+    @Test
+    fun `import normalizes IN_PROGRESS analysis status to PENDING`() = runBlocking {
+        val src = InMemoryEnv()
+        val u1 = src.users.save(User(nickname = "Runner", email = "r@b.com", passwordHash = "h"))
+        val pgn = """
+            [White "Runner"]
+            [Black "Opponent"]
+            [Result "*"]
+
+            1. e4 e5 2. Nf3 Nc6 *
+        """.trimIndent()
+        src.games.save(
+            Game(
+                userId = u1.id!!,
+                pgnData = pgn,
+                playerColor = ChessColor.WHITE,
+                playedAt = fixedNow,
+                analysisStatus = AnalysisStatus.IN_PROGRESS
+            )
+        )
+        val exported = (src.exporter().execute(ExportUserBackupUseCase.Input(u1.id!!, fixedNow))
+            as ExportUserBackupUseCase.Result.Success).backup
+
+        val dst = InMemoryEnv()
+        val u2 = dst.users.save(User(nickname = "Runner", email = "r2@b.com", passwordHash = "h"))
+        val res = dst.importer().execute(ImportUserBackupUseCase.Input(u2.id!!, exported.jsonContent))
+        val summary = (res as ImportUserBackupUseCase.Result.Success).summary
+
+        assertEquals(1, summary.gamesImported)
+        assertEquals(AnalysisStatus.PENDING, dst.games.findByUserId(u2.id!!).single().analysisStatus)
+    }
+
     // ==================== IN-MEMORY ОКРУЖЕНИЕ ====================
 
     private class InMemoryEnv(

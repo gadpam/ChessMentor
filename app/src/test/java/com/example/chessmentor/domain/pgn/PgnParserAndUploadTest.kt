@@ -292,4 +292,34 @@ class PgnParserAndUploadTest {
         )
         assertTrue(dupSingle is UploadGameUseCase.Result.Duplicate)
     }
+
+    @Test
+    fun splitGames_handlesMultiTagHeaderLinesAndInlineMovetext() {
+        val multiTagPgn = """
+            [White "Alice"] [Black "Bob"]
+            [Result "1-0"]
+
+            1. e4 e5 2. Nf3 Nc6 1-0
+
+            [White "Carol"] [Black "Dave"] 1. d4 d5 2. c4 e6 0-1
+        """.trimIndent()
+
+        val blocks = PgnParser.splitGames(multiTagPgn)
+        assertEquals(2, blocks.size)
+
+        val first = PgnParser.parseAndValidate(blocks[0])
+        val second = PgnParser.parseAndValidate(blocks[1])
+        assertTrue(first is PgnParser.ParseResult.Success)
+        assertTrue(second is PgnParser.ParseResult.Success)
+
+        val g1 = (first as PgnParser.ParseResult.Success).game
+        assertEquals("Alice", g1.metadata.whiteName)
+        assertEquals("Bob", g1.metadata.blackName)
+        assertEquals(4, g1.plyCount)
+
+        val g2 = (second as PgnParser.ParseResult.Success).game
+        assertEquals("Carol", g2.metadata.whiteName)
+        assertEquals("Dave", g2.metadata.blackName)
+        assertEquals(4, g2.plyCount)
+    }
 }

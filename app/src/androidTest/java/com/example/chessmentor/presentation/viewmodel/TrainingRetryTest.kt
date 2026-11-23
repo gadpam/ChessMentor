@@ -110,4 +110,42 @@ class TrainingRetryTest {
             container.userRepository.deleteById(uid)
         }
     }
+
+    @Test fun immediateNextExerciseAfterSolveStillPersistsSolvedAttemptMoves() = runBlocking {
+        val container = AppContainer.getInstance(InstrumentationRegistry.getInstrumentation().targetContext)
+        val user = container.userRepository.save(User(nickname = "FastNext", email = "fastnext${System.nanoTime()}@test.local", passwordHash = "test"))
+        val uid = requireNotNull(user.id)
+        val game = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.WHITE, playedAt = 1L, pgnData = "1. e4 *"))
+        val gid = requireNotNull(game.id)
+        val puzzle = CuratedExerciseBank.puzzles.single { it.id == "back_rank_mate_1" }
+        val repo = container.exerciseRepository
+        val vm = TrainingViewModel(container)
+        suspend fun awaitState(predicate: (TrainingUiState) -> Boolean) = withTimeout(15_000L) {
+            while (!withContext(Dispatchers.Main) { predicate(vm.uiState.value) }) delay(10)
+        }
+        try {
+            val savedEx = repo.saveExercise(
+                puzzle.toExercise().copy(createdFrom = ExerciseSource.MISTAKE, sourceGameId = gid, sourceMoveNumber = 1)
+            )
+            withContext(Dispatchers.Main) { vm.init(user, TrainingMode.FromGame(gid, 1)) }
+            awaitState { it.hasActiveExercise && !it.isInputLocked }
+            withContext(Dispatchers.Main) { vm.onMoveMade(Move(Square.D1, Square.D8)) }
+            awaitState { it.isSolved }
+            // Simulate tapping "Следующая" immediately on the same frame `isSolved` becomes true.
+            withContext(Dispatchers.Main) { vm.loadNextExercise() }
+            awaitState { !it.isLoading }
+            withTimeout(15_000L) {
+                while (repo.getAttemptsByUserId(uid).isEmpty()) delay(20)
+            }
+            val attempt = repo.getAttemptsByUserId(uid).single()
+            assertEquals(savedEx.id, attempt.exerciseId)
+            assertTrue(attempt.solved)
+            assertEquals(listOf("d1d8"), AttemptMetadata.extractActualMoves(attempt))
+        } finally {
+            vm.viewModelScope.cancel()
+            repo.deleteBySourceGameId(gid)
+            container.gameRepository.deleteById(gid)
+            container.userRepository.deleteById(uid)
+        }
+    }
 }

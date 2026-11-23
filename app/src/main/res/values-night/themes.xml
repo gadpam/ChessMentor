@@ -1,7 +1,45 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
+    <!-- Базовая тема для ночного режима: единая с тёмной палитрой Compose, чтобы не было светлой вспышки при старте -->
     <style name="Base.Theme.ChessMentor" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your dark theme here. -->
-        <!-- <item name="colorPrimary">@color/my_dark_primary</item> -->
+        <item name="colorPrimary">@color/brand_dark_primary</item>
+        <item name="colorOnPrimary">@color/brand_dark_onPrimary</item>
+        <item name="colorPrimaryContainer">@color/brand_dark_primaryContainer</item>
+        <item name="colorOnPrimaryContainer">@color/brand_dark_onPrimaryContainer</item>
+
+        <item name="colorSecondary">@color/brand_dark_secondary</item>
+        <item name="colorOnSecondary">@color/brand_dark_onSecondary</item>
+        <item name="colorSecondaryContainer">@color/brand_dark_secondaryContainer</item>
+        <item name="colorOnSecondaryContainer">@color/brand_dark_onSecondaryContainer</item>
+
+        <item name="colorTertiary">@color/brand_dark_tertiary</item>
+        <item name="colorOnTertiary">@color/brand_dark_onTertiary</item>
+        <item name="colorTertiaryContainer">@color/brand_dark_tertiaryContainer</item>
+        <item name="colorOnTertiaryContainer">@color/brand_dark_onTertiaryContainer</item>
+
+        <item name="colorError">@color/brand_dark_error</item>
+        <item name="colorOnError">@color/brand_dark_onError</item>
+        <item name="colorErrorContainer">@color/brand_dark_errorContainer</item>
+        <item name="colorOnErrorContainer">@color/brand_dark_onErrorContainer</item>
+
+        <item name="android:windowBackground">@color/brand_dark_background</item>
+        <item name="colorOnBackground">@color/brand_dark_onBackground</item>
+
+        <item name="colorSurface">@color/brand_dark_surface</item>
+        <item name="colorOnSurface">@color/brand_dark_onSurface</item>
+        <item name="colorSurfaceVariant">@color/brand_dark_surfaceVariant</item>
+        <item name="colorOnSurfaceVariant">@color/brand_dark_onSurfaceVariant</item>
+
+        <item name="colorOutline">@color/brand_dark_outline</item>
+
+        <item name="android:windowLightStatusBar" tools:targetApi="23">false</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">false</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/splash_background_dark</item>
+    </style>
+
+    <style name="Theme.ChessMentor.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background_dark</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.ChessMentor</item>
+        <item name="windowSplashScreenAnimationDuration">1000</item>
     </style>
 </resources>

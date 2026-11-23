@@ -41,6 +41,8 @@ object PgnParser {
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"
 
     private val TAG_LINE_REGEX = Regex("""^\[\s*([A-Za-z0-9_]+)\s+"((?:\\.|[^"\\])*)"\s*\]$""")
+    private val MULTI_TAG_LINE_REGEX = Regex("""^(?:\[\s*[A-Za-z0-9_]+\s+"(?:\\.|[^"\\])*"\s*\]\s*)+$""")
+    private val LEADING_TAGS_PREFIX_REGEX = Regex("""^(?:\[\s*[A-Za-z0-9_]+\s+"(?:\\.|[^"\\])*"\s*\]\s*)+""")
     private val ANY_TAG_REGEX = Regex("""\[\s*([A-Za-z0-9_]+)\s+"((?:\\.|[^"\\])*)"\s*\]""")
     private val CLK_REGEX = Regex("""\[%clk\s+(\d+):(\d{1,2}):(\d{1,2})(?:\.\d+)?\]""", RegexOption.IGNORE_CASE)
     private val DATE_REGEX = Regex("""^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})$""")
@@ -279,12 +281,15 @@ object PgnParser {
             val trimmed = rawLine.trim()
 
             // Новый блок заголовков после уже начавшегося текста ходов (вне комментариев и вариантов)
-            val isTopLevelTagLine = braceDepth == 0 &&
-                parenDepth == 0 &&
-                trimmed.startsWith('[') &&
-                TAG_LINE_REGEX.matches(trimmed)
+            val leadingTagsEnd = if (braceDepth == 0 && parenDepth == 0 && trimmed.startsWith('[')) {
+                LEADING_TAGS_PREFIX_REGEX.find(trimmed)?.range?.let { it.last + 1 } ?: 0
+            } else {
+                0
+            }
+            val startsWithTagHeader = leadingTagsEnd > 0
+            val isPureTagLine = startsWithTagHeader && MULTI_TAG_LINE_REGEX.matches(trimmed)
 
-            if (isTopLevelTagLine && seenMovetextInCurrent) {
+            if (startsWithTagHeader && seenMovetextInCurrent) {
                 val finished = current.toString().trim()
                 if (finished.isNotEmpty()) {
                     games.add(finished)
@@ -295,8 +300,13 @@ object PgnParser {
 
             current.append(rawLine).append('\n')
 
-            if (!isTopLevelTagLine && trimmed.isNotEmpty() && !trimmed.startsWith('%')) {
-                val hadRealMoves = scanLineStructure(trimmed, braceDepth, parenDepth) { newBrace, newParen ->
+            val remainderToScan = when {
+                isPureTagLine -> ""
+                startsWithTagHeader -> trimmed.substring(leadingTagsEnd).trim()
+                else -> trimmed
+            }
+            if (remainderToScan.isNotEmpty() && !remainderToScan.startsWith('%')) {
+                val hadRealMoves = scanLineStructure(remainderToScan, braceDepth, parenDepth) { newBrace, newParen ->
                     braceDepth = newBrace
                     parenDepth = newParen
                 }

@@ -20,7 +20,7 @@ class SharedPrefsEngineSettingsRepository(
         private const val KEY_HASH_SIZE = "hash_size"
     }
 
-    private val prefs: SharedPreferences = context.getSharedPreferences(
+    private val prefs: SharedPreferences = context.applicationContext.getSharedPreferences(
         PREFS_NAME,
         Context.MODE_PRIVATE
     )

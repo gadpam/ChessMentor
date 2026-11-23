@@ -154,6 +154,16 @@ private data class PendingMoveCheck(
     val startedAt: Long
 )
 
+private data class AttemptSnapshot(
+    val userId: Long,
+    val exerciseId: Long,
+    val rawUciMoves: List<String>,
+    val hintUsage: HintUsage,
+    val retryCount: Int,
+    val firstMoveThinkMs: Long?,
+    val timeSpentSeconds: Int
+)
+
 class TrainingViewModel(
     private val container: AppContainer,
     private val verificationEngine: ChessEngine = container.chessEngine
@@ -460,8 +470,11 @@ class TrainingViewModel(
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Error initializing training", e)
+                currentExercise = null
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
+                    isInitializationError = true,
+                    isInputLocked = true,
                     hasActiveExercise = false,
                     feedbackMessage = "Сбой: ${e.message}"
                 )
@@ -842,6 +855,7 @@ class TrainingViewModel(
                     currentExercise = null
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
+                        isInitializationError = true,
                         isInputLocked = true,
                         hasActiveExercise = false,
                         feedbackMessage = finalResult.message
@@ -852,8 +866,11 @@ class TrainingViewModel(
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error loading exercise", e)
+            currentExercise = null
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
+                isInitializationError = true,
+                isInputLocked = true,
                 hasActiveExercise = false,
                 feedbackMessage = "Сбой: ${e.message}"
             )
@@ -1745,31 +1762,45 @@ class TrainingViewModel(
         onUserUpdatedCallback?.invoke(updated)
     }
 
+    private fun captureAttemptSnapshot(timeSpentSeconds: Int? = null): AttemptSnapshot? {
+        val userId = currentUser?.id ?: return null
+        val exerciseId = currentExercise?.id ?: return null
+        val elapsed = timeSpentSeconds ?: ((System.currentTimeMillis() - startTime) / 1000).toInt().coerceAtLeast(0)
+        return AttemptSnapshot(
+            userId = userId,
+            exerciseId = exerciseId,
+            rawUciMoves = recordedMoves.toList(),
+            hintUsage = maxHintUsed,
+            retryCount = attemptMistakeCount.coerceAtLeast(0),
+            firstMoveThinkMs = firstMoveThinkTimeMs,
+            timeSpentSeconds = elapsed
+        )
+    }
+
     private suspend fun saveAttempt(
         solved: Boolean,
         solutionRevealed: Boolean = false,
-        wasImpulsive: Boolean = false
+        wasImpulsive: Boolean = false,
+        snapshot: AttemptSnapshot? = captureAttemptSnapshot()
     ) {
-        val userId = currentUser?.id ?: return
-        val exerciseId = currentExercise?.id ?: return
+        val data = snapshot ?: return
         val now = System.currentTimeMillis()
-        val timeSpent = ((now - startTime) / 1000).toInt().coerceAtLeast(0)
 
         val taggedMoves = AttemptMetadata.buildTaggedMoves(
-            rawUciMoves = recordedMoves,
-            hintUsage = maxHintUsed,
-            retryCount = if (solved) attemptMistakeCount else attemptMistakeCount.coerceAtLeast(0),
-            firstMoveThinkMs = firstMoveThinkTimeMs,
+            rawUciMoves = data.rawUciMoves,
+            hintUsage = data.hintUsage,
+            retryCount = data.retryCount,
+            firstMoveThinkMs = data.firstMoveThinkMs,
             solutionRevealed = solutionRevealed,
             wasImpulsive = wasImpulsive
         )
 
         val attempt = ExerciseAttempt(
             id = null,
-            userId = userId,
-            exerciseId = exerciseId,
+            userId = data.userId,
+            exerciseId = data.exerciseId,
             solved = solved,
-            timeSpentSeconds = timeSpent,
+            timeSpentSeconds = data.timeSpentSeconds,
             movesMade = taggedMoves,
             attemptedAt = now
         )
@@ -1779,10 +1810,9 @@ class TrainingViewModel(
     /**
      * Пересчитывает состояние SM-2/Лейтнера для текущей задачи и счётчик подошедших повторов.
      */
-    private suspend fun refreshCardAndDueCount(): ReviewCardState? {
+    private suspend fun refreshCardAndDueCount(targetExercise: Exercise? = currentExercise): ReviewCardState? {
         val userId = currentUser?.id ?: return null
-        val exercise = currentExercise
-        val exerciseId = exercise?.id
+        val exerciseId = targetExercise?.id
         return try {
             val now = System.currentTimeMillis()
             val accessible = container.exerciseRepository.findAccessibleByUserId(userId)
@@ -1797,7 +1827,7 @@ class TrainingViewModel(
                 schedule[id] ?: SpacedRepetitionScheduler.computeCardState(
                     id,
                     attempts.filter { it.exerciseId == id },
-                    exercise
+                    targetExercise
                 )
             }
             _uiState.value = _uiState.value.copy(
@@ -1970,9 +2000,19 @@ class TrainingViewModel(
         )
 
         // Самостоятельное решение (без готовой стрелки) сохраняется как solved = true,
-        // а подсказка готовым ходом — как нерешённая попытка (коробка 0, повтор через 10 мин)
+        // а подсказка готовым ходом — как нерешённая попытка (коробка 0, повтор через 10 мин).
+        // Снимок попытки фиксируется синхронно до запуска корутины, чтобы быстрый переход
+        // к следующей задаче (`loadNextExercise`) не очистил ходы и `currentExercise`.
         val markAsSolvedInDb = !usedFullHint && !isCurrentDailyAlreadySolved
         val markFullHintForReview = usedFullHint && !isCurrentDailyAlreadySolved && !failedAttemptSaved
+        if (markFullHintForReview) {
+            failedAttemptSaved = true
+        }
+        val attemptSnapshot = captureAttemptSnapshot(timeSpentSeconds = solveSeconds)
+        val hadAttemptMistake = attemptFailed
+        val wasCleanSolve = !hadAttemptMistake && maxHintUsed == HintUsage.NONE
+        val wasDailyReplay = isCurrentDailyAlreadySolved
+        val targetExerciseId = exercise?.id
 
         viewModelScope.launch {
             try {
@@ -1980,25 +2020,24 @@ class TrainingViewModel(
                     updateRating(ratingDelta)
                 }
                 if (markAsSolvedInDb) {
-                    saveAttempt(solved = true)
-                    if (!attemptFailed) {
+                    saveAttempt(solved = true, snapshot = attemptSnapshot)
+                    if (!hadAttemptMistake && currentExercise?.id == targetExerciseId) {
                         completedRatedSittings++
                     }
                     // В глобальную успешность задачи засчитываем только чистое решение с 1-й попытки без подсказок
-                    if (!attemptFailed && maxHintUsed == HintUsage.NONE) {
-                        exercise?.id?.let { id ->
-                            container.exerciseRepository.incrementTimesSolved(id)
-                        }
+                    if (wasCleanSolve && targetExerciseId != null) {
+                        container.exerciseRepository.incrementTimesSolved(targetExerciseId)
                     }
                 } else if (markFullHintForReview) {
-                    failedAttemptSaved = true
-                    saveAttempt(solved = false)
-                    completedRatedSittings++
+                    saveAttempt(solved = false, snapshot = attemptSnapshot)
+                    if (currentExercise?.id == targetExerciseId) {
+                        completedRatedSittings++
+                    }
                 }
 
-                if (!isCurrentDailyAlreadySolved) {
-                    val updatedCard = refreshCardAndDueCount()
-                    if (updatedCard != null && _uiState.value.isSolved && currentExercise?.id == exercise?.id) {
+                if (!wasDailyReplay) {
+                    val updatedCard = refreshCardAndDueCount(targetExercise = exercise)
+                    if (updatedCard != null && _uiState.value.isSolved && currentExercise?.id == targetExerciseId) {
                         val scheduleNote = SpacedRepetitionScheduler.formatNextIntervalNote(updatedCard)
                         _uiState.value = _uiState.value.copy(
                             nextReviewNote = scheduleNote
