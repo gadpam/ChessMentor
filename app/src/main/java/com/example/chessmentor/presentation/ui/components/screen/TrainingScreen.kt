@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.res.vectorResource
+import androidx.compose.foundation.painter.rememberVectorPainter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -373,7 +375,7 @@ fun TrainingScreen(
                     else -> { { viewModel.selectMode(TrainingMode.All) } to "Открыть общий тактический банк" }
                 }
                 BrandEmptyState(
-                    painter = androidx.compose.foundation.painter.rememberVectorPainter(vectorResource(R.drawable.ic_empty_training)),
+                    painter = rememberVectorPainter(vectorResource(R.drawable.ic_empty_training)),
                     title = uiState.feedbackMessage ?: "Нет доступных задач в выбранном режиме.",
                     modifier = Modifier
                         .fillMaxSize()
