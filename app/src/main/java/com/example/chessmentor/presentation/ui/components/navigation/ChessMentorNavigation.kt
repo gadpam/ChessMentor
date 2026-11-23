@@ -390,7 +390,7 @@ private fun ChessMentorTopBar(
                 }
                 Icon(
                     painter = painterResource(res),
-                    contentDescription = "Назад",
+                    contentDescription = null,
                     modifier = Modifier.size(28.dp),
                     tint = MaterialTheme.colorScheme.onBackground
                 )
@@ -435,8 +435,7 @@ private enum class MainTab(val screen: String, val label: String, val iconRes: I
     HOME("home", "Главная", R.drawable.ic_mentor_home),
     GAMES("games", "Партии", R.drawable.ic_mentor_games),
     TASKS("training", "Задачи", R.drawable.ic_mentor_training),
-    STATS("stats", "Статистика", R.drawable.ic_mentor_statistics),
-    SETTINGS("settings", "Настройки", R.drawable.ic_mentor_settings)
+    STATS("stats", "Статистика", R.drawable.ic_mentor_statistics)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -444,7 +443,6 @@ private enum class MainTab(val screen: String, val label: String, val iconRes: I
 internal fun ChessMentorBottomBar(currentScreen: String, dueReviewCount: Int = 0, onNavigate: (String) -> Unit) {
     val section = when (currentScreen) {
         "summary", "upload", "game_view" -> "games"
-        "settings", "engine_settings" -> "settings"
         else -> currentScreen
     }
     val measurer = rememberTextMeasurer()
