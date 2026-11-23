@@ -1,8 +1,8 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.collapseVertically
-import androidx.compose.animation.expandVertically
+import androidx.compose.foundation.animation.collapseVertically
+import androidx.compose.foundation.animation.expandVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
