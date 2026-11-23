@@ -52,10 +52,10 @@ import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
-import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
-import com.example.chessmentor.presentation.ui.components.CommonUI.ListSkeleton
-import com.example.chessmentor.presentation.ui.components.CommonUI.MessageCard
-import com.example.chessmentor.presentation.ui.components.CommonUI.MessageType
+import com.example.chessmentor.presentation.ui.components.BrandEmptyState
+import com.example.chessmentor.presentation.ui.components.ListSkeleton
+import com.example.chessmentor.presentation.ui.components.MessageCard
+import com.example.chessmentor.presentation.ui.components.MessageType
 import com.example.chessmentor.presentation.ui.components.util.MISSING_ACCURACY
 import com.example.chessmentor.presentation.ui.components.util.formatGameAccuracy
 import com.example.chessmentor.domain.pgn.PgnParser
