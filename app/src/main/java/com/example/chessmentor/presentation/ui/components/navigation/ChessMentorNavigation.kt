@@ -370,22 +370,19 @@ private fun ChessMentorTopBar(
     TopAppBar(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val iconPainter = remember {
-                    val res = when (currentScreen) {
-                        "games" -> R.drawable.ic_mentor_games
-                        "upload" -> R.drawable.ic_mentor_upload
-                        "game_view" -> R.drawable.ic_mentor_search
-                        "summary" -> R.drawable.ic_mentor_emoji_events
-                        "training" -> R.drawable.ic_mentor_training
-                        "stats" -> R.drawable.ic_mentor_statistics
-                        "settings" -> R.drawable.ic_mentor_settings
-                        "engine_settings" -> R.drawable.ic_mentor_settings
-                        else -> R.drawable.ic_mentor_home
-                    }
-                    painterResource(res)
+                val res = when (currentScreen) {
+                    "games" -> R.drawable.ic_mentor_games
+                    "upload" -> R.drawable.ic_mentor_upload
+                    "game_view" -> R.drawable.ic_mentor_search
+                    "summary" -> R.drawable.ic_mentor_emoji_events
+                    "training" -> R.drawable.ic_mentor_training
+                    "stats" -> R.drawable.ic_mentor_statistics
+                    "settings" -> R.drawable.ic_mentor_settings
+                    "engine_settings" -> R.drawable.ic_mentor_settings
+                    else -> R.drawable.ic_mentor_home
                 }
                 Icon(
-                    painter = iconPainter,
+                    painter = painterResource(res),
                     contentDescription = "Назад",
                     modifier = Modifier.size(28.dp),
                     tint = MaterialTheme.colorScheme.onBackground
