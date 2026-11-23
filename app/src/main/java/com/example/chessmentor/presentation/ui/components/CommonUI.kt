@@ -3,11 +3,9 @@ package com.example.chessmentor.presentation.ui.components
 
 import com.example.chessmentor.R
 import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,25 +14,22 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TileMode
-import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.random.Random
 
 /** Унифицированное пустое состояние для экранов без данных. */
 @Composable
@@ -93,7 +88,9 @@ fun EmptyState(
             Spacer(modifier = Modifier.height(24.dp))
             FilledTonalButton(
                 onClick = onAction,
-                modifier = Modifier.padding(horizontal = 16.dp)
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .heightIn(min = 48.dp)
             ) {
                 Text(actionLabel)
             }
@@ -115,9 +112,7 @@ fun MessageCard(
         MessageType.Error -> palette.negative to Icons.Default.ErrorOutline
         MessageType.Success -> palette.positive to Icons.Default.CheckCircle
         MessageType.Warning -> palette.caution to Icons.Default.Warning
-        MessageType.Info -> LocalChessPalette.current.run {
-            Color(0xFF2196F3) to Icons.Default.Info
-        }
+        MessageType.Info -> palette.insight to Icons.Default.Info
     }
 
     Card(
@@ -136,6 +131,7 @@ fun MessageCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
+                    modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -184,115 +180,21 @@ fun SkeletonBox(
     width: Dp = Dp.Unspecified,
     modifier: Modifier = Modifier
 ) {
-    val shade = remember { Random.nextFloat() }
     Box(
         modifier = modifier
             .height(height)
             .width(width)
+            .clip(RoundedCornerShape(6.dp))
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                     )
                 )
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        // shimmer effect placeholder — kept minimal to avoid heavy animation cost
-    }
-}
-
-/** Ряд метрики: большое моноширинное число + подпись снизу. */
-@Composable
-fun MetricRow(
-    value: String,
-    label: String,
-    color: Color = MaterialTheme.colorScheme.primary,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = value,
-            style = MaterialTheme.typography.displayMedium,
-            fontWeight = FontWeight.Medium,
-            color = color
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-/** Карточка метрики с иконкой слева и числом справа. */
-@Composable
-fun MetricCard(
-    icon: ImageVector,
-    value: String,
-    label: String,
-    color: Color = MaterialTheme.colorScheme.primary,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.08f)),
-        shape = RoundedCornerShape(12.dp),
-        modifier = modifier
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = color,
-                modifier = Modifier.size(24.dp)
             )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = value,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = color
-                )
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-/** Анимированное переключение контента между экранами (fade + вертикальный slide).
- *
- * [key] используется для определения момента смены контента — при изменении ключа
- * старый контент анимированно уходит, новый — появляется.
- */
-@Composable
-fun AnimatedContentSwitcher(
-    key: Any?,
-    content: @Composable (targetState: Any?) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    AnimatedContent(
-        targetState = key,
-        modifier = modifier
-    ) { targetState ->
-        content(targetState)
-    }
+    )
 }
 
 /** Скелетон для списка карточек (партий, задач, статистики). */
@@ -311,16 +213,14 @@ fun ListSkeleton(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 ),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     SkeletonBox(height = 20.dp, width = 200.dp)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     SkeletonBox(height = 14.dp, width = 120.dp)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -332,42 +232,6 @@ fun ListSkeleton(
                     }
                 }
             }
-        }
-    }
-}
-
-/** Стеклянная карточка с градиентной границей и мягкой тенью — визуальный акцент. */
-@Composable
-fun GlassCard(
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    val gradientBrush = Brush.linearGradient(
-        colors = listOf(
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.10f),
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.04f)
-        ),
-        start = Offset.Zero,
-        end = Offset.Infinite,
-        tileMode = TileMode.Clamp
-    )
-
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
-        ),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
-        modifier = modifier
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(gradientBrush)
-                .padding(16.dp)
-        ) {
-            content()
         }
     }
 }
@@ -537,22 +401,4 @@ fun BrandEmptyState(
             )
         }
     }
-}
-
-/** Декоративный брендовый акцент — тонкая цветная линия для разделения секций. */
-@Composable
-fun BrandAccent(
-    color: Color = MaterialTheme.colorScheme.primary,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(3.dp)
-            .background(
-                Brush.horizontalGradient(
-                    colors = listOf(color.copy(alpha = 0.8f), color.copy(alpha = 0.1f))
-                )
-            )
-    )
 }

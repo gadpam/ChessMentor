@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Piece
 import com.github.bhlangonijr.chesslib.Side
@@ -89,13 +91,6 @@ object BoardThemes {
         }
     }
 }
-
-data class PieceAnimation(
-    val piece: Piece,
-    val fromSquare: Square,
-    val toSquare: Square,
-    val progress: Float
-)
 
 private val FILE_LABELS = charArrayOf('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h')
 private val LEGAL_MOVE_INDICATOR_COLOR = Color(0x48000000)
@@ -198,9 +193,9 @@ fun ChessBoard(
 
             val lightCoordArgb = theme.darkSquare.toArgb()
             val darkCoordArgb = theme.lightSquare.toArgb()
-            val drawCoords = showCoordinates && squareSize >= 28f
+            val drawCoords = showCoordinates && squareSize >= 18.dp.toPx()
             if (drawCoords) {
-                coordinatePaint.textSize = (squareSize * 0.21f).coerceIn(10f, 28f)
+                coordinatePaint.textSize = (squareSize * 0.22f).coerceIn(8.sp.toPx(), 13.sp.toPx())
             }
 
             translate(left = xOffset, top = yOffset) {

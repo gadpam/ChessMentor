@@ -5,12 +5,15 @@ import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -71,6 +74,7 @@ internal fun ChessComImportDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
+                .imePadding()
                 .padding(16.dp)
                 .heightIn(max = 680.dp),
             shape = MaterialTheme.shapes.extraLarge,
@@ -96,26 +100,47 @@ internal fun ChessComImportDialog(
                         color = colors.onSurfaceVariant
                     )
                     if (source == null) {
+                        val canSubmitNick = ChessComArchive.nickname.matches(name.trim())
                         OutlinedTextField(
                             modifier = Modifier.fillMaxWidth(),
                             value = name,
                             onValueChange = { name = it },
                             label = { Text("Ник на Chess.com") },
-                            singleLine = true
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(
+                                onSearch = { if (canSubmitNick) source = name.trim() }
+                            )
                         )
                         Button(
                             onClick = { source = name.trim() },
-                            enabled = ChessComArchive.nickname.matches(name.trim())
+                            enabled = canSubmitNick,
+                            modifier = Modifier.heightIn(min = 48.dp)
                         ) {
                             Text("Загрузить архив")
                         }
                     } else {
                         Text("Игрок: $source", style = MaterialTheme.typography.titleMedium)
-                        TextButton(onClick = { source = null }) { Text("Сменить ник") }
                     }
-                    if (remembered != null) {
-                        TextButton(onClick = { source = null; name = ""; remembered = null; rememberSource(null) }) {
-                            Text("Забыть ник")
+                    if (source != null || remembered != null) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (source != null) {
+                                TextButton(
+                                    onClick = { source = null },
+                                    modifier = Modifier.heightIn(min = 48.dp)
+                                ) { Text("Сменить ник") }
+                            }
+                            if (remembered != null) {
+                                TextButton(
+                                    onClick = { source = null; name = ""; remembered = null; rememberSource(null) },
+                                    modifier = Modifier.heightIn(min = 48.dp)
+                                ) {
+                                    Text("Забыть ник")
+                                }
+                            }
                         }
                     }
                     val month = period
@@ -123,14 +148,16 @@ internal fun ChessComImportDialog(
                         HorizontalDivider()
                         Text("Месяц: $month", style = MaterialTheme.typography.titleMedium)
                         val index = months.indexOf(month)
-                        Row {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(
                                 onClick = { period = months[index + 1] },
-                                enabled = index >= 0 && index < months.lastIndex
+                                enabled = index >= 0 && index < months.lastIndex,
+                                modifier = Modifier.heightIn(min = 48.dp)
                             ) { Text("Раньше") }
                             TextButton(
                                 onClick = { period = months[index - 1] },
-                                enabled = index > 0
+                                enabled = index > 0,
+                                modifier = Modifier.heightIn(min = 48.dp)
                             ) { Text("Позже") }
                         }
                     }
@@ -149,6 +176,7 @@ internal fun ChessComImportDialog(
                                 Text(error.orEmpty(), style = MaterialTheme.typography.bodyMedium)
                                 TextButton(
                                     onClick = { retry++ },
+                                    modifier = Modifier.heightIn(min = 48.dp),
                                     colors = ButtonDefaults.textButtonColors(contentColor = colors.onErrorContainer)
                                 ) { Text("Повторить") }
                             }
@@ -194,7 +222,10 @@ internal fun ChessComImportDialog(
                                     }
                                 }
                                 game.libraryId?.let { id ->
-                                    TextButton(onClick = { onOpenSaved(id) }) { Text("Открыть партию №$id") }
+                                    TextButton(
+                                        onClick = { onOpenSaved(id) },
+                                        modifier = Modifier.heightIn(min = 48.dp)
+                                    ) { Text("Открыть партию №$id") }
                                 }
                             }
                         }
@@ -208,13 +239,17 @@ internal fun ChessComImportDialog(
                     Button(
                         onClick = { onImport(games.filter { it.fingerprint in selected && !it.inLibrary }) },
                         enabled = !busy && selected.isNotEmpty(),
-                        modifier = Modifier.align(Alignment.CenterVertically)
+                        modifier = Modifier
+                            .align(Alignment.CenterVertically)
+                            .heightIn(min = 48.dp)
                     ) {
                         Text("Импортировать выбранные (${selected.size})")
                     }
                     TextButton(
                         onClick = onClose,
-                        modifier = Modifier.align(Alignment.CenterVertically)
+                        modifier = Modifier
+                            .align(Alignment.CenterVertically)
+                            .heightIn(min = 48.dp)
                     ) {
                         Text("Закрыть")
                     }

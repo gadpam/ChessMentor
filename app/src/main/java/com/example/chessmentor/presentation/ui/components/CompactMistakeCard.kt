@@ -76,40 +76,49 @@ fun CompactMistakeCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                @OptIn(ExperimentalLayoutApi::class)
+                FlowRow(
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(
-                        imageVector = mistake.mistakeType.getIcon(),
-                        contentDescription = title,
-                        tint = accentColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = accentColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = mistake.mistakeType.getIcon(),
+                            contentDescription = title,
+                            tint = accentColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = accentColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     Text(
                         text = "· Ход ${mistake.moveNumber}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.CenterVertically)
                     )
                     if (inTimeTrouble && clockSeconds != null) {
                         Text(
                             text = "· Осталось: ${GameReviewHelper.formatClock(clockSeconds)}",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = LocalChessPalette.current.negative
+                            color = LocalChessPalette.current.negative,
+                            modifier = Modifier.align(Alignment.CenterVertically)
                         )
                     }
                 }
 
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = formatLoss(mistake),
                     style = MaterialTheme.typography.labelLarge,
@@ -284,15 +293,15 @@ fun CompactPositionCard(
                 OutlinedButton(
                     onClick = onAnalyzePosition,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                    modifier = Modifier.heightIn(min = 36.dp)
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Psychology,
                         contentDescription = "Анализ позиции Stockfish",
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Stockfish", fontSize = 11.sp)
+                    Text("Stockfish", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }

@@ -11,7 +11,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
@@ -116,17 +116,26 @@ fun ChessMentorTheme(
     val view = LocalView.current
 
     if (!view.isInEditMode) {
-        SideEffect {
-            val activity = view.context.findActivity() ?: return@SideEffect
-            val window = activity.window
-
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            window.statusBarColor = Color.Transparent.toArgb()
-            window.navigationBarColor = Color.Transparent.toArgb()
-
-            val insetsController = WindowCompat.getInsetsController(window, view)
-            insetsController.isAppearanceLightStatusBars = !darkTheme
-            insetsController.isAppearanceLightNavigationBars = !darkTheme
+        DisposableEffect(view) {
+            val activity = view.context.findActivity()
+            if (activity != null) {
+                val window = activity.window
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                @Suppress("DEPRECATION")
+                window.statusBarColor = Color.Transparent.toArgb()
+                @Suppress("DEPRECATION")
+                window.navigationBarColor = Color.Transparent.toArgb()
+            }
+            onDispose { }
+        }
+        DisposableEffect(view, darkTheme) {
+            val activity = view.context.findActivity()
+            if (activity != null) {
+                val insetsController = WindowCompat.getInsetsController(activity.window, view)
+                insetsController.isAppearanceLightStatusBars = !darkTheme
+                insetsController.isAppearanceLightNavigationBars = !darkTheme
+            }
+            onDispose { }
         }
     }
 

@@ -4,7 +4,6 @@ package com.example.chessmentor.presentation.ui.components.screen
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -42,8 +41,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -51,7 +50,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.engine.EngineStatus
@@ -211,12 +209,18 @@ fun SettingsScreen(
         }
     }
 
+    val layoutDirection = LocalLayoutDirection.current
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(paddingValues)
-            .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(vertical = 14.dp),
+            .imePadding(),
+        contentPadding = PaddingValues(
+            top = 14.dp + paddingValues.calculateTopPadding(),
+            bottom = 14.dp + paddingValues.calculateBottomPadding(),
+            start = 16.dp + paddingValues.calculateStartPadding(layoutDirection),
+            end = 16.dp + paddingValues.calculateEndPadding(layoutDirection)
+        ),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         if (message != null) {
@@ -337,55 +341,6 @@ fun SettingsScreen(
             }
         }
 
-        if (showLogoutDialog) {
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text(
-                            text = "Выйти из аккаунта?",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                        Text(
-                            text = "Все ваши партии, разборы и прогресс тренировок останутся сохранены на устройстве и восстановятся при следующем входе.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            maxLines = 4
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Button(
-                                onClick = {
-                                    showLogoutDialog = false
-                                    viewModel.logout(onLogout)
-                                },
-                                colors = ButtonDefaults.filledTonalButtonColors(),
-                                modifier = Modifier.width(110.dp)
-                            ) {
-                                Text("Выйти")
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            TextButton(onClick = { showLogoutDialog = false }) {
-                                Text("Отмена")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         // Информация о приложении
         item {
             Spacer(Modifier.height(8.dp))
@@ -393,10 +348,43 @@ fun SettingsScreen(
                 Text(
                     text = "ChessMentor 1.0 · Stockfish 19 (NNUE) · Локальная БД Room v5",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
         }
+    }
+
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            title = { Text("Выйти из аккаунта?") },
+            text = {
+                Text(
+                    text = "Все ваши партии, разборы и прогресс тренировок останутся сохранены на устройстве и восстановятся при следующем входе.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showLogoutDialog = false
+                        viewModel.logout(onLogout)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Выйти")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showLogoutDialog = false },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 }
 
@@ -465,7 +453,7 @@ private fun ProfileCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Person, contentDescription = "Профиль", tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
-                Text("Профиль", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Профиль", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -477,7 +465,12 @@ private fun ProfileCard(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Edit, contentDescription = "Редактировать никнейм") },
-                isError = nickname.trim().length < 3
+                isError = nickname.trim().length < 3,
+                supportingText = if (nickname.trim().length < 3) {
+                    { Text("Минимум 3 символа") }
+                } else {
+                    null
+                }
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -515,7 +508,7 @@ private fun ParametersCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Tune, contentDescription = "Оформление и звук", tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
-                Text("Оформление и звук", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Оформление и звук", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -729,6 +722,7 @@ private fun ChangePasswordCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(min = 48.dp)
                     .clickable { expanded = !expanded },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -736,7 +730,7 @@ private fun ChangePasswordCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Lock, contentDescription = "Безопасность и пароль", tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(8.dp))
-                    Text("Безопасность и пароль", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text("Безопасность и пароль", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
                 Icon(
                     imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
@@ -793,6 +787,18 @@ private fun ChangePasswordCard(
                         keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Next
                     ),
+                    trailingIcon = {
+                        IconButton(onClick = { showNewPassword = !showNewPassword }) {
+                            Icon(
+                                imageVector = if (showNewPassword) {
+                                    Icons.Default.VisibilityOff
+                                } else {
+                                    Icons.Default.Visibility
+                                },
+                                contentDescription = if (showNewPassword) "Скрыть новый пароль" else "Показать новый пароль"
+                            )
+                        }
+                    },
                     isError = newPassword.isNotEmpty() && newPassword.length < 6,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isSaving
@@ -890,10 +896,12 @@ private fun ChangePasswordCard(
                 FilledTonalButton(
                     onClick = onSubmit,
                     enabled = canSubmit,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
                 ) {
                     if (isSaving) {
-                        SkeletonBox(height = 18.dp, width = 18.dp)
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
                     }
                     Text("Обновить пароль")
@@ -924,7 +932,7 @@ private fun DataBackupCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Storage, contentDescription = "Данные и резервная копия", tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
-                Text("Данные и резервная копия", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Данные и резервная копия", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
 
             Text(
@@ -937,10 +945,12 @@ private fun DataBackupCard(
             FilledTonalButton(
                 onClick = onExportJsonClick,
                 enabled = !isBusy,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
             ) {
                 if (isExporting) {
-                    SkeletonBox(height = 18.dp, width = 18.dp)
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                 } else {
                     Icon(
                         imageVector = Icons.Default.Download,
@@ -955,10 +965,12 @@ private fun DataBackupCard(
             OutlinedButton(
                 onClick = onImportJsonClick,
                 enabled = !isBusy,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
             ) {
                 if (isImporting) {
-                    SkeletonBox(height = 18.dp, width = 18.dp)
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                 } else {
                     Icon(
                         imageVector = Icons.Default.Upload,
@@ -973,7 +985,9 @@ private fun DataBackupCard(
             OutlinedButton(
                 onClick = onExportPgnClick,
                 enabled = totalGames > 0 && !isBusy,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Download,

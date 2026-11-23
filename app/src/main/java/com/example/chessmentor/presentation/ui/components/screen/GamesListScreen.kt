@@ -8,6 +8,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,7 +32,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
@@ -104,34 +107,41 @@ fun GamesListScreen(
     // диалог прогресса по-прежнему привязан к нужной карточке.
     val requestedGameId by gameViewModel.libraryAnalysisRequestedGameId
 
-    var searchQuery by remember { mutableStateOf(initialSearchQuery.orEmpty()) }
-    var activeFilter by remember {
+    var searchQuery by rememberSaveable { mutableStateOf(initialSearchQuery.orEmpty()) }
+    var activeFilterName by rememberSaveable {
         mutableStateOf(
             when (initialColorFilter) {
-                ChessColor.WHITE -> LibraryFilter.WHITE
-                ChessColor.BLACK -> LibraryFilter.BLACK
-                null -> LibraryFilter.ALL
+                ChessColor.WHITE -> LibraryFilter.WHITE.name
+                ChessColor.BLACK -> LibraryFilter.BLACK.name
+                null -> LibraryFilter.ALL.name
             }
         )
     }
-    var activeSort by remember { mutableStateOf(LibrarySort.NEWEST) }
+    var activeSortName by rememberSaveable { mutableStateOf(LibrarySort.NEWEST.name) }
+    val activeFilter = LibraryFilter.entries.firstOrNull { it.name == activeFilterName } ?: LibraryFilter.ALL
+    val activeSort = LibrarySort.entries.firstOrNull { it.name == activeSortName } ?: LibrarySort.NEWEST
     var sortMenuExpanded by remember { mutableStateOf(false) }
 
     val focusManager = LocalFocusManager.current
     val showAllGames = {
         searchQuery = ""
-        activeFilter = LibraryFilter.ALL
+        activeFilterName = LibraryFilter.ALL.name
         focusManager.clearFocus()
+    }
+
+    var searchOpen by rememberSaveable {
+        mutableStateOf(!initialSearchQuery.isNullOrBlank() || initialColorFilter != null)
     }
 
     LaunchedEffect(initialSearchQuery, initialColorFilter) {
         if (!initialSearchQuery.isNullOrBlank() || initialColorFilter != null) {
             searchQuery = initialSearchQuery.orEmpty()
-            activeFilter = when (initialColorFilter) {
-                ChessColor.WHITE -> LibraryFilter.WHITE
-                ChessColor.BLACK -> LibraryFilter.BLACK
-                null -> LibraryFilter.ALL
+            activeFilterName = when (initialColorFilter) {
+                ChessColor.WHITE -> LibraryFilter.WHITE.name
+                ChessColor.BLACK -> LibraryFilter.BLACK.name
+                null -> LibraryFilter.ALL.name
             }
+            searchOpen = true
             onInitialFilterConsumed()
         }
     }
@@ -189,17 +199,25 @@ fun GamesListScreen(
         }
     }
 
-    var searchOpen by rememberSaveable { mutableStateOf(false) }
     val chronological = activeSort == LibrarySort.NEWEST || activeSort == LibrarySort.OLDEST
     val duplicateKeys = remember(indexedGames) {
         indexedGames.groupingBy { it.info.title to it.info.dateLabel }.eachCount().filterValues { it > 1 }.keys
     }
+    val listState = rememberLazyListState()
+    val layoutDirection = LocalLayoutDirection.current
 
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
-            .padding(paddingValues)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .imePadding(),
+        contentPadding = PaddingValues(
+            top = 12.dp + paddingValues.calculateTopPadding(),
+            bottom = 12.dp + paddingValues.calculateBottomPadding(),
+            start = 16.dp + paddingValues.calculateStartPadding(layoutDirection),
+            end = 16.dp + paddingValues.calculateEndPadding(layoutDirection)
+        ),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         if (indexedGames.isNotEmpty()) item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -255,12 +273,12 @@ fun GamesListScreen(
                     searchQuery = searchQuery,
                     onSearchChange = { searchQuery = it },
                     activeFilter = activeFilter,
-                    onFilterChange = { activeFilter = it },
+                    onFilterChange = { activeFilterName = it.name },
                     activeSort = activeSort,
                     sortMenuExpanded = sortMenuExpanded,
                     onSortMenuToggle = { sortMenuExpanded = it },
                     onSortChange = {
-                        activeSort = it
+                        activeSortName = it.name
                         sortMenuExpanded = false
                     },
                     shownCount = filteredGames.size,
@@ -357,6 +375,7 @@ internal fun LibraryAnalysisFeedback(
 internal fun AddGameButton(onAdd: () -> Unit) {
     TextButton(onClick = onAdd, modifier = Modifier.heightIn(min = 48.dp)) {
         Icon(Icons.Default.Add, contentDescription = "Добавить партию")
+        Spacer(modifier = Modifier.width(4.dp))
         Text("Добавить")
     }
 }
@@ -510,14 +529,27 @@ fun GameCard(
     val white = game.playerColor == ChessColor.WHITE
     val detail = listOfNotNull(id?.takeIf { showNumber }?.let { "№$it" },
         info.dateLabel.takeIf { showDate }, info.timeControlLabel).joinToString(" · ")
-    val identity: @Composable () -> Unit = {
+    val identity: @Composable (Boolean) -> Unit = { stacked ->
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Box(Modifier.size(12.dp).background(if (white) Color.White else Color.Black, MaterialTheme.shapes.extraSmall)
                 .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.extraSmall)
                 .semantics { contentDescription = if (white) "Вы белыми" else "Вы чёрными" })
             Column {
-                Text(info.title.removePrefix("vs "), style = MaterialTheme.typography.titleMedium)
-                Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text = info.title.removePrefix("vs "),
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = if (stacked) 2 else 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (detail.isNotEmpty()) {
+                    Text(
+                        text = detail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
@@ -536,16 +568,21 @@ fun GameCard(
                     PgnParser.PlayerOutcome.LOSS -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 })
-            val scale = LocalDensity.current.fontScale
-            Box(Modifier.width((88 * scale).dp), contentAlignment = Alignment.CenterEnd) {
+            Spacer(modifier = Modifier.width(6.dp))
+            Box(Modifier.widthIn(min = 56.dp), contentAlignment = Alignment.CenterEnd) {
                 when (game.analysisStatus) {
                     AnalysisStatus.COMPLETED -> {
                         val accuracy = game.accuracy?.let { formatGameAccuracy(it) }
                         Text(accuracy ?: "Готово", Modifier.clearAndSetSemantics {
                             contentDescription = accuracy?.let { "Точность: $it" } ?: MISSING_ACCURACY
-                        }, style = MaterialTheme.typography.labelLarge)
+                        }, style = MaterialTheme.typography.labelLarge, maxLines = 1)
                     }
-                    AnalysisStatus.IN_PROGRESS -> Text("Идёт анализ", style = MaterialTheme.typography.labelMedium)
+                    AnalysisStatus.IN_PROGRESS -> Text(
+                        text = "Идёт анализ",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     AnalysisStatus.FAILED, AnalysisStatus.PENDING -> {
                         val failed = game.analysisStatus == AnalysisStatus.FAILED
                         if (onAnalyze != null) TextButton(
@@ -554,7 +591,12 @@ fun GameCard(
                                 stateDescription = if (failed) "Ошибка анализа" else "Ожидает анализа"
                             }, contentPadding = PaddingValues(horizontal = 4.dp)
                         ) { Text(if (failed) "Повторить" else "Разобрать") }
-                        else Text(if (failed) "Ошибка анализа" else "Ожидает анализа", style = MaterialTheme.typography.labelMedium)
+                        else Text(
+                            text = if (failed) "Ошибка анализа" else "Ожидает анализа",
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
@@ -639,10 +681,11 @@ fun GameCard(
     Column(modifier = Modifier.fillMaxWidth()) {
         Surface(onClick = onClick, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface) {
             BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp, vertical = 2.dp)) {
-                if (maxWidth < (255 * LocalDensity.current.fontScale).dp) {
-                    Column { identity(); actions() }
+                val stacked = maxWidth < (255 * LocalDensity.current.fontScale).dp
+                if (stacked) {
+                    Column { identity(true); actions() }
                 } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) { identity() }
+                    Box(Modifier.weight(1f)) { identity(false) }
                     actions()
                 }
             }

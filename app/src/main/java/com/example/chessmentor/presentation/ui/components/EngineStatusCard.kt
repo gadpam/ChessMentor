@@ -18,10 +18,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.chessmentor.domain.engine.EngineErrorReason
@@ -220,14 +219,16 @@ fun EngineStatusBanner(
                     }
 
                     if (status.canRetry || onOpenSettings != null) {
-                        Row(
+                        @OptIn(ExperimentalLayoutApi::class)
+                        FlowRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             if (onOpenSettings != null) {
                                 TextButton(
                                     onClick = onOpenSettings,
+                                    modifier = Modifier.heightIn(min = 48.dp),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                 ) {
                                     Icon(
@@ -242,6 +243,7 @@ fun EngineStatusBanner(
                             if (status.canRetry) {
                                 FilledTonalButton(
                                     onClick = onRetry,
+                                    modifier = Modifier.heightIn(min = 48.dp),
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                                 ) {
                                     Icon(
@@ -271,7 +273,7 @@ private fun BannerBusyRow(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        SkeletonBox(height = 20.dp, width = 20.dp)
+        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -312,61 +314,39 @@ fun NnueManagementCard(
 ) {
     var confirmRedownload by remember { mutableStateOf(false) }
 
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        if (confirmRedownload) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
-                ),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+    if (confirmRedownload) {
+        AlertDialog(
+            onDismissRequest = { confirmRedownload = false },
+            title = { Text("Перекачать нейросеть NNUE?") },
+            text = {
+                Text(
+                    text = "Текущий файл ${NnueIntegrity.NET_NAME} будет удалён и заново скачан с официального сервера Stockfish с проверкой SHA-256. Потребуется подключение к интернету.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmRedownload = false
+                        onForceRedownload()
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) {
-                    Text(
-                        text = "Перекачать нейросеть NNUE?",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                    Text(
-                        text = "Текущий файл ${NnueIntegrity.NET_NAME} будет удалён и заново скачан с официального сервера Stockfish с проверкой SHA-256. Потребуется подключение к интернету.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        textAlign = TextAlign.Center
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Button(
-                            onClick = {
-                                confirmRedownload = false
-                                onForceRedownload()
-                            },
-                            modifier = Modifier.heightIn(min = 48.dp)
-                        ) {
-                            Text("Перекачать")
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        TextButton(
-                            onClick = { confirmRedownload = false },
-                            modifier = Modifier.heightIn(min = 48.dp)
-                        ) {
-                            Text("Отмена")
-                        }
-                    }
+                    Text("Перекачать")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { confirmRedownload = false },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text("Отмена")
                 }
             }
-        }
+        )
+    }
 
-        Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -406,7 +386,9 @@ fun NnueManagementCard(
                     )
                     FilledTonalButton(
                         onClick = onDownloadOrRetry,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
                     ) {
                         Icon(Icons.Default.CloudDownload, contentDescription = "Проверить и запустить", modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
@@ -441,7 +423,9 @@ fun NnueManagementCard(
                     }
                     OutlinedButton(
                         onClick = onCancelDownload,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
                     ) {
                         Icon(Icons.Default.Close, contentDescription = "Приостановить загрузку", modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
@@ -495,35 +479,80 @@ fun NnueManagementCard(
                         }
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onVerifyChecksum,
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.VerifiedUser,
-                                contentDescription = "Проверить SHA-256",
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Проверить SHA-256", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        OutlinedButton(
-                            onClick = { confirmRedownload = true },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Перекачать",
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Перекачать", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val stackButtons = maxWidth < (285 * LocalDensity.current.fontScale).dp
+                        if (stackButtons) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = onVerifyChecksum,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.VerifiedUser,
+                                        contentDescription = "Проверить SHA-256",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Проверить SHA-256")
+                                }
+                                OutlinedButton(
+                                    onClick = { confirmRedownload = true },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Перекачать",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Перекачать")
+                                }
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = onVerifyChecksum,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.VerifiedUser,
+                                        contentDescription = "Проверить SHA-256",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Проверить SHA-256", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                OutlinedButton(
+                                    onClick = { confirmRedownload = true },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Перекачать",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Перекачать", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
                         }
                     }
                 }
@@ -556,7 +585,9 @@ fun NnueManagementCard(
                     if (status.canRetry) {
                         Button(
                             onClick = onDownloadOrRetry,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.CloudDownload,
@@ -576,7 +607,6 @@ fun NnueManagementCard(
                 }
             }
         }
-    }
     }
 }
 

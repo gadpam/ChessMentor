@@ -25,8 +25,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -363,290 +366,456 @@ private fun GameViewScreenContent(
         boardViewModel.getOpeningLabelAtCurrentMove() ?: if (currentMoveIndex < 0) cardInfo.openingLabel else null
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(paddingValues)
-            .background(MaterialTheme.colorScheme.background)
+    val layoutDirection = LocalLayoutDirection.current
+    val topInset = paddingValues.calculateTopPadding()
+    val bottomInset = paddingValues.calculateBottomPadding()
+    val startInset = paddingValues.calculateStartPadding(layoutDirection)
+    val endInset = paddingValues.calculateEndPadding(layoutDirection)
 
-    ) {
-        // Основная область: панель игроков, оценка, доска и адаптивный скроллируемый блок комментариев
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            val boardSide = minOf(
-                (maxWidth - 24.dp).coerceAtLeast(160.dp),
-                (maxHeight * 0.50f).coerceAtLeast(180.dp)
-            )
-            Column(modifier = Modifier.fillMaxSize()) {
-                // 1. Верхняя полоска игрока + часы + кнопки (переворот, Stockfish, Сводка)
-                ReviewPlayerToolbar(
-                    color = topColor,
-                    nameLabel = topLabel,
-                    materialAdvantage = topMaterialAdv,
-                    clockSeconds = topClock,
-                    isLiveEngineEnabled = isLiveEngine,
-                    showEngineToggle = chessEngine != null,
-                    onFlipBoard = { boardViewModel.toggleFlipBoard() },
-                    onToggleEngine = {
-                        chessEngine?.let {
-                            boardViewModel.toggleLiveEngine(it, isEngineBusy = isBackgroundAnalyzing)
-                        }
-                    },
-                    onOpenSummary = onOpenSummary,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
-                )
-
-                // 2. Шкала оценки
-                EvaluationBar(
-                    evaluation = currentEvaluation,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 2.dp)
-                )
-
-                // 3. Интерактивная шахматная доска (с бейджем качества хода и двойными стрелками)
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    GameBoardWithBadgeAndArrow(
-                        board = board,
-                        currentMistake = currentMistake,
-                        currentAnalyzedMove = currentAnalyzedMove,
-                        showQualityBadge = retryState == null && !isInVariation,
-                        highlightedSquares = highlightedSquares,
-                        selectedSquare = selectedSquare,
-                        legalMoveSquares = legalMoveSquares,
-                        legalCaptureSquares = legalCaptureSquares,
-                        lastMove = lastMove,
-                        arrows = arrowsList,
-                        isFlipped = isFlipped,
-                        theme = selectedTheme,
-                        onSquareClick = if (canMoveOnBoard) { clicked ->
-                            val from = selectedSquare
-                            val piece = board.getPiece(clicked)
-                            when {
-                                from == null -> {
-                                    if (piece != Piece.NONE && piece.pieceSide == board.sideToMove) {
-                                        selectedSquare = clicked
-                                    }
-                                }
-                                clicked == from -> selectedSquare = null
-                                clicked in legalMoveSquares || clicked in legalCaptureSquares -> {
-                                    if (ChessMoveUtils.isPawnPromotion(board, from, clicked)) {
-                                        pendingPromotion = from to clicked
-                                    } else {
-                                        selectedSquare = null
-                                        handleUserBoardMove(from, clicked, promotion = null)
-                                    }
-                                }
-                                piece != Piece.NONE && piece.pieceSide == board.sideToMove -> {
-                                    selectedSquare = clicked
-                                }
-                                else -> selectedSquare = null
-                            }
-                        } else {
-                            null
-                        },
-                        modifier = Modifier
-                            .size(boardSide)
-                            .graphicsLayer { translationX = shakeOffset.value }
-                    )
-                }
-
-                // 4. Нижняя полоска игрока + часы + индикатор режима (Ветка / Исправление)
-                ReviewBottomPlayerStrip(
-                    color = bottomColor,
-                    nameLabel = bottomLabel,
-                    materialAdvantage = bottomMaterialAdv,
-                    clockSeconds = bottomClock,
-                    isRetryMode = retryState != null,
-                    variationDepth = variationSteps.size,
-                    hasRealEvaluations = hasRealEvaluations,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)
-                )
-
-                // 5. Адаптивная тренерская панель (прокручиваемая, никогда не обрезает комментарии)
-                val panelScroll = rememberScrollState()
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .verticalScroll(panelScroll)
-                        .padding(horizontal = 12.dp, vertical = 2.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-            val activeRetry = retryState
-            val gameId = game.id
+    val handleBoardSquareClick: ((Square) -> Unit)? = if (canMoveOnBoard) {
+        { clicked ->
+            val from = selectedSquare
+            val piece = board.getPiece(clicked)
             when {
-                activeRetry != null -> {
-                    RetryMistakePanel(
-                        state = activeRetry,
-                        onHint = { boardViewModel.requestRetryHint() },
-                        onShowLine = if (chessEngine != null && activeRetry.isSolved) {
-                            {
-                                val idx = activeRetry.targetMoveIndex
-                                boardViewModel.exitRetryMode(advanceToNext = false)
-                                boardViewModel.goToMove(idx)
-                                boardViewModel.analyzeBestAlternativeForCurrentMove(
-                                    chessEngine,
-                                    isEngineBusy = isBackgroundAnalyzing
-                                )
-                            }
-                        } else {
-                            null
-                        },
-                        onPracticeInTrainer = if (activeRetry.isPlayerMistake && gameId != null && onPracticeMistake != null) {
-                            { onPracticeMistake(gameId, activeRetry.moveNumber) }
-                        } else {
-                            null
-                        },
-                        onContinueGame = {
-                            boardViewModel.exitRetryMode(advanceToNext = true)
-                            playFeedbackSoundForCurrentPosition()
-                        },
-                        onCancel = {
-                            boardViewModel.exitRetryMode(advanceToNext = false)
-                        }
-                    )
+                from == null -> {
+                    if (piece != Piece.NONE && piece.pieceSide == board.sideToMove) {
+                        selectedSquare = clicked
+                    }
                 }
-
-                isInVariation -> {
-                    VariationSandboxPanel(
-                        steps = variationSteps,
-                        onStepBack = {
-                            boardViewModel.stepBackVariation()
-                            playFeedbackSoundForCurrentPosition()
-                        },
-                        onExitVariation = {
-                            boardViewModel.exitVariation()
-                        },
-                        onAnalyzeWithEngine = if (chessEngine != null && engineLine == null) {
-                            { boardViewModel.toggleLiveEngine(chessEngine, isBackgroundAnalyzing) }
-                        } else {
-                            null
-                        }
-                    )
+                clicked == from -> selectedSquare = null
+                clicked in legalMoveSquares || clicked in legalCaptureSquares -> {
+                    if (ChessMoveUtils.isPawnPromotion(board, from, clicked)) {
+                        pendingPromotion = from to clicked
+                    } else {
+                        selectedSquare = null
+                        handleUserBoardMove(from, clicked, promotion = null)
+                    }
                 }
-
-                currentMistake != null -> {
-                    val isPlayerMistake = currentMistake.color == game.playerColor
-                    CompactMistakeCard(
-                        mistake = currentMistake,
-                        moveQuality = currentAnalyzedMove?.quality,
-                        fenBefore = fenBeforeCurrent,
-                        clockSeconds = currentMoveClock,
-                        onRevealAnswer = revealAnswer,
-                        onRetryMove = if (canRetry) {
-                            { boardViewModel.startRetryCurrentMove() }
-                        } else {
-                            null
-                        },
-                        onShowEngineLine = if (chessEngine != null) {
-                            {
-                                boardViewModel.analyzeBestAlternativeForCurrentMove(
-                                    chessEngine,
-                                    isEngineBusy = isBackgroundAnalyzing
-                                )
-                            }
-                        } else {
-                            null
-                        },
-                        onPracticeInTrainer = if (isPlayerMistake && gameId != null && onPracticeMistake != null) {
-                            { onPracticeMistake(gameId, currentMistake.moveNumber) }
-                        } else {
-                            null
-                        }
-                    )
+                piece != Piece.NONE && piece.pieceSide == board.sideToMove -> {
+                    selectedSquare = clicked
                 }
-
-                currentAnalyzedMove != null -> {
-                    val isPlayerMove = currentAnalyzedMove.color == game.playerColor
-                    AnalyzedMoveInfoCard(
-                        analyzedMove = currentAnalyzedMove,
-                        isPlayerMove = isPlayerMove,
-                        fenBefore = fenBeforeCurrent,
-                        clockSeconds = currentMoveClock,
-                        onRevealAnswer = revealAnswer,
-                        onRetryMove = if (canRetry) {
-                            { boardViewModel.startRetryCurrentMove() }
-                        } else {
-                            null
-                        },
-                        onShowEngineLine = if (chessEngine != null && currentAnalyzedMove.isMistake()) {
-                            {
-                                boardViewModel.analyzeBestAlternativeForCurrentMove(
-                                    chessEngine,
-                                    isEngineBusy = isBackgroundAnalyzing
-                                )
-                            }
-                        } else {
-                            null
-                        },
-                        onPracticeInTrainer = if (
-                            isPlayerMove &&
-                            currentAnalyzedMove.isMistake() &&
-                            gameId != null &&
-                            onPracticeMistake != null
-                        ) {
-                            { onPracticeMistake(gameId, currentAnalyzedMove.moveNumber) }
-                        } else {
-                            null
-                        }
-                    )
-                }
-
-                else -> {
-                    CompactPositionCard(
-                        evaluation = currentEvaluation,
-                        playerColor = game.playerColor,
-                        openingLabel = openingAtMove,
-                        subtitle = if (!game.isAnalyzed()) {
-                            "Сделайте ход на доске для анализа варианта или запустите разбор Stockfish"
-                        } else {
-                            "Нажмите на фигуру, чтобы разыграть свой вариант"
-                        },
-                        onAnalyzePosition = when {
-                            !game.isAnalyzed() && gameId != null -> {
-                                { gameViewModel.analyzeGameWithProgress(gameId, forceReanalyze = true) }
-                            }
-                            chessEngine != null && engineLine == null -> {
-                                { boardViewModel.toggleLiveEngine(chessEngine, isBackgroundAnalyzing) }
-                            }
-                            else -> null
-                        }
-                    )
-                }
+                else -> selectedSquare = null
             }
+        }
+    } else {
+        null
+    }
 
-            // Полоска живой линии Stockfish с кнопкой пошагового разыгрывания на доске
-            val activeEngineLine = engineLine
-            if (activeEngineLine != null && activeRetry == null) {
-                EngineLineCard(
-                    state = activeEngineLine,
-                    onPlayBestMove = if (chessEngine != null && activeEngineLine.pvSteps.isNotEmpty()) {
+    val coachingContent: @Composable () -> Unit = {
+        val activeRetry = retryState
+        val gameId = game.id
+        when {
+            activeRetry != null -> {
+                RetryMistakePanel(
+                    state = activeRetry,
+                    onHint = { boardViewModel.requestRetryHint() },
+                    onShowLine = if (chessEngine != null && activeRetry.isSolved) {
                         {
-                            if (boardViewModel.playEngineBestStep(chessEngine, isBackgroundAnalyzing)) {
-                                playFeedbackSoundForCurrentPosition()
-                            }
+                            val idx = activeRetry.targetMoveIndex
+                            boardViewModel.exitRetryMode(advanceToNext = false)
+                            boardViewModel.goToMove(idx)
+                            boardViewModel.analyzeBestAlternativeForCurrentMove(
+                                chessEngine,
+                                isEngineBusy = isBackgroundAnalyzing
+                            )
                         }
                     } else {
                         null
                     },
-                    onClose = { boardViewModel.dismissEngineLine() }
+                    onPracticeInTrainer = if (activeRetry.isPlayerMistake && gameId != null && onPracticeMistake != null) {
+                        { onPracticeMistake(gameId, activeRetry.moveNumber) }
+                    } else {
+                        null
+                    },
+                    onContinueGame = {
+                        boardViewModel.exitRetryMode(advanceToNext = true)
+                        playFeedbackSoundForCurrentPosition()
+                    },
+                    onCancel = {
+                        boardViewModel.exitRetryMode(advanceToNext = false)
+                    }
                 )
             }
+
+            isInVariation -> {
+                VariationSandboxPanel(
+                    steps = variationSteps,
+                    onStepBack = {
+                        boardViewModel.stepBackVariation()
+                        playFeedbackSoundForCurrentPosition()
+                    },
+                    onExitVariation = {
+                        boardViewModel.exitVariation()
+                    },
+                    onAnalyzeWithEngine = if (chessEngine != null && engineLine == null) {
+                        { boardViewModel.toggleLiveEngine(chessEngine, isBackgroundAnalyzing) }
+                    } else {
+                        null
+                    }
+                )
+            }
+
+            currentMistake != null -> {
+                val isPlayerMistake = currentMistake.color == game.playerColor
+                CompactMistakeCard(
+                    mistake = currentMistake,
+                    moveQuality = currentAnalyzedMove?.quality,
+                    fenBefore = fenBeforeCurrent,
+                    clockSeconds = currentMoveClock,
+                    onRevealAnswer = revealAnswer,
+                    onRetryMove = if (canRetry) {
+                        { boardViewModel.startRetryCurrentMove() }
+                    } else {
+                        null
+                    },
+                    onShowEngineLine = if (chessEngine != null) {
+                        {
+                            boardViewModel.analyzeBestAlternativeForCurrentMove(
+                                chessEngine,
+                                isEngineBusy = isBackgroundAnalyzing
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                    onPracticeInTrainer = if (isPlayerMistake && gameId != null && onPracticeMistake != null) {
+                        { onPracticeMistake(gameId, currentMistake.moveNumber) }
+                    } else {
+                        null
+                    }
+                )
+            }
+
+            currentAnalyzedMove != null -> {
+                val isPlayerMove = currentAnalyzedMove.color == game.playerColor
+                AnalyzedMoveInfoCard(
+                    analyzedMove = currentAnalyzedMove,
+                    isPlayerMove = isPlayerMove,
+                    fenBefore = fenBeforeCurrent,
+                    clockSeconds = currentMoveClock,
+                    onRevealAnswer = revealAnswer,
+                    onRetryMove = if (canRetry) {
+                        { boardViewModel.startRetryCurrentMove() }
+                    } else {
+                        null
+                    },
+                    onShowEngineLine = if (chessEngine != null && currentAnalyzedMove.isMistake()) {
+                        {
+                            boardViewModel.analyzeBestAlternativeForCurrentMove(
+                                chessEngine,
+                                isEngineBusy = isBackgroundAnalyzing
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                    onPracticeInTrainer = if (
+                        isPlayerMove &&
+                        currentAnalyzedMove.isMistake() &&
+                        gameId != null &&
+                        onPracticeMistake != null
+                    ) {
+                        { onPracticeMistake(gameId, currentAnalyzedMove.moveNumber) }
+                    } else {
+                        null
+                    }
+                )
+            }
+
+            else -> {
+                CompactPositionCard(
+                    evaluation = currentEvaluation,
+                    playerColor = game.playerColor,
+                    openingLabel = openingAtMove,
+                    subtitle = if (!game.isAnalyzed()) {
+                        "Сделайте ход на доске для анализа варианта или запустите разбор Stockfish"
+                    } else {
+                        "Нажмите на фигуру, чтобы разыграть свой вариант"
+                    },
+                    onAnalyzePosition = when {
+                        !game.isAnalyzed() && gameId != null -> {
+                            { gameViewModel.analyzeGameWithProgress(gameId, forceReanalyze = true) }
+                        }
+                        chessEngine != null && engineLine == null -> {
+                            { boardViewModel.toggleLiveEngine(chessEngine, isBackgroundAnalyzing) }
+                        }
+                        else -> null
+                    }
+                )
+            }
+        }
+
+        val activeEngineLine = engineLine
+        if (activeEngineLine != null && activeRetry == null) {
+            EngineLineCard(
+                state = activeEngineLine,
+                onPlayBestMove = if (chessEngine != null && activeEngineLine.pvSteps.isNotEmpty()) {
+                    {
+                        if (boardViewModel.playEngineBestStep(chessEngine, isBackgroundAnalyzing)) {
+                            playFeedbackSoundForCurrentPosition()
+                        }
+                    }
+                } else {
+                    null
+                },
+                onClose = { boardViewModel.dismissEngineLine() }
+            )
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        ReviewTopHeaderBar(
+            isLiveEngineEnabled = isLiveEngine,
+            showEngineToggle = chessEngine != null,
+            onNavigateBack = onNavigateBack,
+            onFlipBoard = { boardViewModel.toggleFlipBoard() },
+            onToggleEngine = {
+                chessEngine?.let {
+                    boardViewModel.toggleLiveEngine(it, isEngineBusy = isBackgroundAnalyzing)
+                }
+            },
+            onOpenSummary = onOpenSummary,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(top = topInset, start = startInset, end = endInset)
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(start = startInset, end = endInset)
+        ) {
+            val isCompactLandscape = maxWidth > maxHeight && maxHeight < 460.dp
+            val isVeryShortPortrait = !isCompactLandscape && maxHeight < 360.dp
+            val panelScroll = rememberScrollState()
+
+            when {
+                isCompactLandscape -> {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                        ) {
+                            PlayerInfoBadge(
+                                color = topColor,
+                                nameLabel = topLabel,
+                                materialAdvantage = topMaterialAdv,
+                                clockSeconds = topClock,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
+                            )
+                            EvaluationBar(
+                                evaluation = currentEvaluation,
+                                flipped = isFlipped,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                GameBoardWithBadgeAndArrow(
+                                    board = board,
+                                    currentMistake = currentMistake,
+                                    currentAnalyzedMove = currentAnalyzedMove,
+                                    showQualityBadge = retryState == null && !isInVariation,
+                                    highlightedSquares = highlightedSquares,
+                                    selectedSquare = selectedSquare,
+                                    legalMoveSquares = legalMoveSquares,
+                                    legalCaptureSquares = legalCaptureSquares,
+                                    lastMove = lastMove,
+                                    arrows = arrowsList,
+                                    isFlipped = isFlipped,
+                                    theme = selectedTheme,
+                                    onSquareClick = handleBoardSquareClick,
+                                    modifier = Modifier
+                                        .aspectRatio(1f)
+                                        .graphicsLayer { translationX = shakeOffset.value }
+                                )
+                            }
+                            ReviewBottomPlayerStrip(
+                                color = bottomColor,
+                                nameLabel = bottomLabel,
+                                materialAdvantage = bottomMaterialAdv,
+                                clockSeconds = bottomClock,
+                                isRetryMode = retryState != null,
+                                variationDepth = variationSteps.size,
+                                hasRealEvaluations = hasRealEvaluations,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            )
+                        }
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .verticalScroll(panelScroll)
+                                .padding(vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            coachingContent()
+                        }
+                    }
+                }
+
+                isVeryShortPortrait -> {
+                    val scrollBoardSide = (maxWidth - 24.dp).coerceIn(160.dp, 260.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(panelScroll)
+                    ) {
+                        PlayerInfoBadge(
+                            color = topColor,
+                            nameLabel = topLabel,
+                            materialAdvantage = topMaterialAdv,
+                            clockSeconds = topClock,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 2.dp)
+                        )
+                        EvaluationBar(
+                            evaluation = currentEvaluation,
+                            flipped = isFlipped,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 2.dp)
+                        )
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            GameBoardWithBadgeAndArrow(
+                                board = board,
+                                currentMistake = currentMistake,
+                                currentAnalyzedMove = currentAnalyzedMove,
+                                showQualityBadge = retryState == null && !isInVariation,
+                                highlightedSquares = highlightedSquares,
+                                selectedSquare = selectedSquare,
+                                legalMoveSquares = legalMoveSquares,
+                                legalCaptureSquares = legalCaptureSquares,
+                                lastMove = lastMove,
+                                arrows = arrowsList,
+                                isFlipped = isFlipped,
+                                theme = selectedTheme,
+                                onSquareClick = handleBoardSquareClick,
+                                modifier = Modifier
+                                    .size(scrollBoardSide)
+                                    .graphicsLayer { translationX = shakeOffset.value }
+                            )
+                        }
+                        ReviewBottomPlayerStrip(
+                            color = bottomColor,
+                            nameLabel = bottomLabel,
+                            materialAdvantage = bottomMaterialAdv,
+                            clockSeconds = bottomClock,
+                            isRetryMode = retryState != null,
+                            variationDepth = variationSteps.size,
+                            hasRealEvaluations = hasRealEvaluations,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)
+                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            coachingContent()
+                        }
+                    }
+                }
+
+                else -> {
+                    val boardSide = minOf(
+                        (maxWidth - 24.dp).coerceAtLeast(160.dp),
+                        (maxHeight * 0.48f).coerceAtLeast(160.dp)
+                    )
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        PlayerInfoBadge(
+                            color = topColor,
+                            nameLabel = topLabel,
+                            materialAdvantage = topMaterialAdv,
+                            clockSeconds = topClock,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 3.dp)
+                        )
+                        EvaluationBar(
+                            evaluation = currentEvaluation,
+                            flipped = isFlipped,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 2.dp)
+                        )
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            GameBoardWithBadgeAndArrow(
+                                board = board,
+                                currentMistake = currentMistake,
+                                currentAnalyzedMove = currentAnalyzedMove,
+                                showQualityBadge = retryState == null && !isInVariation,
+                                highlightedSquares = highlightedSquares,
+                                selectedSquare = selectedSquare,
+                                legalMoveSquares = legalMoveSquares,
+                                legalCaptureSquares = legalCaptureSquares,
+                                lastMove = lastMove,
+                                arrows = arrowsList,
+                                isFlipped = isFlipped,
+                                theme = selectedTheme,
+                                onSquareClick = handleBoardSquareClick,
+                                modifier = Modifier
+                                    .size(boardSide)
+                                    .graphicsLayer { translationX = shakeOffset.value }
+                            )
+                        }
+                        ReviewBottomPlayerStrip(
+                            color = bottomColor,
+                            nameLabel = bottomLabel,
+                            materialAdvantage = bottomMaterialAdv,
+                            clockSeconds = bottomClock,
+                            isRetryMode = retryState != null,
+                            variationDepth = variationSteps.size,
+                            hasRealEvaluations = hasRealEvaluations,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)
+                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .verticalScroll(panelScroll)
+                                .padding(horizontal = 12.dp, vertical = 2.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            coachingContent()
+                        }
+                    }
                 }
             }
         }
 
-        // 6. Горизонтальная лента ходов с цветовой индикацией качества
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = startInset, end = endInset)
         ) {
             HorizontalMoveList(
                 moves = displayedMoves,
@@ -658,20 +827,19 @@ private fun GameViewScreenContent(
                 onMoveClick = { index ->
                     boardViewModel.goToMove(index)
                     playFeedbackSoundForCurrentPosition()
-                },
-                modifier = Modifier
-                    .padding(vertical = 3.dp)
-                    .heightIn(min = 34.dp)
+                }
             )
         }
 
-        // 7. Навигация: Начало · Пред. ключевой момент · Назад · Счётчик · Вперёд · След. момент · Конец
         ReviewNavigationBar(
             currentMoveIndex = currentMoveIndex,
             totalMoves = totalMoves,
             isInOverlay = isInVariation || retryState != null,
             hasPreviousKeyMoment = hasPrevMoment,
             hasNextKeyMoment = hasNextMoment,
+            bottomInset = bottomInset,
+            startInset = startInset,
+            endInset = endInset,
             onGoToStart = { boardViewModel.goToStart() },
             onPreviousKeyMoment = {
                 if (boardViewModel.goToPreviousKeyMoment()) {
@@ -763,75 +931,83 @@ private fun GameViewScreenContent(
 }
 
 @Composable
-private fun ReviewPlayerToolbar(
-    color: ChessColor,
-    nameLabel: String,
-    materialAdvantage: Int,
-    clockSeconds: Int?,
+private fun ReviewTopHeaderBar(
     isLiveEngineEnabled: Boolean,
     showEngineToggle: Boolean,
+    onNavigateBack: (() -> Unit)?,
     onFlipBoard: () -> Unit,
     onToggleEngine: () -> Unit,
     onOpenSummary: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        PlayerInfoBadge(
-            color = color,
-            nameLabel = nameLabel,
-            materialAdvantage = materialAdvantage,
-            clockSeconds = clockSeconds,
-            modifier = Modifier.weight(1f)
-        )
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
+        if (onNavigateBack != null) {
             IconButton(
-                onClick = onFlipBoard,
+                onClick = onNavigateBack,
                 modifier = Modifier.size(48.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.SwapVert,
-                    contentDescription = "Перевернуть доску",
-                    modifier = Modifier.size(19.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Назад",
+                    tint = MaterialTheme.colorScheme.onSurface
                 )
             }
-            if (showEngineToggle) {
-                IconButton(
-                    onClick = onToggleEngine,
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Psychology,
-                        contentDescription = "Анализ Stockfish",
-                        modifier = Modifier.size(19.dp),
-                        tint = if (isLiveEngineEnabled) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
-                }
+        } else {
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        Text(
+            text = "Разбор партии",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        IconButton(
+            onClick = onFlipBoard,
+            modifier = Modifier.size(48.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.SwapVert,
+                contentDescription = "Перевернуть доску",
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (showEngineToggle) {
+            IconButton(
+                onClick = onToggleEngine,
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Psychology,
+                    contentDescription = "Анализ Stockfish",
+                    modifier = Modifier.size(20.dp),
+                    tint = if (isLiveEngineEnabled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
             }
-            if (onOpenSummary != null) {
-                IconButton(
-                    onClick = onOpenSummary,
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Insights,
-                        contentDescription = "К сводке анализа",
-                        modifier = Modifier.size(19.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
+        }
+        if (onOpenSummary != null) {
+            IconButton(
+                onClick = onOpenSummary,
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Insights,
+                    contentDescription = "К сводке анализа",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }
@@ -1075,7 +1251,7 @@ internal fun RetryMistakePanel(
                     color = if (state.isSolved) LocalChessPalette.current.positive else MaterialTheme.colorScheme.primary
                 )
                 if (state.isCheckingEngine) {
-                    SkeletonBox(height = 16.dp, width = 16.dp)
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 }
             }
 
@@ -1156,37 +1332,37 @@ private fun VariationSandboxPanel(
                 OutlinedButton(
                     onClick = onStepBack,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                    modifier = Modifier.heightIn(min = 36.dp)
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Undo,
                         contentDescription = "Отменить ход",
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Назад", fontSize = 11.sp)
+                    Text("Назад", style = MaterialTheme.typography.labelMedium)
                 }
                 if (onAnalyzeWithEngine != null) {
                     OutlinedButton(
                         onClick = onAnalyzeWithEngine,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        modifier = Modifier.heightIn(min = 36.dp)
+                        modifier = Modifier.heightIn(min = 48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Psychology,
                             contentDescription = "Оценить позицию",
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Оценить", fontSize = 11.sp)
+                        Text("Оценить", style = MaterialTheme.typography.labelMedium)
                     }
                 }
                 FilledTonalButton(
                     onClick = onExitVariation,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                    modifier = Modifier.heightIn(min = 36.dp)
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) {
-                    Text("Вернуться к партии", fontSize = 11.sp)
+                    Text("Вернуться к партии", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
@@ -1213,8 +1389,8 @@ private fun EngineLineCard(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (state.isLoading) {
-                SkeletonBox(height = 16.dp, width = 16.dp)
-                Spacer(modifier = Modifier.width(8.dp))
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = "Stockfish считает лучшую линию...",
                     style = MaterialTheme.typography.bodySmall,
@@ -1264,9 +1440,9 @@ private fun EngineLineCard(
                     FilledTonalButton(
                         onClick = onPlayBestMove,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        modifier = Modifier.heightIn(min = 36.dp)
+                        modifier = Modifier.heightIn(min = 48.dp)
                     ) {
-                        Text("▶ Ход", fontSize = 11.sp)
+                        Text("▶ Ход", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
@@ -1408,6 +1584,9 @@ internal fun ReviewNavigationBar(
     isInOverlay: Boolean,
     hasPreviousKeyMoment: Boolean,
     hasNextKeyMoment: Boolean,
+    bottomInset: Dp = 0.dp,
+    startInset: Dp = 0.dp,
+    endInset: Dp = 0.dp,
     onGoToStart: () -> Unit,
     onPreviousKeyMoment: () -> Unit,
     onGoToPrevious: () -> Unit,
@@ -1419,42 +1598,116 @@ internal fun ReviewNavigationBar(
     val canGoBack = currentMoveIndex > -1 || isInOverlay
     val canGoForward = currentMoveIndex < totalMoves - 1 || isInOverlay
     Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = bottomInset, start = startInset, end = endInset)
+                .padding(horizontal = 6.dp, vertical = 4.dp)
         ) {
-            IconButton(onClick = onGoToPrevious, enabled = canGoBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий ход")
-            }
-            Text("${(currentMoveIndex + 1).coerceAtLeast(0)}/$totalMoves",
-                style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace)
-            IconButton(onClick = onGoToNext, enabled = canGoForward) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий ход")
-            }
-            Button(
-                onClick = onNextKeyMoment,
-                enabled = hasNextKeyMoment,
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    "К моменту",
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Box {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "Другие переходы")
+            val wrapMomentAction = maxWidth < (240 * LocalDensity.current.fontScale).dp
+            if (wrapMomentAction) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = onGoToPrevious, enabled = canGoBack) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий ход")
+                            }
+                            Text(
+                                text = "${(currentMoveIndex + 1).coerceAtLeast(0)}/$totalMoves",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+                            IconButton(onClick = onGoToNext, enabled = canGoForward) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий ход")
+                            }
+                        }
+                        Box {
+                            IconButton(onClick = { menuOpen = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Другие переходы")
+                            }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(text = { Text("Предыдущий ключевой момент") }, enabled = hasPreviousKeyMoment,
+                                    onClick = { menuOpen = false; onPreviousKeyMoment() })
+                                DropdownMenuItem(text = { Text("В начало партии") }, enabled = canGoBack,
+                                    onClick = { menuOpen = false; onGoToStart() })
+                                DropdownMenuItem(text = { Text("В конец партии") }, enabled = canGoForward,
+                                    onClick = { menuOpen = false; onGoToEnd() })
+                            }
+                        }
+                    }
+                    Button(
+                        onClick = onNextKeyMoment,
+                        enabled = hasNextKeyMoment,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "К моменту",
+                            style = MaterialTheme.typography.labelMedium,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text("Предыдущий ключевой момент") }, enabled = hasPreviousKeyMoment,
-                        onClick = { menuOpen = false; onPreviousKeyMoment() })
-                    DropdownMenuItem(text = { Text("В начало партии") }, enabled = canGoBack,
-                        onClick = { menuOpen = false; onGoToStart() })
-                    DropdownMenuItem(text = { Text("В конец партии") }, enabled = canGoForward,
-                        onClick = { menuOpen = false; onGoToEnd() })
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onGoToPrevious, enabled = canGoBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий ход")
+                    }
+                    Text(
+                        text = "${(currentMoveIndex + 1).coerceAtLeast(0)}/$totalMoves",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.padding(horizontal = 2.dp)
+                    )
+                    IconButton(onClick = onGoToNext, enabled = canGoForward) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий ход")
+                    }
+                    Button(
+                        onClick = onNextKeyMoment,
+                        enabled = hasNextKeyMoment,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "К моменту",
+                            style = MaterialTheme.typography.labelMedium,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Другие переходы")
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(text = { Text("Предыдущий ключевой момент") }, enabled = hasPreviousKeyMoment,
+                                onClick = { menuOpen = false; onPreviousKeyMoment() })
+                            DropdownMenuItem(text = { Text("В начало партии") }, enabled = canGoBack,
+                                onClick = { menuOpen = false; onGoToStart() })
+                            DropdownMenuItem(text = { Text("В конец партии") }, enabled = canGoForward,
+                                onClick = { menuOpen = false; onGoToEnd() })
+                        }
+                    }
                 }
             }
         }

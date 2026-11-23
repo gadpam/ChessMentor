@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -16,6 +17,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,7 +28,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -77,12 +81,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.R
@@ -245,17 +251,24 @@ fun TrainingScreen(
         }.toSet()
     }
 
+    val layoutDirection = LocalLayoutDirection.current
+    val topInset = paddingValues.calculateTopPadding()
+    val bottomInset = paddingValues.calculateBottomPadding()
+    val startInset = paddingValues.calculateStartPadding(layoutDirection)
+    val endInset = paddingValues.calculateEndPadding(layoutDirection)
+
     Scaffold(
-        modifier = Modifier.padding(paddingValues).consumeWindowInsets(paddingValues),
+        modifier = Modifier.consumeWindowInsets(paddingValues),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
+                    .padding(top = topInset, start = startInset, end = endInset)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    IconButton(onClick = onLeaveTraining) {
+                    IconButton(onClick = onLeaveTraining, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Выйти из тренировки")
                     }
                     Box(modifier = Modifier.weight(1f)) {
@@ -285,6 +298,9 @@ fun TrainingScreen(
             if (!uiState.isLoading && uiState.hasActiveExercise) {
                 BottomControlPanel(
                     uiState = uiState,
+                    bottomInset = bottomInset,
+                    startInset = startInset,
+                    endInset = endInset,
                     onRetryCheck = viewModel::retryMoveCheck,
                     onReturnFromCheck = viewModel::returnFromMoveCheck,
                     onNextExercise = {
@@ -344,6 +360,7 @@ fun TrainingScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
+                        .padding(start = startInset, end = endInset, bottom = bottomInset)
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
@@ -371,6 +388,7 @@ fun TrainingScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
+                        .padding(start = startInset, end = endInset, bottom = bottomInset)
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 )
@@ -390,6 +408,7 @@ fun TrainingScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
+                        .padding(start = startInset, end = endInset, bottom = bottomInset)
                         .padding(24.dp),
                     onAction = action.first,
                     actionLabel = action.second
@@ -397,50 +416,69 @@ fun TrainingScreen(
             }
 
             else -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .padding(horizontal = 10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // Прогресс структурированной сессии (10 задач)
-                    if (uiState.mode is TrainingMode.SmartSession && uiState.sessionStepNumber > 0) {
-                        SmartSessionProgressBar(uiState = uiState)
+                val solveBorderColor by animateColorAsState(
+                    if (uiState.isSolved) LocalChessPalette.current.positive else MaterialTheme.colorScheme.outlineVariant,
+                    animationSpec = tween(300),
+                    label = "solveBorder"
+                )
+                val isFreeAnalysis = uiState.isFreeAnalysisMode &&
+                    (uiState.isSolved || uiState.isSolutionRevealed) &&
+                    !uiState.isAnimatingIntro &&
+                    !uiState.isAnimatingPunishment
+                val canSolveMove = !uiState.isSolved &&
+                    !uiState.isSolutionRevealed &&
+                    !uiState.isInputLocked &&
+                    !uiState.isAnimatingIntro &&
+                    !uiState.isAnimatingPunishment
+                val canInteract = canSolveMove || isFreeAnalysis
+                val movableSide = if (isFreeAnalysis) uiState.board.sideToMove else uiState.playerSide
+                val handleSquareClick: ((Square) -> Unit)? = if (canInteract) {
+                    { square ->
+                        val from = selectedSquare
+                        val clickedPiece = uiState.board.getPiece(square)
+
+                        when {
+                            from == null -> {
+                                if (clickedPiece != Piece.NONE && clickedPiece.pieceSide == movableSide) {
+                                    selectedSquare = square
+                                }
+                            }
+                            square == from -> {
+                                selectedSquare = null
+                            }
+                            clickedPiece != Piece.NONE && clickedPiece.pieceSide == movableSide -> {
+                                selectedSquare = square
+                            }
+                            square !in legalMoveSquares && square !in legalCaptureSquares -> {
+                                selectedSquare = null
+                            }
+                            ChessMoveUtils.isPawnPromotion(uiState.board, from, square) -> {
+                                pendingPromotion = from to square
+                                selectedSquare = null
+                            }
+                            else -> {
+                                val move = ChessMoveUtils.createMove(from, square, movableSide)
+                                selectedSquare = null
+                                viewModel.onMoveMade(move)
+                            }
+                        }
                     }
+                } else {
+                    null
+                }
 
-                    // Компактная информационная строка текущей задачи
-                    ExerciseMetaStrip(uiState = uiState)
-
-                    // Шахматная доска
-                    val solveBorderColor by animateColorAsState(
-                        if (uiState.isSolved) LocalChessPalette.current.positive else MaterialTheme.colorScheme.outlineVariant,
-                        animationSpec = tween(300)
-                    )
+                val boardSlot: @Composable (Modifier) -> Unit = { boxModifier ->
                     Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
+                        modifier = boxModifier
+                            .aspectRatio(1f)
                             .graphicsLayer { translationX = shakeOffset.value }
                             .border(
                                 width = (3f * solvePulse.value).dp,
                                 color = solveBorderColor.copy(alpha = 0.3f + 0.7f * solvePulse.value),
                                 shape = RoundedCornerShape(8.dp)
-                            ),
-                        contentAlignment = Alignment.Center
+                            )
+                            .clip(RoundedCornerShape(6.dp))
                     ) {
-                        val isFreeAnalysis = uiState.isFreeAnalysisMode &&
-                            (uiState.isSolved || uiState.isSolutionRevealed) &&
-                            !uiState.isAnimatingIntro &&
-                            !uiState.isAnimatingPunishment
-                        val canSolveMove = !uiState.isSolved &&
-                            !uiState.isSolutionRevealed &&
-                            !uiState.isInputLocked &&
-                            !uiState.isAnimatingIntro &&
-                            !uiState.isAnimatingPunishment
-                        val canInteract = canSolveMove || isFreeAnalysis
-                        val movableSide = if (isFreeAnalysis) uiState.board.sideToMove else uiState.playerSide
-
                         ChessBoard(
                             board = uiState.board,
                             highlightedSquares = hintHighlights,
@@ -452,52 +490,106 @@ fun TrainingScreen(
                             theme = boardTheme,
                             flipped = uiState.playerSide == Side.BLACK,
                             showCoordinates = true,
-                            onSquareClick = if (canInteract) { square ->
-                                val from = selectedSquare
-                                val clickedPiece = uiState.board.getPiece(square)
-
-                                when {
-                                    from == null -> {
-                                        if (clickedPiece != Piece.NONE && clickedPiece.pieceSide == movableSide) {
-                                            selectedSquare = square
-                                        }
-                                    }
-                                    square == from -> {
-                                        selectedSquare = null
-                                    }
-                                    clickedPiece != Piece.NONE && clickedPiece.pieceSide == movableSide -> {
-                                        selectedSquare = square
-                                    }
-                                    square !in legalMoveSquares && square !in legalCaptureSquares -> {
-                                        selectedSquare = null
-                                    }
-                                    ChessMoveUtils.isPawnPromotion(uiState.board, from, square) -> {
-                                        pendingPromotion = from to square
-                                        selectedSquare = null
-                                    }
-                                    else -> {
-                                        val move = ChessMoveUtils.createMove(from, square, movableSide)
-                                        selectedSquare = null
-                                        viewModel.onMoveMade(move)
-                                    }
-                                }
-                            } else {
-                                null
-                            },
-                            modifier = Modifier
-                                .aspectRatio(1f)
-                                .clip(RoundedCornerShape(6.dp))
+                            onSquareClick = handleSquareClick,
+                            modifier = Modifier.fillMaxSize()
                         )
                     }
+                }
 
-                    // Панель обратной связи / подсказки / объяснения ошибки
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        UnifiedFeedbackPanel(uiState = uiState)
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .padding(start = startInset, end = endInset)
+                        .padding(horizontal = 10.dp)
+                ) {
+                    val isCompactLandscape = maxWidth > maxHeight && maxHeight < 460.dp
+                    val isVeryShortPortrait = !isCompactLandscape && maxHeight < 280.dp
+
+                    when {
+                        isCompactLandscape -> {
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .padding(vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    boardSlot(Modifier)
+                                }
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(vertical = 4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    if (uiState.mode is TrainingMode.SmartSession && uiState.sessionStepNumber > 0) {
+                                        SmartSessionProgressBar(uiState = uiState)
+                                    }
+                                    ExerciseMetaStrip(uiState = uiState)
+                                    UnifiedFeedbackPanel(uiState = uiState)
+                                }
+                            }
+                        }
+
+                        isVeryShortPortrait -> {
+                            val scrollBoardSide = (maxWidth - 20.dp).coerceIn(180.dp, 280.dp)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState()),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                if (uiState.mode is TrainingMode.SmartSession && uiState.sessionStepNumber > 0) {
+                                    SmartSessionProgressBar(uiState = uiState)
+                                }
+                                ExerciseMetaStrip(uiState = uiState)
+                                boardSlot(Modifier.size(scrollBoardSide))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    UnifiedFeedbackPanel(uiState = uiState)
+                                }
+                            }
+                        }
+
+                        else -> {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                if (uiState.mode is TrainingMode.SmartSession && uiState.sessionStepNumber > 0) {
+                                    SmartSessionProgressBar(uiState = uiState)
+                                }
+                                ExerciseMetaStrip(uiState = uiState)
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    boardSlot(Modifier)
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    UnifiedFeedbackPanel(uiState = uiState)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -583,7 +675,11 @@ internal fun ModePicker(
         onSelectMode(mode)
     }
     Box {
-        TextButton(onClick = { choosingTheme = false; expanded = true }, enabled = enabled) {
+        TextButton(
+            onClick = { choosingTheme = false; expanded = true },
+            enabled = enabled,
+            modifier = Modifier.heightIn(min = 48.dp)
+        ) {
             Column(modifier = Modifier.weight(1f, fill = false)) {
                 Text(
                     "Режим тренировки",
@@ -786,7 +882,7 @@ private fun SessionSummaryCard(
             onClick = onRestartSession,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp),
+                .heightIn(min = 48.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
             Icon(Icons.Default.PlayArrow, contentDescription = "Начать новую сессию")
@@ -799,7 +895,7 @@ private fun SessionSummaryCard(
                 onClick = onPracticeWeakPatterns,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(46.dp),
+                    .heightIn(min = 48.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text("Закрепить слабые темы")
@@ -808,7 +904,9 @@ private fun SessionSummaryCard(
 
         TextButton(
             onClick = onSwitchToFreeTraining,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
         ) {
             Text("Перейти в свободную тренировку")
         }
@@ -1006,6 +1104,7 @@ internal fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SessionHeader(
     stats: SessionStats,
@@ -1018,20 +1117,21 @@ private fun SessionHeader(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 2.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        FlowRow(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Check, contentDescription = "Решено", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                Text(stats.solved.toString(), fontWeight = FontWeight.Bold)
+                Text(stats.solved.toString(), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Close, contentDescription = "Ошибки", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                Text(stats.failed.toString(), fontWeight = FontWeight.Bold)
+                Text(stats.failed.toString(), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             }
             if (stats.currentStreak > 0) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1043,9 +1143,9 @@ private fun SessionHeader(
                     )
                     Text(
                         text = "${stats.currentStreak}",
+                        style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.tertiary,
-                        fontSize = 14.sp
+                        color = MaterialTheme.colorScheme.tertiary
                     )
                 }
             }
@@ -1070,8 +1170,10 @@ private fun SessionHeader(
                         } else {
                             MaterialTheme.colorScheme.inverseOnSurface
                         },
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
@@ -1099,6 +1201,9 @@ private fun SessionHeader(
 @Composable
 private fun BottomControlPanel(
     uiState: TrainingUiState,
+    bottomInset: Dp,
+    startInset: Dp,
+    endInset: Dp,
     onRetryCheck: () -> Unit,
     onReturnFromCheck: () -> Unit,
     onNextExercise: () -> Unit,
@@ -1125,37 +1230,45 @@ private fun BottomControlPanel(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(bottom = bottomInset, start = startInset, end = endInset)
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (uiState.checkUnavailable) {
-                Button(onClick = onRetryCheck, modifier = Modifier.fillMaxWidth()) { Text("Повторить проверку") }
-                TextButton(onClick = onReturnFromCheck, modifier = Modifier.fillMaxWidth()) { Text("Вернуться к позиции") }
+                Button(
+                    onClick = onRetryCheck,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                ) { Text("Повторить проверку") }
+                TextButton(
+                    onClick = onReturnFromCheck,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                ) { Text("Вернуться к позиции") }
             } else if (isFinished) {
-                // Пошаговый навигатор решения или управление свободным анализом со Stockfish
                 if (uiState.isFreeAnalysisMode) {
-                    Row(
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         OutlinedButton(
                             onClick = onUndoAnalysis,
                             enabled = uiState.canUndoAnalysisMove,
-                            modifier = Modifier.heightIn(min = 40.dp),
+                            modifier = Modifier.heightIn(min = 48.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Отменить ход", modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Назад", fontSize = 12.sp, maxLines = 1)
+                            Text("Назад", style = MaterialTheme.typography.labelMedium, maxLines = 1)
                         }
                         OutlinedButton(
                             onClick = onPlayEngineBest,
                             enabled = uiState.analysisBestMoveUci != null && !uiState.isAnalyzingPosition,
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 40.dp),
+                            modifier = Modifier.heightIn(min = 48.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
@@ -1163,20 +1276,20 @@ private fun BottomControlPanel(
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 text = uiState.analysisBestMoveSan?.let { "Ход $it" } ?: "Ход движка",
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.labelMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
                         OutlinedButton(
                             onClick = onToggleFreeAnalysis,
-                            modifier = Modifier.heightIn(min = 40.dp),
+                            modifier = Modifier.heightIn(min = 48.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Icon(Icons.Default.Close, contentDescription = "Вернуться к решению", modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("К линии", fontSize = 12.sp, maxLines = 1)
+                            Text("К линии", style = MaterialTheme.typography.labelMedium, maxLines = 1)
                         }
                     }
                 } else {
@@ -1242,13 +1355,13 @@ private fun BottomControlPanel(
                             onClick = onToggleFreeAnalysis,
                             modifier = Modifier
                                 .align(Alignment.CenterVertically)
-                                .heightIn(min = 40.dp),
+                                .heightIn(min = 48.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Icon(Icons.Default.Analytics, contentDescription = "Анализ позиции", modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Анализ", fontSize = 12.sp, maxLines = 1)
+                            Text("Анализ", style = MaterialTheme.typography.labelMedium, maxLines = 1)
                         }
                     }
                 }
@@ -1260,12 +1373,12 @@ private fun BottomControlPanel(
                     onClick = onNextExercise,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
+                        .heightIn(min = 48.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
                         text = if (isFinalSessionPuzzle) "Подвести итоги сессии" else "Следующая задача",
-                        fontSize = 16.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.width(8.dp))
@@ -1281,7 +1394,6 @@ private fun BottomControlPanel(
             } else {
                 TrainingHelpControls(uiState, controlsEnabled, onHint, onShowBetterMove, onRevealSolution, onSkip)
             }
-
         }
     }
 }
@@ -1297,21 +1409,55 @@ internal fun TrainingHelpControls(
     onSkip: () -> Unit
 ) {
     var open by remember(enabled, state.mode, state.currentStepNumber) { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = { open = true }, enabled = enabled,
-            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-            Icon(Icons.AutoMirrored.Filled.HelpOutline, null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Помощь", maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        OutlinedButton(onClick = onSkip, enabled = enabled,
-            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-            Text(
-                text = if (state.mode is TrainingMode.Daily) "К другим задачам" else "Пропустить",
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+    val skipLabel = if (state.mode is TrainingMode.Daily) "К другим задачам" else "Пропустить"
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val stackControls = maxWidth < (220 * LocalDensity.current.fontScale).dp
+        if (stackControls) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = { open = true },
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.HelpOutline, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Помощь")
+                }
+                OutlinedButton(
+                    onClick = onSkip,
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Text(skipLabel, textAlign = TextAlign.Center)
+                }
+            }
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { open = true },
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.HelpOutline, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Помощь", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                OutlinedButton(
+                    onClick = onSkip,
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) {
+                    Text(
+                        text = skipLabel,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
     if (!open || !enabled) return

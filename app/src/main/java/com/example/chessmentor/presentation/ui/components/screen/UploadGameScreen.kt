@@ -23,6 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,7 +39,6 @@ import com.example.chessmentor.presentation.ui.components.AnalysisProgressDialog
 import com.example.chessmentor.presentation.ui.components.MessageCard
 import com.example.chessmentor.presentation.ui.components.MessageType
 import com.example.chessmentor.presentation.ui.components.EngineStatusBanner
-import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import com.example.chessmentor.presentation.viewmodel.PgnImportPreview
 import kotlinx.coroutines.Dispatchers
@@ -137,11 +138,18 @@ fun UploadGameScreen(
         )
     }
 
+    val layoutDirection = LocalLayoutDirection.current
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(paddingValues)
-            .padding(16.dp),
+            .imePadding(),
+        contentPadding = PaddingValues(
+            top = 16.dp + paddingValues.calculateTopPadding(),
+            bottom = 16.dp + paddingValues.calculateBottomPadding(),
+            start = 16.dp + paddingValues.calculateStartPadding(layoutDirection),
+            end = 16.dp + paddingValues.calculateEndPadding(layoutDirection)
+        ),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         if (userId != null) item {
@@ -557,22 +565,38 @@ internal fun PgnLivePreviewCard(
             preview.duplicateExistingGame?.id?.let { id ->
                 var confirmCopy by remember(id, parsed.fingerprint) { mutableStateOf(false) }
                 Text("Эта партия уже в библиотеке", style = MaterialTheme.typography.labelLarge)
-                Button(onClick = { onOpenExistingGame(id) }, enabled = !isLoading, modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { onOpenExistingGame(id) },
+                    enabled = !isLoading,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                ) {
                     Text("Открыть партию №$id")
                 }
                 if (confirmCopy) {
                     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Создать копию партии №$id?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text("В библиотеке появится вторая запись. Stockfish разберёт копию; сохранённая партия не изменится.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { confirmCopy = false }) { Text("Отмена") }
-                            Button(onClick = { confirmCopy = false; onCopy() }, enabled = !isLoading) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                            TextButton(onClick = { confirmCopy = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Отмена") }
+                            Button(
+                                onClick = { confirmCopy = false; onCopy() },
+                                enabled = !isLoading,
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
                                 Text("Создать и разобрать")
                             }
                         }
                     }
                 } else {
-                    TextButton(onClick = { confirmCopy = true }, enabled = !isLoading, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(
+                        onClick = { confirmCopy = true },
+                        enabled = !isLoading,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                    ) {
                         Text("Создать отдельную копию")
                     }
                 }
@@ -684,46 +708,105 @@ internal fun UploadForm(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Панель быстрых действий: Вставить из буфера / Файл .pgn / Очистить
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilledTonalButton(
-                    onClick = onPasteFromClipboard,
-                    enabled = !isLoading,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ContentPaste,
-                        contentDescription = "Вставить из буфера обмена",
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Вставить", maxLines = 1)
-                }
-
-                FilledTonalButton(
-                    onClick = onPickFile,
-                    enabled = !isLoading,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.FolderOpen,
-                        contentDescription = "Выбрать файл .pgn",
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Файл .pgn", maxLines = 1)
-                }
-
-                if (pgnInput.isNotEmpty()) {
-                    OutlinedIconButton(
-                        onClick = onClear,
-                        enabled = !isLoading
+            @OptIn(ExperimentalLayoutApi::class)
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val fontScale = LocalDensity.current.fontScale
+                val wrapActions = maxWidth < (290 * fontScale).dp
+                if (wrapActions) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Clear, contentDescription = "Очистить")
+                        FilledTonalButton(
+                            onClick = onPasteFromClipboard,
+                            enabled = !isLoading,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentPaste,
+                                contentDescription = "Вставить из буфера обмена",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Вставить", maxLines = 1)
+                        }
+
+                        FilledTonalButton(
+                            onClick = onPickFile,
+                            enabled = !isLoading,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FolderOpen,
+                                contentDescription = "Выбрать файл .pgn",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Файл .pgn", maxLines = 1)
+                        }
+
+                        if (pgnInput.isNotEmpty()) {
+                            OutlinedIconButton(
+                                onClick = onClear,
+                                enabled = !isLoading,
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Icon(Icons.Default.Clear, contentDescription = "Очистить")
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        FilledTonalButton(
+                            onClick = onPasteFromClipboard,
+                            enabled = !isLoading,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentPaste,
+                                contentDescription = "Вставить из буфера обмена",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Вставить", maxLines = 1)
+                        }
+
+                        FilledTonalButton(
+                            onClick = onPickFile,
+                            enabled = !isLoading,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FolderOpen,
+                                contentDescription = "Выбрать файл .pgn",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Файл .pgn", maxLines = 1)
+                        }
+
+                        if (pgnInput.isNotEmpty()) {
+                            OutlinedIconButton(
+                                onClick = onClear,
+                                enabled = !isLoading,
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Icon(Icons.Default.Clear, contentDescription = "Очистить")
+                            }
+                        }
                     }
                 }
             }
@@ -863,7 +946,11 @@ internal fun UploadForm(
                     enabled = !isLoading && importableCount > 0
                 ) {
                     if (isLoading) {
-                        SkeletonBox(height = 22.dp, width = 22.dp)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = LocalContentColor.current
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Импортируем...")
                     } else {
@@ -905,7 +992,11 @@ internal fun UploadForm(
                     enabled = !isLoading && validSingle
                 ) {
                     if (isLoading) {
-                        SkeletonBox(height = 22.dp, width = 22.dp)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = LocalContentColor.current
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Загружаем...")
                     } else {
@@ -934,7 +1025,10 @@ internal fun UploadForm(
                 }
             }
 
-            TextButton(onClick = { showHelp = !showHelp }) {
+            TextButton(
+                onClick = { showHelp = !showHelp },
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
                 Text(if (showHelp) "Скрыть справку" else "Что такое PGN?")
             }
             if (showHelp) {
@@ -959,7 +1053,7 @@ private fun ColorChoiceChip(
         selected = selected,
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier,
+        modifier = modifier.heightIn(min = 48.dp),
         label = {
             Text(
                 text = label,

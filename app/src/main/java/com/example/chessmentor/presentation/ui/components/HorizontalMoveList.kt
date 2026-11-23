@@ -1,7 +1,6 @@
 // presentation/ui/components/HorizontalMoveList.kt
 package com.example.chessmentor.presentation.ui.components
 
-import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,22 +18,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.MistakeType
 import com.example.chessmentor.domain.entity.MoveQuality
+import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 
 /**
- * Горизонтальная лента ходов разбора партии на базе `LazyRow`:
- * - точная автопрокрутка к текущему ходу на партиях любой длины;
- * - подсветка как ошибок (`??`, `?`, `?!`), так и блестящих/отличных ходов (`!!`, `!`)
- *   обеих сторон;
- * - корректная нумерация для партий со стартового FEN (включая старт с хода чёрных);
- * - адаптивные цвета для светлой и тёмной темы.
+ * Горизонтальная лента ходов разбора партии на базе `LazyRow`.
  */
 @Composable
 fun HorizontalMoveList(
@@ -72,7 +68,6 @@ fun HorizontalMoveList(
         map
     }
 
-    // Элемент 0 — чип стартовой позиции, элемент (idx + 1) — полуход idx
     LaunchedEffect(currentMoveIndex, moves.size) {
         val targetListIndex = (currentMoveIndex + 1).coerceIn(0, moves.size)
         val scrollTarget = (targetListIndex - 2).coerceAtLeast(0)
@@ -82,8 +77,8 @@ fun HorizontalMoveList(
     LazyRow(
         state = listState,
         modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         item(key = "start_pos") {
@@ -106,15 +101,15 @@ fun HorizontalMoveList(
                 if (isWhiteMove) {
                     Text(
                         text = "$moveNumber.",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 2.dp, end = 2.dp)
+                        modifier = Modifier.padding(start = 4.dp, end = 2.dp)
                     )
                 } else if (index == 0) {
                     Text(
                         text = "$moveNumber...",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(end = 2.dp)
@@ -150,17 +145,26 @@ private fun StartPositionChip(
 
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(backgroundColor)
+            .defaultMinSize(minWidth = 44.dp, minHeight = 48.dp)
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .semantics { contentDescription = "Начальная позиция" },
+        contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = "▷",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            color = textColor
-        )
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(backgroundColor)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "▷",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = textColor
+            )
+        }
     }
 }
 
@@ -207,23 +211,32 @@ private fun MoveQualityChip(
     val shape = RoundedCornerShape(6.dp)
     Box(
         modifier = Modifier
-            .clip(shape)
-            .background(backgroundColor)
-            .then(
-                if (!isSelected && accent != null) {
-                    Modifier.border(1.dp, accent.copy(alpha = 0.35f), shape)
-                } else {
-                    Modifier
-                }
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 7.dp, vertical = 4.dp)
+            .defaultMinSize(minWidth = 40.dp, minHeight = 48.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = "$san$badgeSymbol",
-            fontSize = 13.sp,
-            fontWeight = if (isSelected || accent != null) FontWeight.Bold else FontWeight.Medium,
-            color = textColor
-        )
+        Box(
+            modifier = Modifier
+                .clip(shape)
+                .background(backgroundColor)
+                .then(
+                    if (!isSelected && accent != null) {
+                        Modifier.border(1.dp, accent.copy(alpha = 0.35f), shape)
+                    } else {
+                        Modifier
+                    }
+                )
+                .padding(horizontal = 7.dp, vertical = 4.dp)
+        ) {
+            Text(
+                text = "$san$badgeSymbol",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (isSelected || accent != null) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false,
+                color = textColor
+            )
+        }
     }
 }

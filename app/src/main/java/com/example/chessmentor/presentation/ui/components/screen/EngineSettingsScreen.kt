@@ -16,7 +16,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.domain.engine.EngineStatus
@@ -55,16 +58,21 @@ fun EngineSettingsScreen(
         remember { mutableStateOf<EngineStatus>(EngineStatus.Idle) }
     }
 
+    val layoutDirection = LocalLayoutDirection.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(paddingValues)
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(rememberScrollState())
+            .padding(
+                top = 4.dp + paddingValues.calculateTopPadding(),
+                bottom = 28.dp + paddingValues.calculateBottomPadding(),
+                start = 16.dp + paddingValues.calculateStartPadding(layoutDirection),
+                end = 16.dp + paddingValues.calculateEndPadding(layoutDirection)
+            ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Spacer(modifier = Modifier.height(4.dp))
 
         if (chessEngine != null) {
             NnueManagementCard(
@@ -165,8 +173,6 @@ fun EngineSettingsScreen(
                 hasChanges = true
             }
         )
-
-        Spacer(modifier = Modifier.height(28.dp))
     }
 }
 
@@ -186,39 +192,50 @@ private fun ProfilesSection(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                ProfileChip(
-                    name = "Быстрый",
-                    description = "Глубина 12",
-                    isSelected = currentSettings.depth <= 12,
-                    onClick = { onProfileSelected(EngineSettings.fast()) },
-                    modifier = Modifier.weight(1f)
-                )
-
-                ProfileChip(
-                    name = "Стандарт",
-                    description = "Глубина 15",
-                    isSelected = currentSettings.depth in 13..17,
-                    onClick = {
+            @OptIn(ExperimentalLayoutApi::class)
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val stackProfiles = maxWidth < (290 * LocalDensity.current.fontScale).dp
+                val profileData = listOf(
+                    Triple("Быстрый", "Глубина 12", currentSettings.depth <= 12) to {
+                        onProfileSelected(EngineSettings.fast())
+                    },
+                    Triple("Стандарт", "Глубина 15", currentSettings.depth in 13..17) to {
                         val def = EngineSettings.default()
                         onProfileSelected(def.copy(threads = def.threads.coerceAtMost(availableCores)))
                     },
-                    modifier = Modifier.weight(1f)
-                )
-
-                ProfileChip(
-                    name = "Глубокий",
-                    description = "Глубина 22",
-                    isSelected = currentSettings.depth >= 18,
-                    onClick = {
+                    Triple("Глубокий", "Глубина 22", currentSettings.depth >= 18) to {
                         val deep = EngineSettings.deep()
                         onProfileSelected(deep.copy(threads = deep.threads.coerceAtMost(availableCores)))
-                    },
-                    modifier = Modifier.weight(1f)
+                    }
                 )
+                if (stackProfiles) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        profileData.forEach { (meta, click) ->
+                            ProfileChip(
+                                name = meta.first,
+                                description = meta.second,
+                                isSelected = meta.third,
+                                onClick = click,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        profileData.forEach { (meta, click) ->
+                            ProfileChip(
+                                name = meta.first,
+                                description = meta.second,
+                                isSelected = meta.third,
+                                onClick = click,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -233,7 +250,7 @@ private fun ProfileChip(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier,
+        modifier = modifier.heightIn(min = 48.dp),
         onClick = onClick,
         shape = MaterialTheme.shapes.medium,
         color = if (isSelected) {
@@ -248,20 +265,24 @@ private fun ProfileChip(
         }
     ) {
         Column(
-            modifier = Modifier.padding(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
             Text(
                 text = name,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = description,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

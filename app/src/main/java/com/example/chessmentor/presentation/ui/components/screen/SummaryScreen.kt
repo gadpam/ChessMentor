@@ -26,6 +26,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -142,12 +145,16 @@ fun SummaryScreen(
 
     val currentMoveLabel = boardViewModel.getCurrentMoveNotation()
     val currentMoveEval = evaluations.getOrNull(currentMoveIndex + 1)
+    val layoutDirection = LocalLayoutDirection.current
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(paddingValues)
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            top = 16.dp + paddingValues.calculateTopPadding(),
+            bottom = 16.dp + paddingValues.calculateBottomPadding(),
+            start = 16.dp + paddingValues.calculateStartPadding(layoutDirection),
+            end = 16.dp + paddingValues.calculateEndPadding(layoutDirection)
+        ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Заголовок + метаданные PGN + распознанный дебют
@@ -271,7 +278,7 @@ private fun SummaryActionRow(
             onClick = onReviewClick,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp),
+                .heightIn(min = 50.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
             Icon(
@@ -280,7 +287,7 @@ private fun SummaryActionRow(
                 modifier = Modifier.size(22.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Интерактивный разбор на доске", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text("Интерактивный разбор на доске", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         }
 
         if (canPracticeMistakes) {
@@ -288,7 +295,7 @@ private fun SummaryActionRow(
                 onClick = onPracticeClick,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp),
+                    .heightIn(min = 48.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Icon(
@@ -299,7 +306,7 @@ private fun SummaryActionRow(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "Отработать ошибки партии ($trainableCount)",
-                    fontSize = 14.sp,
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -360,6 +367,7 @@ private fun CoachSummaryCard(
             report.turningPoint?.let { tp ->
                 OutlinedButton(
                     onClick = { onJumpToTurningPoint(tp.moveIndex) },
+                    modifier = Modifier.heightIn(min = 48.dp),
                     shape = RoundedCornerShape(10.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                 ) {
@@ -564,17 +572,16 @@ internal fun GraphMovePicker(
 /**
  * Легенда графика оценки.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EvaluationGraphLegend() {
-    Row(
+    FlowRow(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
+        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         LegendItem(color = Color(0xFFF3F5F8), label = "Белые")
-        Spacer(modifier = Modifier.width(14.dp))
         LegendItem(color = Color(0xFF232A34), label = "Чёрные")
-        Spacer(modifier = Modifier.width(14.dp))
         Text(
             text = "• Нажмите или проведите по графику",
             style = MaterialTheme.typography.labelSmall,
@@ -678,7 +685,10 @@ private fun ReanalyzeHint(
                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
                 )
             }
-            TextButton(onClick = onReanalyze) {
+            TextButton(
+                onClick = onReanalyze,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
                 Text(if (isAnalyzed) "Обновить" else "Анализ")
             }
         }
@@ -764,9 +774,17 @@ private fun SummaryHeader(
                 modifier = Modifier
                     .size(30.dp)
                     .background(
-                        color = if (game.playerColor == ChessColor.WHITE) Color.White else Color.Black,
+                        color = if (game.playerColor == ChessColor.WHITE) Color.White else Color(0xFF1E1E1E),
                         shape = RoundedCornerShape(6.dp)
                     )
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
+                    .semantics {
+                        contentDescription = if (game.playerColor == ChessColor.WHITE) {
+                            "Вы играли белыми"
+                        } else {
+                            "Вы играли чёрными"
+                        }
+                    }
             )
         }
     }
@@ -853,22 +871,25 @@ internal fun GameMetricsCard(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     PhaseAccuracyItem(
                         label = "Дебют",
                         accuracy = phaseAccuracy.opening,
-                        movesCount = phaseAccuracy.openingMoves
+                        movesCount = phaseAccuracy.openingMoves,
+                        modifier = Modifier.weight(1f)
                     )
                     PhaseAccuracyItem(
                         label = "Миттельшпиль",
                         accuracy = phaseAccuracy.middlegame,
-                        movesCount = phaseAccuracy.middlegameMoves
+                        movesCount = phaseAccuracy.middlegameMoves,
+                        modifier = Modifier.weight(1f)
                     )
                     PhaseAccuracyItem(
                         label = "Эндшпиль",
                         accuracy = phaseAccuracy.endgame,
-                        movesCount = phaseAccuracy.endgameMoves
+                        movesCount = phaseAccuracy.endgameMoves,
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -976,9 +997,13 @@ private fun SideComparisonStrip(
 private fun PhaseAccuracyItem(
     label: String,
     accuracy: Double?,
-    movesCount: Int
+    movesCount: Int,
+    modifier: Modifier = Modifier
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         Text(
             text = if (accuracy != null) {
                 String.format(java.util.Locale.US, "%.0f%%", accuracy)
@@ -996,7 +1021,9 @@ private fun PhaseAccuracyItem(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
         if (movesCount >= 2) {
             Text(
@@ -1008,21 +1035,24 @@ private fun PhaseAccuracyItem(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AccuracyIndicator(accuracy: Double) {
     val color = getAccuracyColor(accuracy)
     val rating = getAccuracyRating(accuracy)
 
-    val ringSize = (100 * LocalDensity.current.fontScale.coerceIn(1f, 1.4f)).dp
-    Row(
+    val ringSize = (100 * LocalDensity.current.fontScale.coerceIn(1f, 2f)).dp
+    FlowRow(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
+        horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // Круговой индикатор
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.size(ringSize)
+            modifier = Modifier
+                .size(ringSize)
+                .align(Alignment.CenterVertically)
         ) {
             CircularProgressIndicator(
                 progress = { (accuracy / 100f).toFloat() },
@@ -1040,14 +1070,13 @@ private fun AccuracyIndicator(accuracy: Double) {
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
         }
 
-        Spacer(modifier = Modifier.width(20.dp))
-
-        Column(modifier = Modifier.weight(1f, fill = false)) {
+        Column(modifier = Modifier.align(Alignment.CenterVertically)) {
             Text(
                 text = "Точность",
                 style = MaterialTheme.typography.titleMedium,
@@ -1178,71 +1207,61 @@ fun KeyMomentsCard(
             Spacer(Modifier.height(16.dp))
 
             // Сильные и теоретические ходы
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                KeyMomentItemCompact(
-                    quality = MoveQuality.BRILLIANT,
-                    count = brilliantCount,
-                    modifier = Modifier.weight(1f)
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val fontScale = LocalDensity.current.fontScale
+                val twoByTwo = maxWidth < (260 * fontScale).dp
+                val positiveItems = listOf(
+                    MoveQuality.BRILLIANT to brilliantCount,
+                    MoveQuality.GREAT_MOVE to greatCount,
+                    MoveQuality.BEST_MOVE to bestCount,
+                    if (bookCount > 0) MoveQuality.BOOK to bookCount else MoveQuality.GOOD to solidCount
                 )
-                KeyMomentItemCompact(
-                    quality = MoveQuality.GREAT_MOVE,
-                    count = greatCount,
-                    modifier = Modifier.weight(1f)
-                )
-                KeyMomentItemCompact(
-                    quality = MoveQuality.BEST_MOVE,
-                    count = bestCount,
-                    modifier = Modifier.weight(1f)
-                )
-                if (bookCount > 0) {
-                    KeyMomentItemCompact(
-                        quality = MoveQuality.BOOK,
-                        count = bookCount,
-                        modifier = Modifier.weight(1f)
-                    )
-                } else {
-                    KeyMomentItemCompact(
-                        quality = MoveQuality.GOOD,
-                        count = solidCount,
-                        modifier = Modifier.weight(1f)
-                    )
+                val negativeItems = buildList {
+                    add(MoveQuality.INACCURACY to inaccuracyCount)
+                    add(MoveQuality.MISTAKE to mistakeCount)
+                    if (missedWinCount > 0) add(MoveQuality.MISSED_WIN to missedWinCount)
+                    add(MoveQuality.BLUNDER to blunderCount)
                 }
-            }
 
-            Spacer(Modifier.height(12.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            Spacer(Modifier.height(12.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val rows = if (twoByTwo) positiveItems.chunked(2) else listOf(positiveItems)
+                        rows.forEach { row ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                row.forEach { (q, c) ->
+                                    KeyMomentItemCompact(
+                                        quality = q,
+                                        count = c,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
 
-            // Ошибки и упущенные возможности
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                KeyMomentItemCompact(
-                    quality = MoveQuality.INACCURACY,
-                    count = inaccuracyCount,
-                    modifier = Modifier.weight(1f)
-                )
-                KeyMomentItemCompact(
-                    quality = MoveQuality.MISTAKE,
-                    count = mistakeCount,
-                    modifier = Modifier.weight(1f)
-                )
-                if (missedWinCount > 0) {
-                    KeyMomentItemCompact(
-                        quality = MoveQuality.MISSED_WIN,
-                        count = missedWinCount,
-                        modifier = Modifier.weight(1f)
-                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val rows = if (twoByTwo) negativeItems.chunked(2) else listOf(negativeItems)
+                        rows.forEach { row ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                row.forEach { (q, c) ->
+                                    KeyMomentItemCompact(
+                                        quality = q,
+                                        count = c,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
-                KeyMomentItemCompact(
-                    quality = MoveQuality.BLUNDER,
-                    count = blunderCount,
-                    modifier = Modifier.weight(1f)
-                )
             }
 
             // Краткая строка ошибок соперника (если выполнен двусторонний анализ)
@@ -1313,7 +1332,7 @@ fun KeyMomentsCard(
                                 selectedFilter = filter
                                 showAllMoments = false
                             },
-                            label = { Text("${filter.label} ($count)", fontSize = 12.sp) }
+                            label = { Text("${filter.label} ($count)", style = MaterialTheme.typography.labelMedium) }
                         )
                     }
                 }
@@ -1352,7 +1371,9 @@ fun KeyMomentsCard(
                 if (filteredMoments.size > 6) {
                     TextButton(
                         onClick = { showAllMoments = !showAllMoments },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
                     ) {
                         Text(
                             text = if (showAllMoments) {

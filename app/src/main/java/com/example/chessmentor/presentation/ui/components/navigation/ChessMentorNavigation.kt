@@ -34,7 +34,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.text.style.TextOverflow
-import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.presentation.ui.components.screen.AuthScreen
 import com.example.chessmentor.presentation.ui.components.screen.DashboardScreen
 import com.example.chessmentor.presentation.ui.components.screen.EngineSettingsScreen
@@ -72,6 +71,7 @@ fun ChessMentorApp(
     var uploadReturnScreen by rememberSaveable { mutableStateOf("games") }
     var summaryReturnScreen by rememberSaveable { mutableStateOf("games") }
     var engineSettingsReturnScreen by rememberSaveable { mutableStateOf("upload") }
+    var settingsReturnScreen by rememberSaveable { mutableStateOf("home") }
     var isLoading by remember { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf("") }
     var dueReviewCount by remember { mutableStateOf(0) }
@@ -123,6 +123,7 @@ fun ChessMentorApp(
                 target
             }
             "upload" -> uploadReturnScreen
+            "settings" -> settingsReturnScreen.takeIf { it in setOf("home", "games", "stats") } ?: "home"
             "engine_settings" -> {
                 engineSettingsReturnScreen
                     .takeIf { it in setOf("upload", "settings", "home", "games") }
@@ -140,11 +141,21 @@ fun ChessMentorApp(
 
     Scaffold(
         topBar = {
-            if (currentScreen != "training") ChessMentorTopBar(
-                currentScreen = currentScreen,
-                currentUser = currentUser,
-                onNavigateBack = ::handleNavigateBack
-            )
+            if (currentUser != null && currentScreen !in setOf("training", "game_view")) {
+                ChessMentorTopBar(
+                    currentScreen = currentScreen,
+                    currentUser = currentUser,
+                    onNavigateBack = ::handleNavigateBack,
+                    onOpenSettings = if (currentScreen in setOf("games", "stats")) {
+                        {
+                            settingsReturnScreen = currentScreen
+                            currentScreen = "settings"
+                        }
+                    } else {
+                        null
+                    }
+                )
+            }
         },
         bottomBar = {
             if (currentUser != null && currentScreen !in setOf("training", "game_view", "engine_settings")) {
@@ -192,9 +203,13 @@ fun ChessMentorApp(
                 if (next == "upload" && currentScreen in setOf("games", "home", "stats", "training")) {
                     uploadReturnScreen = currentScreen
                 }
+                if (next == "settings" && currentScreen in setOf("home", "games", "stats")) {
+                    settingsReturnScreen = currentScreen
+                }
                 currentScreen = next
                 Log.d(TAG, "Screen changed to: $next")
             },
+            onSetSummaryReturn = { summaryReturnScreen = it },
             onOpenEngineSettings = { fromScreen ->
                 engineSettingsReturnScreen = fromScreen
                 currentScreen = "engine_settings"
@@ -285,6 +300,7 @@ fun ChessMentorApp(
                 summaryReturnScreen = "games"
                 uploadReturnScreen = "games"
                 engineSettingsReturnScreen = "upload"
+                settingsReturnScreen = "home"
                 currentScreen = "home"
             },
             onMessageDismiss = { message = "" },
@@ -372,8 +388,10 @@ fun ChessMentorApp(
 private fun ChessMentorTopBar(
     currentScreen: String,
     currentUser: User?,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onOpenSettings: (() -> Unit)? = null
 ) {
+    val showBackButton = currentUser != null && currentScreen !in setOf("home", "games", "stats")
     TopAppBar(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -409,16 +427,29 @@ private fun ChessMentorTopBar(
                         "engine_settings" -> "Настройки движка"
                         else -> "Шахматный Ментор"
                     },
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         },
         navigationIcon = {
-            if (currentScreen != "home" && currentUser != null) {
+            if (showBackButton) {
                 IconButton(onClick = onNavigateBack) {
                     Icon(
                         painter = painterResource(R.drawable.ic_mentor_arrow_back),
                         contentDescription = "Назад",
+                        tint = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
+        },
+        actions = {
+            if (onOpenSettings != null) {
+                IconButton(onClick = onOpenSettings) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_mentor_settings),
+                        contentDescription = "Открыть настройки",
                         tint = MaterialTheme.colorScheme.onBackground
                     )
                 }
@@ -472,7 +503,7 @@ internal fun ChessMentorBottomBar(currentScreen: String, dueReviewCount: Int = 0
                                         contentColor = MaterialTheme.colorScheme.onError
                                     ) {
                                         Text(
-                                            text = dueReviewCount.coerceAtMost(9).toString(),
+                                            text = if (dueReviewCount > 9) "9+" else dueReviewCount.toString(),
                                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp)
                                         )
                                     }
@@ -519,6 +550,7 @@ private fun NavigationHost(
     loginEmail: String,
     loginPassword: String,
     onScreenChange: (String) -> Unit,
+    onSetSummaryReturn: (String) -> Unit,
     onOpenEngineSettings: (fromScreen: String) -> Unit,
     onCloseEngineSettings: () -> Unit,
     onOpenTrainingWithMode: (TrainingMode) -> Unit,
@@ -555,6 +587,7 @@ private fun NavigationHost(
         else -> null
     }
     val summaryState = key(reviewGameId) { rememberSaveableStateHolder() }
+    val libraryState = key(currentUser?.id) { rememberSaveableStateHolder() }
 
     AnimatedContent(
         targetState = currentScreen,
@@ -606,6 +639,7 @@ private fun NavigationHost(
                     onNavigateToSmartSession = { onOpenTrainingWithMode(TrainingMode.SmartSession) },
                     onOpenEngineSettings = { onOpenEngineSettings("home") },
                     onOpenGame = { game ->
+                        onSetSummaryReturn("home")
                         gameViewModel.selectGame(game)
                         onScreenChange("summary")
                     },
@@ -614,21 +648,27 @@ private fun NavigationHost(
             }
         }
 
-        "games" -> GamesListScreen(
-            paddingValues = paddingValues,
-            gameViewModel = gameViewModel,
-            container = container,
-            onGameClick = { game ->
-                gameViewModel.selectGame(game)
-                onScreenChange("summary")
-            },
-            onNavigateToUpload = { onScreenChange("upload") },
-            onAnalysisComplete = { onScreenChange("summary") },
-            onOpenEngineSettings = { onOpenEngineSettings("games") },
-            initialSearchQuery = pendingGamesSearchQuery,
-            initialColorFilter = pendingGamesColor,
-            onInitialFilterConsumed = onGamesFilterConsumed
-        )
+        "games" -> libraryState.SaveableStateProvider("games") {
+            GamesListScreen(
+                paddingValues = paddingValues,
+                gameViewModel = gameViewModel,
+                container = container,
+                onGameClick = { game ->
+                    onSetSummaryReturn("games")
+                    gameViewModel.selectGame(game)
+                    onScreenChange("summary")
+                },
+                onNavigateToUpload = { onScreenChange("upload") },
+                onAnalysisComplete = {
+                    onSetSummaryReturn("games")
+                    onScreenChange("summary")
+                },
+                onOpenEngineSettings = { onOpenEngineSettings("games") },
+                initialSearchQuery = pendingGamesSearchQuery,
+                initialColorFilter = pendingGamesColor,
+                onInitialFilterConsumed = onGamesFilterConsumed
+            )
+        }
 
         "game_view" -> {
             val game = gameViewModel.selectedGame.value
@@ -705,7 +745,10 @@ private fun NavigationHost(
             gameViewModel = gameViewModel,
             engineSettingsRepository = container.engineSettingsRepository,
             onGameUploaded = { },
-            onAnalysisComplete = { onScreenChange("summary") },
+            onAnalysisComplete = {
+                onSetSummaryReturn("games")
+                onScreenChange("summary")
+            },
             onOpenEngineSettings = { onOpenEngineSettings("upload") },
             onNavigateToLibrary = { onScreenChange("games") },
             onOpenExistingGame = { id -> onOpenGameSummaryById("upload", id) },
@@ -805,8 +848,7 @@ private fun SessionRestoringView(paddingValues: PaddingValues) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            SkeletonBox(height = 24.dp, modifier = Modifier.width(200.dp))
-            Spacer(modifier = Modifier.height(12.dp))
+            CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
             Text(
                 text = "Загрузка профиля…",
                 style = MaterialTheme.typography.bodyMedium,

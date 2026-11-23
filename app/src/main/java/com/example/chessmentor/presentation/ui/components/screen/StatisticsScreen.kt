@@ -14,7 +14,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -26,7 +25,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -46,12 +44,13 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.painterResource
 import com.example.chessmentor.R
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -59,7 +58,6 @@ import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.presentation.ui.components.BrandEmptyState
 import com.example.chessmentor.presentation.ui.components.ListSkeleton
-import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator
@@ -372,9 +370,17 @@ internal fun StatisticsPeriodLayout(
     content: LazyListScope.(GetUserStatisticsUseCase.UserStatistics) -> Unit
 ) {
     val report = cached?.takeIf { it.period == selected }
-    LazyColumn(Modifier.fillMaxSize().padding(paddingValues),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val layoutDirection = LocalLayoutDirection.current
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            top = 12.dp + paddingValues.calculateTopPadding(),
+            bottom = 12.dp + paddingValues.calculateBottomPadding(),
+            start = 16.dp + paddingValues.calculateStartPadding(layoutDirection),
+            end = 16.dp + paddingValues.calculateEndPadding(layoutDirection)
+        ),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         item(key = "period_bar") { PeriodSelectorRow(selected, refreshing, select, retry) }
         if (error != null) item(key = "refresh_error") {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
@@ -382,7 +388,10 @@ internal fun StatisticsPeriodLayout(
                     Text(if (report == null) "Не удалось загрузить отчёт: ${selected.displayName}"
                          else "Отчёт не обновлён: ${selected.displayName}", style = MaterialTheme.typography.titleMedium)
                     Text(error, style = MaterialTheme.typography.bodyMedium)
-                    TextButton(onClick = retry) { Text("Повторить") }
+                    TextButton(
+                        onClick = retry,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) { Text("Повторить") }
                 }
             }
         }
@@ -414,6 +423,7 @@ private fun PeriodSelectorRow(
                 FilterChip(
                     selected = selectedPeriod == period,
                     onClick = { onSelectPeriod(period) },
+                    modifier = Modifier.heightIn(min = 48.dp),
                     label = {
                         Text(
                             text = period.displayName,
@@ -431,7 +441,12 @@ private fun PeriodSelectorRow(
             modifier = Modifier.size(48.dp)
         ) {
             if (isRefreshing) {
-                SkeletonBox(modifier = Modifier.size(18.dp).semantics { contentDescription = "Загружаем статистику" })
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .semantics { contentDescription = "Загружаем статистику" },
+                    strokeWidth = 2.dp
+                )
             } else {
                 Icon(
                     imageVector = Icons.Default.Refresh,
@@ -443,6 +458,7 @@ private fun PeriodSelectorRow(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SectionSegmentedBar(
     selected: StatisticsSection,
@@ -455,74 +471,114 @@ private fun SectionSegmentedBar(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                .padding(4.dp)
         ) {
-            StatisticsSection.entries.forEach { section ->
-                val isSelected = section == selected
-                val badge = when (section) {
-                    StatisticsSection.OVERVIEW -> null
-                    StatisticsSection.OPENINGS -> openingsCount.takeIf { it > 0 }?.toString()
-                    StatisticsSection.TACTICS -> dueCount.takeIf { it > 0 }?.toString()
-                }
-                Surface(
-                    onClick = { onSelect(section) },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (isSelected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        Color.Transparent
-                    },
-                    shadowElevation = if (isSelected) 2.dp else 0.dp
+            val fontScale = LocalDensity.current.fontScale
+            val useCompactWrap = maxWidth < (290 * fontScale).dp
+            if (useCompactWrap) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 9.dp, horizontal = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = section.title,
-                            modifier = Modifier.weight(1f, fill = false),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                    StatisticsSection.entries.forEach { section ->
+                        SectionSegmentItem(
+                            section = section,
+                            isSelected = section == selected,
+                            openingsCount = openingsCount,
+                            dueCount = dueCount,
+                            onSelect = { onSelect(section) },
+                            modifier = Modifier
                         )
-                        if (badge != null) {
-                            Surface(
-                                shape = CircleShape,
-                                color = if (isSelected) {
-                                    MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.22f)
-                                } else {
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-                                }
-                            ) {
-                                Text(
-                                    text = badge,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    color = if (isSelected) {
-                                        MaterialTheme.colorScheme.onPrimary
-                                    } else {
-                                        MaterialTheme.colorScheme.primary
-                                    }
-                                )
-                            }
-                        }
                     }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    StatisticsSection.entries.forEach { section ->
+                        SectionSegmentItem(
+                            section = section,
+                            isSelected = section == selected,
+                            openingsCount = openingsCount,
+                            dueCount = dueCount,
+                            onSelect = { onSelect(section) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionSegmentItem(
+    section: StatisticsSection,
+    isSelected: Boolean,
+    openingsCount: Int,
+    dueCount: Int,
+    onSelect: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val badge = when (section) {
+        StatisticsSection.OVERVIEW -> null
+        StatisticsSection.OPENINGS -> openingsCount.takeIf { it > 0 }?.toString()
+        StatisticsSection.TACTICS -> dueCount.takeIf { it > 0 }?.toString()
+    }
+    Surface(
+        onClick = onSelect,
+        modifier = modifier.heightIn(min = 48.dp),
+        shape = RoundedCornerShape(10.dp),
+        color = if (isSelected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            Color.Transparent
+        },
+        shadowElevation = if (isSelected) 2.dp else 0.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(vertical = 9.dp, horizontal = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = section.title,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = if (isSelected) {
+                    MaterialTheme.colorScheme.onPrimary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (badge != null) {
+                Surface(
+                    shape = CircleShape,
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.22f)
+                    } else {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                    }
+                ) {
+                    Text(
+                        text = badge,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        }
+                    )
                 }
             }
         }
@@ -553,7 +609,10 @@ private fun EmptyPeriodNoticeCard(
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.weight(1f)
             )
-            TextButton(onClick = onShowAllTime) {
+            TextButton(
+                onClick = onShowAllTime,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
                 Text("Всё время")
             }
         }
@@ -764,8 +823,8 @@ private fun CoachingPlanCard(
                     if (clickHandler != null && !action.actionLabel.isNullOrBlank()) {
                         FilledTonalButton(
                             onClick = clickHandler,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            modifier = Modifier.heightIn(min = 36.dp)
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                            modifier = Modifier.heightIn(min = 48.dp)
                         ) {
                             Text(action.actionLabel, style = MaterialTheme.typography.labelMedium)
                         }
@@ -870,9 +929,9 @@ private fun AccuracyTrendCard(
                     verticalArrangement = Arrangement.SpaceBetween,
                     horizontalAlignment = Alignment.End
                 ) {
-                    Text("100%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("${((yMin + yMax) / 2f).roundToInt()}%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("${yMin.roundToInt()}%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("100%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${((yMin + yMax) / 2f).roundToInt()}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${yMin.roundToInt()}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
 
                 Canvas(
@@ -1038,7 +1097,8 @@ private fun AccuracyTrendCard(
                     if (targetId != null && onOpenGameById != null) {
                         TextButton(
                             onClick = { onOpenGameById(targetId) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Icon(Icons.Default.Insights, contentDescription = "Разбор партии", modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
@@ -1072,22 +1132,45 @@ private fun ColorSplitComparisonCard(
                 fontWeight = FontWeight.Bold
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                ColorSideTile(
-                    modifier = Modifier.weight(1f),
-                    icon = "♔",
-                    perf = white,
-                    onClick = { onOpenColorRepertoire(ChessColor.WHITE) }
-                )
-                ColorSideTile(
-                    modifier = Modifier.weight(1f),
-                    icon = "♚",
-                    perf = black,
-                    onClick = { onOpenColorRepertoire(ChessColor.BLACK) }
-                )
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val stackColors = maxWidth < (260 * LocalDensity.current.fontScale).dp
+                if (stackColors) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        ColorSideTile(
+                            modifier = Modifier.fillMaxWidth(),
+                            icon = "♔",
+                            perf = white,
+                            onClick = { onOpenColorRepertoire(ChessColor.WHITE) }
+                        )
+                        ColorSideTile(
+                            modifier = Modifier.fillMaxWidth(),
+                            icon = "♚",
+                            perf = black,
+                            onClick = { onOpenColorRepertoire(ChessColor.BLACK) }
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        ColorSideTile(
+                            modifier = Modifier.weight(1f),
+                            icon = "♔",
+                            perf = white,
+                            onClick = { onOpenColorRepertoire(ChessColor.WHITE) }
+                        )
+                        ColorSideTile(
+                            modifier = Modifier.weight(1f),
+                            icon = "♚",
+                            perf = black,
+                            onClick = { onOpenColorRepertoire(ChessColor.BLACK) }
+                        )
+                    }
+                }
             }
         }
     }
@@ -1102,7 +1185,7 @@ private fun ColorSideTile(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.heightIn(min = 48.dp),
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
@@ -1340,25 +1423,17 @@ private fun MoveQualityBreakdownCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    QualityBadgeChip(Modifier.weight(1f), "!! / !", quality.brilliant + quality.great, LocalChessPalette.current.brilliant)
-                    QualityBadgeChip(Modifier.weight(1f), "Лучшие", quality.best, LocalChessPalette.current.positive)
-                    QualityBadgeChip(Modifier.weight(1f), "Хорошие", quality.excellent + quality.good, LocalChessPalette.current.positive)
-                    QualityBadgeChip(Modifier.weight(1f), "Теория", quality.book, LocalChessPalette.current.theory)
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    QualityBadgeChip(Modifier.weight(1f), "Неточн. ?!", quality.inaccuracy, LocalChessPalette.current.caution)
-                    QualityBadgeChip(Modifier.weight(1f), "Ошибки ?", quality.mistake, LocalChessPalette.current.caution)
-                    QualityBadgeChip(Modifier.weight(1f), "Упущено", quality.missedWin, LocalChessPalette.current.negative)
-                    QualityBadgeChip(Modifier.weight(1f), "Зевки ??", quality.blunder, LocalChessPalette.current.negative)
-                }
+                val chips = listOf(
+                    Triple("!! / !", quality.brilliant + quality.great, LocalChessPalette.current.brilliant),
+                    Triple("Лучшие", quality.best, LocalChessPalette.current.positive),
+                    Triple("Хорошие", quality.excellent + quality.good, LocalChessPalette.current.positive),
+                    Triple("Теория", quality.book, LocalChessPalette.current.theory),
+                    Triple("Неточн. ?!", quality.inaccuracy, LocalChessPalette.current.caution),
+                    Triple("Ошибки ?", quality.mistake, LocalChessPalette.current.caution),
+                    Triple("Упущено", quality.missedWin, LocalChessPalette.current.negative),
+                    Triple("Зевки ??", quality.blunder, LocalChessPalette.current.negative)
+                )
+                QualityBadgeGrid(items = chips)
 
                 val punishPct = quality.opponentBlunderPunishPercent
                 if (punishPct != null) {
@@ -1375,7 +1450,8 @@ private fun MoveQualityBreakdownCard(
                         ) {
                             Text(
                                 text = "Наказание зевков соперника",
-                                style = MaterialTheme.typography.bodySmall
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f)
                             )
                             Text(
                                 text = "$punishPct% (${quality.opponentBlundersPunished}/${quality.opponentBlundersTotal})",
@@ -1387,13 +1463,38 @@ private fun MoveQualityBreakdownCard(
                     }
                 }
             } else {
+                QualityBadgeGrid(
+                    items = listOf(
+                        Triple("Зевки ??", fallbackBlunders, LocalChessPalette.current.negative),
+                        Triple("Ошибки ?", fallbackMistakes, LocalChessPalette.current.caution),
+                        Triple("Неточн. ?!", fallbackInaccuracies, LocalChessPalette.current.caution)
+                    ),
+                    columnsWhenWide = 3
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QualityBadgeGrid(
+    items: List<Triple<String, Int, Color>>,
+    columnsWhenWide: Int = 4
+) {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val cols = if (maxWidth < (285 * LocalDensity.current.fontScale).dp) 2 else columnsWhenWide
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items.chunked(cols).forEach { rowItems ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    QualityBadgeChip(Modifier.weight(1f), "Зевки ??", fallbackBlunders, LocalChessPalette.current.negative)
-                    QualityBadgeChip(Modifier.weight(1f), "Ошибки ?", fallbackMistakes, LocalChessPalette.current.caution)
-                    QualityBadgeChip(Modifier.weight(1f), "Неточн. ?!", fallbackInaccuracies, LocalChessPalette.current.caution)
+                    rowItems.forEach { (label, count, accent) ->
+                        QualityBadgeChip(Modifier.weight(1f), label, count, accent)
+                    }
+                    repeat(cols - rowItems.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
                 }
             }
         }
@@ -1426,10 +1527,10 @@ private fun QualityBadgeChip(
             )
             Text(
                 text = label,
-                fontSize = 10.sp,
-                lineHeight = 12.sp,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -1541,8 +1642,8 @@ private fun TimeControlsAndClockCard(
                             if ((timeTrouble.accuracyDropPercent ?: 0.0) >= 7.0 && onTrainVision != null) {
                                 TextButton(
                                     onClick = onTrainVision,
-                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
-                                    modifier = Modifier.heightIn(min = 36.dp)
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                    modifier = Modifier.heightIn(min = 48.dp)
                                 ) {
                                     Text("Прокачать тактическую зоркость →", style = MaterialTheme.typography.labelMedium)
                                 }
@@ -1682,17 +1783,17 @@ private fun DailyActivityCard(
             ) {
                 Text(
                     text = points.firstOrNull()?.dayLabel.orEmpty(),
-                    fontSize = 10.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = "■ партии   ■ задачи",
-                    fontSize = 10.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = "Сегодня (${points.lastOrNull()?.dayLabel.orEmpty()})",
-                    fontSize = 10.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -1752,43 +1853,79 @@ private fun RepertoireOverviewBanner(
             }
 
             // Переключатель репертуара За белых / За чёрных
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                 val whiteCount = repertoire.whiteOpenings.sumOf { it.gamesCount }
                 val blackCount = repertoire.blackOpenings.sumOf { it.gamesCount }
-
-                FilterChip(
-                    selected = selectedColor == ChessColor.WHITE,
-                    onClick = { onSelectColor(ChessColor.WHITE) },
-                    modifier = Modifier.weight(1f),
-                    label = {
-                        Text(
-                            text = "♔ За белых ($whiteCount)",
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                val stackSideChips = maxWidth < (260 * LocalDensity.current.fontScale).dp
+                if (stackSideChips) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = selectedColor == ChessColor.WHITE,
+                            onClick = { onSelectColor(ChessColor.WHITE) },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            label = {
+                                Text(
+                                    text = "♔ За белых ($whiteCount)",
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textAlign = TextAlign.Center,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        )
+                        FilterChip(
+                            selected = selectedColor == ChessColor.BLACK,
+                            onClick = { onSelectColor(ChessColor.BLACK) },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            label = {
+                                Text(
+                                    text = "♚ За чёрных ($blackCount)",
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textAlign = TextAlign.Center,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         )
                     }
-                )
-                FilterChip(
-                    selected = selectedColor == ChessColor.BLACK,
-                    onClick = { onSelectColor(ChessColor.BLACK) },
-                    modifier = Modifier.weight(1f),
-                    label = {
-                        Text(
-                            text = "♚ За чёрных ($blackCount)",
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = selectedColor == ChessColor.WHITE,
+                            onClick = { onSelectColor(ChessColor.WHITE) },
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                            label = {
+                                Text(
+                                    text = "♔ За белых ($whiteCount)",
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textAlign = TextAlign.Center,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        )
+                        FilterChip(
+                            selected = selectedColor == ChessColor.BLACK,
+                            onClick = { onSelectColor(ChessColor.BLACK) },
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                            label = {
+                                Text(
+                                    text = "♚ За чёрных ($blackCount)",
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textAlign = TextAlign.Center,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         )
                     }
-                )
+                }
             }
         }
     }
@@ -1837,6 +1974,7 @@ private fun SpotlightOpeningBanner(
         border = BorderStroke(1.dp, accent.copy(alpha = 0.35f)),
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
     ) {
         Row(
@@ -1946,6 +2084,7 @@ private fun OpeningLineItem(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .clickable(onClick = onToggle),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -2002,7 +2141,7 @@ private fun OpeningLineItem(
                 )
                 Text(
                     text = "+${line.wins}=${line.draws}−${line.losses}",
-                    fontSize = 10.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -2072,8 +2211,8 @@ private fun OpeningLineItem(
                         if (onOpenLibrary != null) {
                             FilledTonalButton(
                                 onClick = onOpenLibrary,
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                modifier = Modifier.heightIn(min = 36.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                modifier = Modifier.heightIn(min = 48.dp)
                             ) {
                                 Icon(Icons.Default.Search, contentDescription = "Все партии", modifier = Modifier.size(15.dp))
                                 Spacer(Modifier.width(4.dp))
@@ -2083,8 +2222,8 @@ private fun OpeningLineItem(
                         if (onOpenLatestGame != null) {
                             OutlinedButton(
                                 onClick = onOpenLatestGame,
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                modifier = Modifier.heightIn(min = 36.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                modifier = Modifier.heightIn(min = 48.dp)
                             ) {
                                 Text("Последняя", style = MaterialTheme.typography.labelMedium)
                             }
@@ -2118,6 +2257,7 @@ private fun EcoVolumesCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .then(
                             if (onSearchEco != null) {
@@ -2153,7 +2293,7 @@ private fun EcoVolumesCard(
                         )
                         Text(
                             text = fam.subtitle,
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -2174,7 +2314,7 @@ private fun EcoVolumesCard(
                         fam.averageAccuracy?.let {
                             Text(
                                 text = "точн. ${it.roundToInt()}%",
-                                fontSize = 10.sp,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -2237,15 +2377,14 @@ private fun TacticalOverviewCard(
             }
 
             // Карточки интервальной памяти SM-2
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                QualityBadgeChip(Modifier.weight(1f), "Закреплено", training.masteredExercisesCount, LocalChessPalette.current.positive)
-                QualityBadgeChip(Modifier.weight(1f), "В изучении", training.inLearningCount, LocalChessPalette.current.insight)
-                QualityBadgeChip(Modifier.weight(1f), "К повтору", training.dueForReviewCount, LocalChessPalette.current.caution)
-                QualityBadgeChip(Modifier.weight(1f), "Из партий", training.personalMistakeExercises, LocalChessPalette.current.brilliant)
-            }
+            QualityBadgeGrid(
+                items = listOf(
+                    Triple("Закреплено", training.masteredExercisesCount, LocalChessPalette.current.positive),
+                    Triple("В изучении", training.inLearningCount, LocalChessPalette.current.insight),
+                    Triple("К повтору", training.dueForReviewCount, LocalChessPalette.current.caution),
+                    Triple("Из партий", training.personalMistakeExercises, LocalChessPalette.current.brilliant)
+                )
+            )
 
             if (training.totalAttempts > 0) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -2273,30 +2412,54 @@ private fun TacticalOverviewCard(
             TrainingRatingMetric(currentRating, training)
 
             if (onStartTraining != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val primaryMode = when {
-                        training.dueForReviewCount > 0 -> TrainingMode.WeakPatterns
-                        training.personalMistakeExercises > 0 -> TrainingMode.MyMistakes
-                        else -> TrainingMode.SmartSession
-                    }
-                    val primaryText = when {
-                        training.dueForReviewCount > 0 -> "Повторить (${training.dueForReviewCount})"
-                        training.personalMistakeExercises > 0 -> "Мои ошибки (${training.personalMistakeExercises})"
-                        else -> "Сессия 10"
-                    }
-                    Button(
-                        onClick = { onStartTraining(primaryMode) },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(primaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    OutlinedButton(
-                        onClick = { onStartTraining(TrainingMode.SmartSession) }
-                    ) {
-                        Text("Сессия 10")
+                val primaryMode = when {
+                    training.dueForReviewCount > 0 -> TrainingMode.WeakPatterns
+                    training.personalMistakeExercises > 0 -> TrainingMode.MyMistakes
+                    else -> TrainingMode.SmartSession
+                }
+                val primaryText = when {
+                    training.dueForReviewCount > 0 -> "Повторить (${training.dueForReviewCount})"
+                    training.personalMistakeExercises > 0 -> "Мои ошибки (${training.personalMistakeExercises})"
+                    else -> "Сессия 10"
+                }
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val stackActions = maxWidth < (240 * LocalDensity.current.fontScale).dp
+                    if (stackActions) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { onStartTraining(primaryMode) },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            ) {
+                                Text(primaryText)
+                            }
+                            OutlinedButton(
+                                onClick = { onStartTraining(TrainingMode.SmartSession) },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            ) {
+                                Text("Сессия 10")
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { onStartTraining(primaryMode) },
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            ) {
+                                Text(primaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            OutlinedButton(
+                                onClick = { onStartTraining(TrainingMode.SmartSession) },
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Text("Сессия 10")
+                            }
+                        }
                     }
                 }
             }
@@ -2463,6 +2626,7 @@ private fun PatternMasteryCard(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .then(
                             if (onStartTraining != null) {
                                 Modifier.clickable { onStartTraining(mode) }
@@ -2470,7 +2634,7 @@ private fun PatternMasteryCard(
                                 Modifier
                             }
                         ),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -2506,7 +2670,7 @@ private fun PatternMasteryCard(
             if (weakPatterns.isNotEmpty() && onStartTraining != null) {
                 FilledTonalButton(
                     onClick = { onStartTraining(TrainingMode.WeakPatterns) },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 ) {
                     Text("Отработать слабые мотивы")
                 }
@@ -2572,7 +2736,8 @@ private fun ProblemThemesCard(
                     if (onStartTraining != null) {
                         TextButton(
                             onClick = { onStartTraining(theme.suggestedMode) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text("Тренир.", style = MaterialTheme.typography.labelSmall)
                         }
@@ -2635,11 +2800,12 @@ private fun MetricInlineRow(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = label,
+            modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -2647,7 +2813,8 @@ private fun MetricInlineRow(
             text = value,
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.SemiBold,
-            color = valueColor
+            color = valueColor,
+            textAlign = TextAlign.End
         )
     }
 }

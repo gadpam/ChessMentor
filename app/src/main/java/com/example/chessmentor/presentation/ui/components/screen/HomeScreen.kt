@@ -21,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -38,7 +40,6 @@ import com.example.chessmentor.R
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
-import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnParser
@@ -50,81 +51,8 @@ import com.example.chessmentor.presentation.ui.components.BrandEmptyState
 import com.example.chessmentor.presentation.ui.components.MessageCard
 import com.example.chessmentor.presentation.ui.components.MessageType
 import com.example.chessmentor.presentation.ui.components.EngineStatusBanner
-import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import com.github.bhlangonijr.chesslib.Board
-
-@Composable
-fun HomeScreen(
-    paddingValues: PaddingValues,
-    currentUser: User?,
-    gameViewModel: GameViewModel,
-    container: AppContainer? = null,
-    onNavigateToSettings: () -> Unit,
-    onNavigateToTraining: () -> Unit,
-    onNavigateToUpload: () -> Unit,
-    onNavigateToDailyPuzzle: () -> Unit = onNavigateToTraining,
-    onNavigateToSmartSession: () -> Unit = onNavigateToTraining,
-    onOpenEngineSettings: (() -> Unit)? = null,
-    onOpenGame: (Game) -> Unit = {},
-    message: String,
-    isLoading: Boolean,
-    onMessageDismiss: () -> Unit,
-    onLogout: () -> Unit,
-    onOpenTester: (() -> Unit)?,
-    onRegister: (String, String, String, Int) -> Unit,
-    onLogin: (String, String) -> Unit,
-    regNickname: String,
-    regEmail: String,
-    regPassword: String,
-    regRating: String,
-    loginEmail: String,
-    loginPassword: String,
-    onRegNicknameChange: (String) -> Unit,
-    onRegEmailChange: (String) -> Unit,
-    onRegPasswordChange: (String) -> Unit,
-    onRegRatingChange: (String) -> Unit,
-    onLoginEmailChange: (String) -> Unit,
-    onLoginPasswordChange: (String) -> Unit
-) {
-    if (currentUser == null) {
-        AuthScreen(
-            paddingValues = paddingValues,
-            message = message,
-            isLoading = isLoading,
-            onMessageDismiss = onMessageDismiss,
-            onOpenTester = onOpenTester,
-            onRegister = onRegister,
-            onLogin = onLogin,
-            regNickname = regNickname,
-            regEmail = regEmail,
-            regPassword = regPassword,
-            regRating = regRating,
-            loginEmail = loginEmail,
-            loginPassword = loginPassword,
-            onRegNicknameChange = onRegNicknameChange,
-            onRegEmailChange = onRegEmailChange,
-            onRegPasswordChange = onRegPasswordChange,
-            onRegRatingChange = onRegRatingChange,
-            onLoginEmailChange = onLoginEmailChange,
-            onLoginPasswordChange = onLoginPasswordChange
-        )
-    } else {
-        DashboardScreen(
-            paddingValues = paddingValues,
-            user = currentUser,
-            gameViewModel = gameViewModel,
-            container = container,
-            onLogout = onLogout,
-            onNavigateToUpload = onNavigateToUpload,
-            onNavigateToDailyPuzzle = onNavigateToDailyPuzzle,
-            onNavigateToSmartSession = onNavigateToSmartSession,
-            onOpenEngineSettings = onOpenEngineSettings,
-            onOpenGame = onOpenGame,
-            onNavigateToSettings = onNavigateToSettings
-        )
-    }
-}
 
 @Composable
 fun AuthScreen(
@@ -149,14 +77,36 @@ fun AuthScreen(
     onLoginPasswordChange: (String) -> Unit
 ) {
     var currentTab by rememberSaveable { mutableStateOf("login") }
+    val layoutDirection = LocalLayoutDirection.current
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(paddingValues)
-            .padding(16.dp),
+            .imePadding(),
+        contentPadding = PaddingValues(
+            top = 20.dp + paddingValues.calculateTopPadding(),
+            bottom = 20.dp + paddingValues.calculateBottomPadding(),
+            start = 16.dp + paddingValues.calculateStartPadding(layoutDirection),
+            end = 16.dp + paddingValues.calculateEndPadding(layoutDirection)
+        ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Шахматный Ментор",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    text = "Персональный разбор партий и тактика",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
         // Сообщение
         if (message.isNotEmpty()) {
             item {
@@ -171,7 +121,13 @@ fun AuthScreen(
 
         if (onOpenTester != null) {
             item {
-                OutlinedButton(onClick = onOpenTester, enabled = !isLoading, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = onOpenTester,
+                    enabled = !isLoading,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                ) {
                     Text("Войти как тестировщик")
                 }
             }
@@ -228,7 +184,9 @@ private fun AuthTabs(
     ) {
         Button(
             onClick = { onTabChange("login") },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 48.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (currentTab == "login") MaterialTheme.colorScheme.surface
                 else Color.Transparent,
@@ -238,13 +196,17 @@ private fun AuthTabs(
             elevation = if (currentTab == "login") ButtonDefaults.buttonElevation(2.dp)
             else ButtonDefaults.buttonElevation(0.dp),
             enabled = !isLoading
-        ) { Text("Вход") }
+        ) {
+            Text("Вход", maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
 
         Spacer(Modifier.width(4.dp))
 
         Button(
             onClick = { onTabChange("register") },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 48.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (currentTab == "register") MaterialTheme.colorScheme.surface
                 else Color.Transparent,
@@ -254,7 +216,9 @@ private fun AuthTabs(
             elevation = if (currentTab == "register") ButtonDefaults.buttonElevation(2.dp)
             else ButtonDefaults.buttonElevation(0.dp),
             enabled = !isLoading
-        ) { Text("Регистрация") }
+        ) {
+            Text("Регистрация", maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
@@ -374,13 +338,17 @@ private fun LoginForm(
         onClick = { onLogin(email.trim(), password) },
         modifier = Modifier
             .fillMaxWidth()
-            .height(50.dp),
+            .heightIn(min = 50.dp),
         enabled = canSubmit
     ) {
         if (isLoading) {
-            SkeletonBox(height = 22.dp, width = 22.dp)
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+                color = LocalContentColor.current
+            )
         } else {
-            Text("Войти", fontSize = 16.sp)
+            Text("Войти", style = MaterialTheme.typography.titleMedium)
         }
     }
 }
@@ -467,7 +435,11 @@ private fun RegisterForm(
     )
 
     var adjustRating by rememberSaveable { mutableStateOf(false) }
-    TextButton(onClick = { adjustRating = !adjustRating }, enabled = !isLoading) {
+    TextButton(
+        onClick = { adjustRating = !adjustRating },
+        enabled = !isLoading,
+        modifier = Modifier.heightIn(min = 48.dp)
+    ) {
         Text(if (adjustRating) "Скрыть настройку сложности" else "Настроить стартовую сложность задач")
     }
     if (adjustRating) {
@@ -499,21 +471,22 @@ private fun RegisterForm(
 
         // Быстрый выбор стартового уровня
         val presets = remember { listOf("800", "1200", "1500", "1800") }
-        Row(
+        @OptIn(ExperimentalLayoutApi::class)
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             presets.forEach { preset ->
                 FilterChip(
                     selected = rating == preset,
                     onClick = { onRatingChange(preset) },
-                    label = { Text(preset, fontSize = 12.sp) },
+                    label = { Text(preset, style = MaterialTheme.typography.labelMedium) },
                     enabled = !isLoading,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.widthIn(min = 68.dp)
                 )
             }
         }
-
     }
 
     Button(
@@ -523,13 +496,17 @@ private fun RegisterForm(
         },
         modifier = Modifier
             .fillMaxWidth()
-            .height(50.dp),
+            .heightIn(min = 50.dp),
         enabled = !isLoading && isFormValid
     ) {
         if (isLoading) {
-            SkeletonBox(height = 22.dp, width = 22.dp)
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+                color = LocalContentColor.current
+            )
         } else {
-            Text("Зарегистрироваться", fontSize = 16.sp)
+            Text("Зарегистрироваться", style = MaterialTheme.typography.titleMedium)
         }
     }
 }
@@ -574,6 +551,7 @@ fun DashboardScreen(
     }
 
     val recentGames = gameViewModel.userGames.take(2)
+    val layoutDirection = LocalLayoutDirection.current
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -581,8 +559,8 @@ fun DashboardScreen(
         contentPadding = PaddingValues(
             top = 2.dp + paddingValues.calculateTopPadding(),
             bottom = 16.dp + paddingValues.calculateBottomPadding(),
-            start = 16.dp,
-            end = 16.dp
+            start = 16.dp + paddingValues.calculateStartPadding(layoutDirection),
+            end = 16.dp + paddingValues.calculateEndPadding(layoutDirection)
         )
     ) {
         item {
@@ -718,28 +696,72 @@ fun DailyPuzzleWidget(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    ChessBoard(
-                        board = board, theme = boardTheme, flipped = !puzzle.isWhiteToMove,
-                        animateMove = false, showCoordinates = false, onSquareClick = null,
-                        modifier = Modifier.weight(1f, fill = false).widthIn(max = 172.dp).aspectRatio(1f)
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable(role = Role.Button, onClickLabel = dailyAction, onClick = onClick)
-                            .semantics { contentDescription = "Позиция задачи дня. $sidePrompt" }
-                    )
-                    Column(Modifier.weight(1.4f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("ЕЖЕДНЕВНАЯ ПРАКТИКА", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary)
-                        Text("Задача дня", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        Text(if (isSolved) puzzle.title else sidePrompt, style = MaterialTheme.typography.bodyMedium)
-                        Text(if (isSolved) "Решено · $difficultyLabel" else difficultyLabel,
-                            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            BoxWithConstraints(Modifier.fillMaxWidth().padding(16.dp)) {
+                val fontScale = LocalDensity.current.fontScale
+                val stackVertically = maxWidth < (265 * fontScale).dp
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    if (stackVertically) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ChessBoard(
+                                board = board, theme = boardTheme, flipped = !puzzle.isWhiteToMove,
+                                animateMove = false, showCoordinates = false, onSquareClick = null,
+                                modifier = Modifier
+                                    .size(160.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable(role = Role.Button, onClickLabel = dailyAction, onClick = onClick)
+                                    .semantics { contentDescription = "Позиция задачи дня. $sidePrompt" }
+                            )
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text("ЕЖЕДНЕВНАЯ ПРАКТИКА", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary)
+                                Text("Задача дня", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Text(if (isSolved) puzzle.title else sidePrompt, style = MaterialTheme.typography.bodyMedium)
+                                Text(if (isSolved) "Решено · $difficultyLabel" else difficultyLabel,
+                                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            ChessBoard(
+                                board = board, theme = boardTheme, flipped = !puzzle.isWhiteToMove,
+                                animateMove = false, showCoordinates = false, onSquareClick = null,
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .sizeIn(minWidth = 112.dp, maxWidth = 172.dp)
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable(role = Role.Button, onClickLabel = dailyAction, onClick = onClick)
+                                    .semantics { contentDescription = "Позиция задачи дня. $sidePrompt" }
+                            )
+                            Column(Modifier.weight(1.4f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("ЕЖЕДНЕВНАЯ ПРАКТИКА", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary)
+                                Text("Задача дня", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Text(if (isSolved) puzzle.title else sidePrompt, style = MaterialTheme.typography.bodyMedium)
+                                Text(if (isSolved) "Решено · $difficultyLabel" else difficultyLabel,
+                                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
-                }
-                Button(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp)) {
-                    Text(dailyAction, fontWeight = FontWeight.Bold)
+                    Button(
+                        onClick = onClick,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(dailyAction, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
