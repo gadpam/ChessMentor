@@ -509,9 +509,7 @@ private fun NoMatchingGamesCard(query: String, filter: LibraryFilter, onShowAll:
 @Composable
 fun GameCard(
     game: Game,
-    info: PgnParser.GameCardInfo = remember(game.id, game.pgnData, game.playerColor, game.timeControl, game.playedAt) {
-        PgnParser.extractGameCardInfo(game)
-    },
+    info: PgnParser.GameCardInfo,
     showDate: Boolean = false,
     showNumber: Boolean = false,
     isBusy: Boolean = false,

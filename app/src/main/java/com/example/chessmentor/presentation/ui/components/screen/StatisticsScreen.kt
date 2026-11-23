@@ -57,8 +57,8 @@ import com.example.chessmentor.R
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.ChessColor
-import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
-import com.example.chessmentor.presentation.ui.components.CommonUI.ListSkeleton
+import com.example.chessmentor.presentation.ui.components.BrandEmptyState
+import com.example.chessmentor.presentation.ui.components.ListSkeleton
 import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnParser

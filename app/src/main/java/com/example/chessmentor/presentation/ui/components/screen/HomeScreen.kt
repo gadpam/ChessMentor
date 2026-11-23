@@ -45,10 +45,10 @@ import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.presentation.ui.components.BoardThemes
 import com.example.chessmentor.presentation.ui.components.ChessBoard
-import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
-import com.example.chessmentor.presentation.ui.components.CommonUI.BrandButton
-import com.example.chessmentor.presentation.ui.components.CommonUI.MessageCard
-import com.example.chessmentor.presentation.ui.components.CommonUI.MessageType
+import com.example.chessmentor.presentation.ui.components.BrandEmptyState
+import com.example.chessmentor.presentation.ui.components.BrandButton
+import com.example.chessmentor.presentation.ui.components.MessageCard
+import com.example.chessmentor.presentation.ui.components.MessageType
 import com.example.chessmentor.presentation.ui.components.EngineStatusBanner
 import com.example.chessmentor.presentation.ui.components.SkeletonBox
 import com.example.chessmentor.presentation.viewmodel.GameViewModel

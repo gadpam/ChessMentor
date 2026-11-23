@@ -1,6 +1,7 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.collapseVertically
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -92,8 +93,8 @@ import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.example.chessmentor.presentation.ui.components.BoardThemes
 import com.example.chessmentor.presentation.ui.components.ChessBoard
-import com.example.chessmentor.presentation.ui.components.CommonUI.BrandEmptyState
-import com.example.chessmentor.presentation.ui.components.CommonUI.ListSkeleton
+import com.example.chessmentor.presentation.ui.components.BrandEmptyState
+import com.example.chessmentor.presentation.ui.components.ListSkeleton
 import com.example.chessmentor.presentation.ui.components.SoundManager
 import com.example.chessmentor.presentation.viewmodel.ChessMentorViewModelFactory
 import com.example.chessmentor.presentation.viewmodel.HintLevel

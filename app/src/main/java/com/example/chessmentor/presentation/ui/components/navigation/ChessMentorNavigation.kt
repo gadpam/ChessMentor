@@ -591,6 +591,7 @@ private fun NavigationHost(
                 )
             }
         }
+        }
 
         "games" -> GamesListScreen(
             paddingValues = paddingValues,
