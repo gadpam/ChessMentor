@@ -828,6 +828,7 @@ class GameViewModel(
                                 }
 
                                 is AnalyzeGameUseCase.Result.Error -> {
+                                    libraryAnalysisRequestedGameId.value = null
                                     message.value = "Ошибка: ${result.message}"
                                 }
                             }
@@ -835,6 +836,7 @@ class GameViewModel(
 
                         is AnalyzeGameUseCase.AnalysisProgress.Failed -> {
                             isLoading.value = false
+                            libraryAnalysisRequestedGameId.value = null
                             loadUserData()
                             message.value = "Ошибка: ${progress.error}"
                             Log.e(TAG, "Analysis failed: ${progress.error}")
@@ -843,11 +845,13 @@ class GameViewModel(
                 }
             } catch (e: CancellationException) {
                 isLoading.value = false
+                libraryAnalysisRequestedGameId.value = null
                 _analysisProgress.value = null
                 loadUserData()
                 throw e
             } catch (e: Exception) {
                 isLoading.value = false
+                libraryAnalysisRequestedGameId.value = null
                 _analysisProgress.value = AnalyzeGameUseCase.AnalysisProgress.Failed(
                     e.message ?: "Неизвестная ошибка"
                 )
@@ -1003,10 +1007,12 @@ class GameViewModel(
         }
         viewModelScope.launch {
             try {
-                container.exerciseRepository.deleteBySourceGameId(gameId)
-                container.analyzedMoveRepository.deleteByGameId(gameId)
-                container.mistakeRepository.deleteByGameId(gameId)
-                container.gameRepository.deleteById(gameId)
+                container.transactionRunner.run {
+                    container.exerciseRepository.deleteBySourceGameId(gameId)
+                    container.analyzedMoveRepository.deleteByGameId(gameId)
+                    container.mistakeRepository.deleteByGameId(gameId)
+                    container.gameRepository.deleteById(gameId)
+                }
 
                 _userMistakes.removeAll { it.gameId == gameId }
                 _mistakesByGameId.value = _userMistakes.groupBy { it.gameId }

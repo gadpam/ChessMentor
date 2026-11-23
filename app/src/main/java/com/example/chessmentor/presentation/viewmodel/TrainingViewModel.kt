@@ -238,6 +238,38 @@ class TrainingViewModel(
         smartSessionMissedPatterns.clear()
     }
 
+    private fun resetTransientUiState(state: TrainingUiState): TrainingUiState = state.copy(
+        isSolved = false,
+        isSolutionRevealed = false,
+        moveRevealedInExercise = false,
+        isAnimatingPunishment = false,
+        punishmentAnimationStep = 0,
+        isAnimatingIntro = false,
+        isErrorShake = false,
+        checkUnavailable = false,
+        isFreeAnalysisMode = false,
+        isAnalyzingPosition = false,
+        analysisEvalText = null,
+        analysisBestMoveSan = null,
+        analysisBestMoveUci = null,
+        canUndoAnalysisMove = false,
+        currentMistakeAnalysis = null,
+        showBetterMoveHint = false,
+        betterMoveShown = false,
+        isReviewOfFailed = false,
+        reviewSteps = emptyList(),
+        reviewStepIndex = 0,
+        solutionSanLine = null,
+        postSolveExplanation = null,
+        nextReviewNote = null,
+        isDailyAlreadySolved = false,
+        hintLevel = HintLevel.NONE,
+        hasActiveExercise = false,
+        arrows = emptyList(),
+        highlights = emptyList(),
+        lastRatingDelta = null
+    )
+
     // ================================================================
     // ИНИЦИАЛИЗАЦИЯ И ПЕРЕКЛЮЧЕНИЕ РЕЖИМОВ
     // ================================================================
@@ -245,10 +277,10 @@ class TrainingViewModel(
     fun showInitializationError(message: String) {
         currentJob?.cancel()
         currentExercise = null
-        _uiState.value = _uiState.value.copy(
+        resetStateForNewExercise()
+        _uiState.value = resetTransientUiState(_uiState.value).copy(
             isLoading = false,
             isInitializationError = true,
-            hasActiveExercise = false,
             isInputLocked = true,
             sessionSummary = null,
             feedbackMessage = message
@@ -289,12 +321,14 @@ class TrainingViewModel(
     fun restartSmartSession() {
         val userId = currentUser?.id ?: return
         currentJob?.cancel()
+        currentExercise = null
+        resetStateForNewExercise()
         interleavedQueue.clear()
         resetSmartSessionTrackers()
         smartSessionStep = 1
         val firstPhase = TrainingSessionPlanner.phaseForStep(1)
 
-        _uiState.value = _uiState.value.copy(
+        _uiState.value = resetTransientUiState(_uiState.value).copy(
             mode = TrainingMode.SmartSession,
             isLoading = true,
             isInitializationError = false,
@@ -304,9 +338,6 @@ class TrainingViewModel(
             sessionStepNumber = 1,
             sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
             sessionPhase = firstPhase,
-            arrows = emptyList(),
-            highlights = emptyList(),
-            lastRatingDelta = null,
             feedbackMessage = "Готовим сессию из ${TrainingSessionPlanner.DEFAULT_SESSION_SIZE} задач..."
         )
 
@@ -334,6 +365,8 @@ class TrainingViewModel(
         }
 
         currentJob?.cancel()
+        currentExercise = null
+        resetStateForNewExercise()
         if (mode !is TrainingMode.All && mode !is TrainingMode.SmartSession) {
             interleavedQueue.clear()
         }
@@ -345,7 +378,7 @@ class TrainingViewModel(
             null
         }
 
-        _uiState.value = _uiState.value.copy(
+        _uiState.value = resetTransientUiState(_uiState.value).copy(
             mode = mode,
             isLoading = true,
             isInitializationError = false,
@@ -355,9 +388,6 @@ class TrainingViewModel(
             sessionStepNumber = smartSessionStep,
             sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
             sessionPhase = initialPhase,
-            arrows = emptyList(),
-            highlights = emptyList(),
-            lastRatingDelta = null,
             feedbackMessage = "Подбираем задачу (${mode.displayName})..."
         )
 
@@ -395,6 +425,8 @@ class TrainingViewModel(
     private fun initializeExercisesAndLoad(mode: TrainingMode) {
         val userId = currentUser?.id ?: return
         currentJob?.cancel()
+        currentExercise = null
+        resetStateForNewExercise()
 
         resetSmartSessionTrackers()
         val initialPhase = if (mode is TrainingMode.SmartSession) {
@@ -404,7 +436,7 @@ class TrainingViewModel(
             null
         }
 
-        _uiState.value = _uiState.value.copy(
+        _uiState.value = resetTransientUiState(_uiState.value).copy(
             mode = mode,
             isLoading = true,
             isInitializationError = false,
@@ -544,13 +576,9 @@ class TrainingViewModel(
                     totalTimeSeconds = smartSessionTotalSeconds,
                     missedPatternNames = smartSessionMissedPatterns
                 )
-                _uiState.value = state.copy(
+                _uiState.value = resetTransientUiState(state).copy(
                     isLoading = false,
                     isInputLocked = true,
-                    hasActiveExercise = false,
-                    isFreeAnalysisMode = false,
-                    arrows = emptyList(),
-                    highlights = emptyList(),
                     sessionSummary = summary,
                     feedbackMessage = null
                 )
@@ -576,16 +604,13 @@ class TrainingViewModel(
 
         currentJob?.cancel()
 
-        _uiState.value = _uiState.value.copy(
+        _uiState.value = resetTransientUiState(_uiState.value).copy(
             mode = effectiveMode,
             isLoading = true,
             isInputLocked = true,
             sessionSummary = null,
             sessionStepNumber = if (effectiveMode is TrainingMode.SmartSession) smartSessionStep else 0,
             sessionPhase = nextPhase,
-            arrows = emptyList(),
-            highlights = emptyList(),
-            lastRatingDelta = null,
             feedbackMessage = null
         )
 

@@ -17,8 +17,9 @@ object PgnArchiveExporter {
     private val PGN_DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
     private val FILE_DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
     private val RESULT_TAG_REGEX = Regex("""^\s*\[Result\s+"([^"]+)"\]""", RegexOption.MULTILINE)
-    private val RESULT_END_REGEX = Regex("""(?:1-0|0-1|1/2-1/2|\*)\s*$""")
-    private val HAS_HEADERS_REGEX = Regex("""^\s*\[\w+\s+"[^"]*"\]""")
+    private val RESULT_END_REGEX = Regex("""(?:1-0|0-1|1/2-1/2|½-½|\*)\s*$""")
+    private val HAS_HEADERS_REGEX = Regex("""^\s*\[\w+\s+"(?:\\.|[^"\\])*"\]""")
+    private val BRACE_COMMENT_REGEX = Regex("""\{[^}]*\}""")
 
     data class ExportArchive(
         val content: String,
@@ -94,7 +95,8 @@ object PgnArchiveExporter {
                 .format(PGN_DATE_FORMAT)
             val white = if (game.playerColor == ChessColor.WHITE) safePlayer else "Opponent"
             val black = if (game.playerColor == ChessColor.BLACK) safePlayer else "Opponent"
-            val result = RESULT_END_REGEX.find(normalized)?.value?.trim() ?: "*"
+            val rawResult = RESULT_END_REGEX.find(normalized)?.value?.trim() ?: "*"
+            val result = if (rawResult == "½-½") "1/2-1/2" else rawResult
             buildString {
                 appendLine("""[Event "ChessMentor Game"]""")
                 appendLine("""[Date "$dateStr"]""")
@@ -118,7 +120,9 @@ object PgnArchiveExporter {
                 ?.get(1)
                 ?.takeIf { it in setOf("1-0", "0-1", "1/2-1/2", "*") }
                 ?: "*"
-            "$withHeaders $tagResult"
+            val tailNoComments = withHeaders.substringAfterLast('\n').replace(BRACE_COMMENT_REGEX, "")
+            val separator = if (';' in tailNoComments) "\n" else " "
+            "$withHeaders$separator$tagResult"
         }
     }
 

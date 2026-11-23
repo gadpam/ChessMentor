@@ -48,4 +48,23 @@ class PgnArchiveExporterTest {
         assertEquals("chessmentor_games_1969-12-31.pgn", name("///"))
         assertEquals("chessmentor_${"я".repeat(24)}_1969-12-31.pgn", name("Я".repeat(80)))
     }
+
+    @Test fun escapedQuoteHeaderIsPreservedAndNotDuplicated() {
+        val pgn = "[White \"O\\\"Brien\"]\n[Result \"1-0\"]\n\n1. e4 e5 1-0"
+        val out = archive(pgn)
+        assertTrue(out.startsWith("[White \"O\\\"Brien\"]\n"))
+        assertEquals(1, Regex("""\[White """).findAll(out).count())
+    }
+
+    @Test fun lineCommentDoesNotSwallowFallbackResultToken() {
+        val pgn = "[Result \"1-0\"]\n\n1. e4 e5 ; opening note"
+        val out = archive(pgn)
+        assertEquals("[Result \"1-0\"]\n\n1. e4 e5 ; opening note\n1-0\n", out)
+    }
+
+    @Test fun unicodeHalfDrawNormalizesToCanonicalResultHeader() {
+        val out = archive("1. e4 e5 ½-½")
+        assertTrue(out.contains("[Result \"1/2-1/2\"]"))
+        assertEquals("1. e4 e5 ½-½", out.trimEnd().lines().last())
+    }
 }

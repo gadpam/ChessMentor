@@ -62,13 +62,21 @@ class EngineFailureMidGameTest {
         override fun destroy() = Unit
     }
 
-    private class FakeGameRepository : GameRepository {
+    private class FakeGameRepository(
+        private var storedGame: Game? = null
+    ) : GameRepository {
         var lastSaved: Game? = null
         var lastUpdated: Game? = null
         var deletedIds = mutableListOf<Long>()
 
         override suspend fun findById(id: Long): Game? =
-            Game(id = id, userId = 1L, pgnData = EngineFailureMidGameTest.GAME_PGN, playerColor = ChessColor.WHITE, playedAt = 1L)
+            storedGame?.copy(id = id) ?: Game(
+                id = id,
+                userId = 1L,
+                pgnData = EngineFailureMidGameTest.GAME_PGN,
+                playerColor = ChessColor.WHITE,
+                playedAt = 1L
+            )
 
         override suspend fun findByUserId(userId: Long): List<Game> = emptyList()
         override suspend fun findByUserIdAndStatus(userId: Long, status: AnalysisStatus): List<Game> = emptyList()
@@ -184,5 +192,50 @@ class EngineFailureMidGameTest {
         // Никакие analysed moves / ошибки не сохранились: анализ прервался до saveAll.
         assertNull(analyzedMoveRepo.savedAll)
         assertNull(mistakeRepo.savedAll)
+    }
+
+    @Test
+    fun `cancelling forceReanalyze before deleting old rows preserves COMPLETED status`() = runBlocking {
+        val completedGame = Game(
+            id = 8L,
+            userId = 1L,
+            pgnData = GAME_PGN,
+            playerColor = ChessColor.WHITE,
+            playedAt = 1L,
+            analysisStatus = AnalysisStatus.COMPLETED,
+            accuracy = 87.5f,
+            evaluationsJson = "[20, 15]"
+        )
+        val cancellingEngine = object : ChessEngine {
+            override val status: StateFlow<EngineStatus> =
+                MutableStateFlow(EngineStatus.Idle).asStateFlow()
+            override suspend fun init(): Boolean = throw kotlinx.coroutines.CancellationException("cancelled")
+            override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int): AnalysisLine? = null
+            override suspend fun evaluate(fen: String, depthLimit: Int): Int = 0
+            override suspend fun getBestMove(fen: String, depthLimit: Int): String? = null
+            override suspend fun setOption(name: String, value: String) = Unit
+            override fun cancelInit() = Unit
+            override fun stop() = Unit
+            override fun destroy() = Unit
+        }
+        val gameRepo = FakeGameRepository(storedGame = completedGame)
+        val useCase = AnalyzeGameUseCase(
+            gameRepository = gameRepo,
+            mistakeRepository = FakeMistakeRepository(),
+            analyzedMoveRepository = FakeAnalyzedMoveRepository(),
+            userRepository = FakeUserRepository(),
+            chessEngine = cancellingEngine,
+            engineSettingsRepository = FakeEngineSettingsRepository()
+        )
+
+        var caughtCancel = false
+        try {
+            useCase.execute(AnalyzeGameUseCase.Input(gameId = 8L, forceReanalyze = true))
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            caughtCancel = true
+        }
+
+        assertTrue(caughtCancel)
+        assertEquals(AnalysisStatus.COMPLETED, gameRepo.lastUpdated?.analysisStatus)
     }
 }

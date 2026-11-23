@@ -182,4 +182,33 @@ class BackupRestorePersistenceTest {
         // База не изменилась: откат транзакции отменил все записи, включая рейтинг и партии.
         assertEquals(before, readProgress(userId))
     }
+
+    @Test fun roomMistakeRepositoryHandlesMoreThan999GameIdsWithoutBindOverflow() = runBlocking {
+        withDatabase { db ->
+            val userId = db.userDao().insert(
+                User(nickname = "ChunkTester", email = "chunk@test.local", passwordHash = "hash")
+            )
+            val gameId = db.gameDao().insert(
+                Game(userId = userId, playerColor = ChessColor.WHITE, playedAt = 1L, pgnData = pgn)
+            )
+            val mistakeRepo = RoomMistakeRepository(db.mistakeDao())
+            mistakeRepo.save(
+                com.example.chessmentor.domain.entity.Mistake(
+                    gameId = gameId,
+                    themeId = 1L,
+                    moveNumber = 2,
+                    color = ChessColor.WHITE,
+                    evaluationLoss = 300,
+                    mistakeType = com.example.chessmentor.domain.entity.MistakeType.BLUNDER,
+                    bestMove = "f5d6",
+                    userMove = "f5h4",
+                    fenBefore = fen
+                )
+            )
+            val overBindLimitIds = listOf(gameId) + (10_000L..11_200L).toList()
+            val found = mistakeRepo.findByGameIds(overBindLimitIds)
+            assertEquals(1, found.size)
+            assertEquals(gameId, found.single().gameId)
+        }
+    }
 }

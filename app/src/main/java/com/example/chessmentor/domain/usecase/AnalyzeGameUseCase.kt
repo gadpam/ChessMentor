@@ -127,6 +127,8 @@ class AnalyzeGameUseCase(
         )
 
         var gameInProgress: Game? = null
+        var originalStatus = AnalysisStatus.PENDING
+        var clearedOldArtifacts = false
         var acquiredSlot = false
 
         try {
@@ -162,6 +164,7 @@ class AnalyzeGameUseCase(
                 return@flow
             }
 
+            originalStatus = game.analysisStatus
             gameInProgress = game.startAnalysis()
             gameRepository.update(gameInProgress)
 
@@ -222,6 +225,7 @@ class AnalyzeGameUseCase(
             val data = analysisResult ?: throw IllegalStateException("Анализ не вернул результат")
 
             // Очищаем возможные старые записи при повторном анализе
+            clearedOldArtifacts = true
             analyzedMoveRepository.deleteByGameId(gameId)
             mistakeRepository.deleteByGameId(gameId)
 
@@ -276,11 +280,16 @@ class AnalyzeGameUseCase(
                 )
             )
         } catch (e: CancellationException) {
-            // При отмене возвращаем партию в PENDING, чтобы её можно было запустить снова
+            // При отмене возвращаем партию в PENDING (или в COMPLETED, если старый разбор ещё цел)
             gameInProgress?.let { inProgress ->
+                val restoreStatus = if (!clearedOldArtifacts && originalStatus == AnalysisStatus.COMPLETED) {
+                    AnalysisStatus.COMPLETED
+                } else {
+                    AnalysisStatus.PENDING
+                }
                 withContext(NonCancellable) {
                     runCatching {
-                        gameRepository.update(inProgress.copy(analysisStatus = AnalysisStatus.PENDING))
+                        gameRepository.update(inProgress.copy(analysisStatus = restoreStatus))
                     }
                 }
             }

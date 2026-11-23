@@ -148,4 +148,47 @@ class TrainingRetryTest {
             container.userRepository.deleteById(uid)
         }
     }
+
+    @Test fun switchingModeAfterSolvedAndFreeAnalysisClearsTransientFlags() = runBlocking {
+        val container = AppContainer.getInstance(InstrumentationRegistry.getInstrumentation().targetContext)
+        val user = container.userRepository.save(User(nickname = "TransientReset", email = "treset${System.nanoTime()}@test.local", passwordHash = "test"))
+        val uid = requireNotNull(user.id)
+        val game = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.WHITE, playedAt = 1L, pgnData = "1. e4 *"))
+        val gid = requireNotNull(game.id)
+        val puzzle = CuratedExerciseBank.puzzles.single { it.id == "back_rank_mate_1" }
+        val repo = container.exerciseRepository
+        val vm = TrainingViewModel(container)
+        suspend fun awaitState(predicate: (TrainingUiState) -> Boolean) = withTimeout(15_000L) {
+            while (!withContext(Dispatchers.Main) { predicate(vm.uiState.value) }) delay(15)
+        }
+        try {
+            repo.saveExercise(puzzle.toExercise().copy(createdFrom = ExerciseSource.MISTAKE, sourceGameId = gid, sourceMoveNumber = 1))
+            withContext(Dispatchers.Main) { vm.init(user, TrainingMode.FromGame(gid, 1)) }
+            awaitState { it.hasActiveExercise && !it.isInputLocked }
+            withContext(Dispatchers.Main) { vm.onMoveMade(Move(Square.D1, Square.D8)) }
+            awaitState { it.isSolved }
+            withContext(Dispatchers.Main) { vm.onToggleFreeAnalysis() }
+            awaitState { it.isFreeAnalysisMode }
+
+            // Delete the source game mistakes/exercises then switch to MyMistakes so it hits NoSuitableExercises.
+            repo.deleteBySourceGameId(gid)
+            withContext(Dispatchers.Main) { vm.selectMode(TrainingMode.MyMistakes) }
+            awaitState { !it.isLoading && it.mode == TrainingMode.MyMistakes }
+
+            val after = withContext(Dispatchers.Main) { vm.uiState.value }
+            assertTrue(!after.isSolved)
+            assertTrue(!after.isSolutionRevealed)
+            assertTrue(!after.isFreeAnalysisMode)
+            assertTrue(!after.isAnalyzingPosition)
+            assertTrue(!after.isAnimatingPunishment)
+            assertTrue(!after.checkUnavailable)
+            assertTrue(after.reviewSteps.isEmpty())
+            assertTrue(after.lastRatingDelta == null)
+        } finally {
+            vm.viewModelScope.cancel()
+            repo.deleteBySourceGameId(gid)
+            container.gameRepository.deleteById(gid)
+            container.userRepository.deleteById(uid)
+        }
+    }
 }

@@ -22,7 +22,9 @@ class RoomMistakeRepository(private val mistakeDao: MistakeDao) : MistakeReposit
 
     override suspend fun findByGameIds(gameIds: List<Long>): List<Mistake> = withContext(Dispatchers.IO) {
         if (gameIds.isEmpty()) return@withContext emptyList()
-        mistakeDao.findByGameIds(gameIds)
+        gameIds.distinct().chunked(500).flatMap { chunk ->
+            mistakeDao.findByGameIds(chunk)
+        }
     }
 
     override suspend fun save(mistake: Mistake): Mistake = withContext(Dispatchers.IO) {

@@ -179,7 +179,11 @@ object UserProgressBackupCodec {
                 ?: return DecodeResult.Error("Отсутствует секция данных (payload) в резервной копии")
 
             val actualChecksum = sha256Hex(SimpleJson.stringify(payload, pretty = false))
-            if (actualChecksum != expectedChecksum) {
+            if (!MessageDigest.isEqual(
+                    actualChecksum.toByteArray(Charsets.UTF_8),
+                    expectedChecksum.toByteArray(Charsets.UTF_8)
+                )
+            ) {
                 return DecodeResult.Error(
                     "Контрольная сумма SHA-256 не совпадает — файл повреждён или изменён"
                 )

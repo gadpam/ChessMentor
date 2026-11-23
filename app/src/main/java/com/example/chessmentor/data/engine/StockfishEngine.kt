@@ -8,6 +8,8 @@ import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.engine.NnueIntegrity
 import com.example.chessmentor.domain.entity.EngineSettings
 import com.example.chessmentor.domain.repository.EngineSettingsRepository
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +39,8 @@ class StockfishEngine(
 
     @Volatile
     private var isInitialized = false
+
+    private val lifecycleEpoch = AtomicInteger(0)
 
     @Volatile
     private var activeInitJob: Job? = null
@@ -214,6 +218,7 @@ class StockfishEngine(
      * Следующий вызов [init] создаст движок заново.
      */
     override fun destroy() {
+        lifecycleEpoch.incrementAndGet()
         cancelInit()
         if (libraryLoadError != null) return
         isInitialized = false
@@ -226,13 +231,19 @@ class StockfishEngine(
             mutex.withLock {
                 coroutineContext.ensureActive()
                 ensureReadyLocked()
+                val stopTriggered = AtomicBoolean(false)
                 val cancelWatcher = Job(parent = coroutineContext[Job])
                 val cancelHandle = cancelWatcher.invokeOnCompletion { cause ->
                     if (cause is CancellationException) {
+                        stopTriggered.set(true)
                         nativeStop()
                     }
                 }
                 try {
+                    coroutineContext.ensureActive()
+                    if (stopTriggered.get()) {
+                        throw CancellationException("Stockfish search cancelled before native start")
+                    }
                     val result = block()
                     coroutineContext.ensureActive()
                     result
@@ -289,10 +300,18 @@ class StockfishEngine(
             }
 
             coroutineContext.ensureActive()
+            val startEpoch = lifecycleEpoch.get()
             val netBytes = net.length()
             _status.value = EngineStatus.InitializingEngine(netSizeBytes = netBytes)
 
             val ok = nativeInit(net.absolutePath)
+            if (lifecycleEpoch.get() != startEpoch) {
+                if (ok) {
+                    nativeDestroy()
+                }
+                isInitialized = false
+                return false
+            }
             isInitialized = ok
             if (ok) {
                 engineSettingsRepository?.let { repo ->
