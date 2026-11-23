@@ -3,23 +3,16 @@ package com.example.chessmentor.presentation.ui.components
 
 import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.contentTransform
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
@@ -161,7 +154,7 @@ fun MessageCard(
                 onDismiss?.let {
                     IconButton(onClick = it) {
                         Icon(
-                            imageVector = Close,
+                            imageVector = Icons.Filled.Close,
                             contentDescription = "Закрыть",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp)
@@ -295,15 +288,7 @@ fun AnimatedContentSwitcher(
 ) {
     AnimatedContent(
         targetState = key,
-        modifier = modifier,
-        transitionSpec = contentTransform { _, _ ->
-            (fadeIn() +
-                slideInVertically(
-                    initialOffsetY = { introHeight -> (introHeight * 0.15f).toInt() }
-                )) then (slideOutVertically(
-                    targetOffsetY = { targetHeight -> (targetHeight * 0.15f).toInt() }
-                ))
-        }
+        modifier = modifier
     ) { targetState ->
         content()
     }
@@ -425,7 +410,6 @@ fun BrandButton(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(gradientBrush, RoundedCornerShape(12.dp))
-                .alpha(if (enabled) 1f else 0.4f)
         ) {
             Text(
                 text = label,
