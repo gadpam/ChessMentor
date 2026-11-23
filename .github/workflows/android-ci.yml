@@ -173,7 +173,26 @@ jobs:
           }
 
       - name: Compile Android instrumentation tests
-        run: ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-androidtest.log || {
+            STATUS=$?
+            python3 - /tmp/gradle-androidtest.log "$GITHUB_WORKSPACE" <<'PY'
+          import re, sys
+          log = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+          ws = sys.argv[2].rstrip("/") + "/"
+          emitted = 0
+          for m in re.finditer(r"^e: file://([^:\n]+):(\d+):(\d+)\s+(.+)$", log, re.M):
+              rel = m.group(1).replace(ws, "")
+              print(f"::error file={rel},line={m.group(2)},col={m.group(3)},title=AndroidTestKotlin::{m.group(4)}")
+              emitted += 1
+              if emitted >= 50: break
+          if emitted == 0:
+              tail = " | ".join(l.strip() for l in log.splitlines()[-30:] if l.strip())
+              print(f"::error title=AndroidTestKotlin::{tail[:1200]}")
+          PY
+            exit $STATUS
+          }
 
       - name: Upload test, lint & Room schema artifacts
         if: always()
@@ -375,7 +394,26 @@ jobs:
       - name: Ensure gradlew is executable
         run: chmod +x ./gradlew
       - name: Build application and tests before booting the emulator
-        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -Pandroid.injected.build.abi=x86_64 --no-daemon
+        run: |
+          set -o pipefail
+          ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -Pandroid.injected.build.abi=x86_64 --no-daemon 2>&1 | tee /tmp/gradle-device-build.log || {
+            STATUS=$?
+            python3 - /tmp/gradle-device-build.log "$GITHUB_WORKSPACE" <<'PY'
+          import re, sys
+          log = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+          ws = sys.argv[2].rstrip("/") + "/"
+          emitted = 0
+          for m in re.finditer(r"^e: file://([^:\n]+):(\d+):(\d+)\s+(.+)$", log, re.M):
+              rel = m.group(1).replace(ws, "")
+              print(f"::error file={rel},line={m.group(2)},col={m.group(3)},title=DeviceBuildKotlin::{m.group(4)}")
+              emitted += 1
+              if emitted >= 50: break
+          if emitted == 0:
+              tail = " | ".join(l.strip() for l in log.splitlines()[-30:] if l.strip())
+              print(f"::error title=DeviceBuild::{tail[:1200]}")
+          PY
+            exit $STATUS
+          }
       - name: Enable KVM for the emulator
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

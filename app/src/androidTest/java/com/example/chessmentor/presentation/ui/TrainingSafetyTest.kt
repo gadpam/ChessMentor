@@ -3,6 +3,10 @@ package com.example.chessmentor.presentation.ui
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -40,16 +44,24 @@ class TrainingSafetyTest {
     }
 
     @Test fun emptyStateRendersWithAndWithoutIcon() {
+        var currentIcon by mutableStateOf<ImageVector?>(null)
+        var currentTitle by mutableStateOf("Без иконки")
+        var showAction by mutableStateOf(false)
         ui.setContent {
             ChessMentorTheme {
-                EmptyState(icon = null, title = "Без иконки")
+                EmptyState(
+                    icon = currentIcon,
+                    title = currentTitle,
+                    actionLabel = if (showAction) "Ок" else null,
+                    onAction = if (showAction) ({}) else null
+                )
             }
         }
         ui.onNodeWithText("Без иконки").assertIsDisplayed()
-        ui.setContent {
-            ChessMentorTheme {
-                EmptyState(icon = Icons.Default.Star, title = "С иконкой", actionLabel = "Ок", onAction = {})
-            }
+        ui.runOnIdle {
+            currentIcon = Icons.Default.Star
+            currentTitle = "С иконкой"
+            showAction = true
         }
         ui.onNodeWithText("С иконкой").assertIsDisplayed()
         ui.onNodeWithText("Ок").assertIsDisplayed()

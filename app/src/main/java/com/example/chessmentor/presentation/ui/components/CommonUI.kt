@@ -39,7 +39,7 @@ import kotlin.random.Random
 /** Унифицированное пустое состояние для экранов без данных. */
 @Composable
 fun EmptyState(
-    icon: ImageVector = Icons.Default.Info,
+    icon: ImageVector? = Icons.Default.Info,
     title: String,
     subtitle: String? = null,
     onAction: (() -> Unit)? = null,
@@ -60,7 +60,7 @@ fun EmptyState(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = icon,
+                imageVector = icon ?: Icons.Default.Info,
                 contentDescription = title,
                 tint = palette.positive,
                 modifier = Modifier.size(32.dp)
