@@ -318,8 +318,8 @@ fun GamesListScreen(
                                 requestedByLibrary = true
                             )
                         },
-                        onDelete = { gameId ->
-                            gameViewModel.deleteGame(gameId)
+                        onDelete = {
+                            gameViewModel.deleteGame(game.id)
                         },
                         snackbarHostState = snackbarHostState,
                         coroutineScope = coroutineScope

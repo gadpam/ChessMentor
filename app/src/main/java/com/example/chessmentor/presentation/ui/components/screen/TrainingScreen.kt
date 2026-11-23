@@ -3,6 +3,7 @@ package com.example.chessmentor.presentation.ui.components.screen
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -74,6 +76,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -403,7 +406,7 @@ fun TrainingScreen(
 
                     // Шахматная доска
                     val solveBorderColor by animateColorAsState(
-                        if (uiState.isSolved) MaterialTheme.colorScheme.positive else MaterialTheme.colorScheme.outlineVariant,
+                        if (uiState.isSolved) LocalChessPalette.current.positive else MaterialTheme.colorScheme.outlineVariant,
                         animationSpec = tween(300)
                     )
                     Box(
