@@ -600,13 +600,14 @@ fun GameCard(
                                     )
                                 },
                                 actionLabel = { Text("Отменить") },
-                                duration = SnackbarDuration.Indefinite
-                            ) { actionClicked ->
-                                if (actionClicked) {
-                                    deleteJob?.cancel()
-                                    pendingDeleteGame = null
+                                duration = SnackbarDuration.Indefinite,
+                                action = { actionClicked ->
+                                    if (actionClicked) {
+                                        deleteJob?.cancel()
+                                        pendingDeleteGame = null
+                                    }
                                 }
-                            }
+                            )
                         }
                     )
                 }
