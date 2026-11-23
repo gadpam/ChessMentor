@@ -370,9 +370,8 @@ private fun GameViewScreenContent(
             .detectDragGestures(
                 onDragStart = { },
                 onDragEnd = { end ->
-                    val density = LocalDensity.current
-                    // Swipe back с левого края экрана (end — это Offset, используем x напрямую)
-                    if (end.x < with(density) { 60.dp.toPx() }) {
+                    // Swipe back с левого края экрана (end — Offset в пикселях, ~60dp ≈ 120px)
+                    if (end.x < 120f) {
                         onNavigateBack?.invoke()
                     }
                 }
