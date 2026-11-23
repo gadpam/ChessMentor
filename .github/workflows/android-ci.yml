@@ -64,10 +64,21 @@ jobs:
       - name: Ensure gradlew is executable
         run: chmod +x ./gradlew
 
+      - name: Diagnose build environment
+        run: |
+          echo "=== ANDROID_HOME=$ANDROID_HOME ==="
+          ls -la "$ANDROID_HOME" || true
+          echo "=== Installed SDK components ==="
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --list_installed || true
+          echo "=== Java version ==="
+          java -version || true
+          echo "=== Gradle version ==="
+          ./gradlew --version || true
+
       - name: Run JVM unit tests
         run: |
           set -o pipefail
-          ./gradlew testDebugUnitTest --no-daemon 2>&1 | tee /tmp/gradle-test.log || {
+          ./gradlew testDebugUnitTest --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-test.log || {
             STATUS=$?
             python3 - /tmp/gradle-test.log "$GITHUB_WORKSPACE" <<'PY'
           import glob, re, sys, xml.etree.ElementTree as ET
@@ -203,13 +214,24 @@ jobs:
       - name: Ensure gradlew is executable
         run: chmod +x ./gradlew
 
+      - name: Diagnose build environment
+        run: |
+          echo "=== ANDROID_HOME=$ANDROID_HOME ==="
+          ls -la "$ANDROID_HOME" || true
+          echo "=== Installed SDK components ==="
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --list_installed || true
+          echo "=== Java version ==="
+          java -version || true
+          echo "=== Gradle version ==="
+          ./gradlew --version || true
+
       - name: Assemble Debug & R8-minified Release APKs
         env:
           ORG_GRADLE_PROJECT_releaseVersionName: ${{ inputs.version_name || '1.0' }}
           ORG_GRADLE_PROJECT_releaseVersionCode: ${{ inputs.version_code || '1' }}
         run: |
           set -o pipefail
-          ./gradlew assembleDebug assembleRelease --no-daemon 2>&1 | tee /tmp/gradle-apk.log || {
+          ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-apk.log || {
             STATUS=$?
             python3 - /tmp/gradle-apk.log "$GITHUB_WORKSPACE" <<'PY'
           import re, sys
