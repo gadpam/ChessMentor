@@ -912,8 +912,8 @@ internal fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
         ) {
             AnimatedVisibility(
                 visible = showDetails,
-                enter = tween(250),
-                exit = tween(250)
+                enter = fadeIn(initialAlpha = 0f, animationSpec = tween(250)),
+                exit = fadeOut(targetAlpha = 0f, animationSpec = tween(250))
             ) {
                 Card(
                     colors = CardDefaults.cardColors(
@@ -1261,8 +1261,8 @@ internal fun TrainingHelpControls(
     ) {
         AnimatedVisibility(
             visible = open,
-            enter = tween(250),
-            exit = tween(250)
+            enter = fadeIn(initialAlpha = 0f, animationSpec = tween(250)),
+            exit = fadeOut(targetAlpha = 0f, animationSpec = tween(250))
         ) {
             Card(
                 colors = CardDefaults.cardColors(
