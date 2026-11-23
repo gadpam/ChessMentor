@@ -1332,6 +1332,7 @@ fun KeyMomentsCard(
                                 selectedFilter = filter
                                 showAllMoments = false
                             },
+                            modifier = Modifier.heightIn(min = 48.dp),
                             label = { Text("${filter.label} ($count)", style = MaterialTheme.typography.labelMedium) }
                         )
                     }

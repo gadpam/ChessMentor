@@ -15,6 +15,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -210,9 +211,12 @@ class ResponsiveLayoutAndTargetTest {
         }
         ui.onNodeWithText("На доске").performScrollTo().assertHeightIsAtLeast(48.dp).performClick()
         ui.runOnIdle { assertEquals(1, openedReviewMove) }
+        val mistakeNodes = ui.onAllNodesWithText("Ошибка")
+        mistakeNodes[0].performScrollTo().assertIsDisplayed().assertWidthIsAtLeast(24.dp)
+        mistakeNodes[1].performScrollTo().assertIsDisplayed().assertWidthIsAtLeast(24.dp)
         ui.onNodeWithText("Зевок").performScrollTo().assertIsDisplayed()
-        ui.onNodeWithText("Ошибка").performScrollTo().assertIsDisplayed()
         ui.onNodeWithText("Неточ.").performScrollTo().assertIsDisplayed()
         ui.onNodeWithText("Упущ.").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("Все (2)").performScrollTo().assertHeightIsAtLeast(48.dp)
     }
 }
