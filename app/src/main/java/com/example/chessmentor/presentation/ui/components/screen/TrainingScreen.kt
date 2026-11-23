@@ -1,8 +1,6 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.animation.collapseVertically
-import androidx.compose.foundation.animation.expandVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -915,8 +913,8 @@ internal fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
         ) {
             AnimatedVisibility(
                 visible = showDetails,
-                enter = expandVertically(animationSpec = tween(250)),
-                exit = collapseVertically(animationSpec = tween(250))
+                enter = tween(250),
+                exit = tween(250)
             ) {
                 Card(
                     colors = CardDefaults.cardColors(
@@ -1264,8 +1262,8 @@ internal fun TrainingHelpControls(
     ) {
         AnimatedVisibility(
             visible = open,
-            enter = expandVertically(animationSpec = tween(250)),
-            exit = collapseVertically(animationSpec = tween(250))
+            enter = tween(250),
+            exit = tween(250)
         ) {
             Card(
                 colors = CardDefaults.cardColors(
