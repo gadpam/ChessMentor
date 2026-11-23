@@ -298,14 +298,12 @@ fun AnimatedContentSwitcher(
         targetState = key,
         modifier = modifier,
         transitionSpec = {
-            fadeIn(animationSpec = tween(250)) +
+            fadeIn(animationSpec = fadeIn(tween(250))) +
                 slideInVertically(
-                    initialOffsetY = { introHeight -> introHeight * 0.15f },
-                    animationSpec = tween(250)
+                    initialOffsetY = { introHeight -> introHeight * 0.15f }
                 ) +
                 slideOutVertically(
-                    targetOffsetY = { targetHeight -> targetHeight * 0.15f },
-                    animationSpec = tween(250)
+                    targetOffsetY = { targetHeight -> targetHeight * 0.15f }
                 )
         }
     ) { targetState ->
@@ -367,7 +365,7 @@ fun GlassCard(
             MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
         ),
         start = Alignment.TopStart,
-        end = Alignment.BottomRight,
+        end = Alignment.BottomEnd,
         tileMode = TileMode.Clamp
     )
 
