@@ -203,7 +203,7 @@ class EngineFailureMidGameTest {
             playerColor = ChessColor.WHITE,
             playedAt = 1L,
             analysisStatus = AnalysisStatus.COMPLETED,
-            accuracy = 87.5f,
+            accuracy = 87.5,
             evaluationsJson = "[20, 15]"
         )
         val cancellingEngine = object : ChessEngine {
