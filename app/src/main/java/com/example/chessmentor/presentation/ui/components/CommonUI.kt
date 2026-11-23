@@ -47,7 +47,7 @@ import kotlin.random.Random
 /** Унифицированное пустое состояние для экранов без данных. */
 @Composable
 fun EmptyState(
-    icon: ImageVector = Icons.Default.AssignmentTurnedIn,
+    icon: ImageVector = Icons.Default.Info,
     title: String,
     subtitle: String? = null,
     onAction: (() -> Unit)? = null,
@@ -298,7 +298,7 @@ fun AnimatedContentSwitcher(
         targetState = key,
         modifier = modifier,
         transitionSpec = {
-            fadeIn(animationSpec = fadeIn(tween(250))) +
+            fadeIn() +
                 slideInVertically(
                     initialOffsetY = { introHeight -> introHeight * 0.15f }
                 ) +
