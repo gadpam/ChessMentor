@@ -1278,7 +1278,10 @@ internal fun RetryMistakePanel(
                 val canReturn = !state.isSolved && state.hintLevel < 2
                 if (canReturn || onPracticeInTrainer != null || (state.isSolved && onShowLine != null)) {
                     Box {
-                        IconButton(onClick = { more = true }) {
+                        IconButton(
+                            onClick = { more = true },
+                            modifier = Modifier.size(48.dp)
+                        ) {
                             Icon(Icons.Default.MoreVert, contentDescription = "Действия разбора")
                         }
                         DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
@@ -1616,7 +1619,11 @@ internal fun ReviewNavigationBar(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = onGoToPrevious, enabled = canGoBack) {
+                            IconButton(
+                                onClick = onGoToPrevious,
+                                enabled = canGoBack,
+                                modifier = Modifier.size(48.dp)
+                            ) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий ход")
                             }
                             Text(
@@ -1627,12 +1634,19 @@ internal fun ReviewNavigationBar(
                                 softWrap = false,
                                 modifier = Modifier.padding(horizontal = 4.dp)
                             )
-                            IconButton(onClick = onGoToNext, enabled = canGoForward) {
+                            IconButton(
+                                onClick = onGoToNext,
+                                enabled = canGoForward,
+                                modifier = Modifier.size(48.dp)
+                            ) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий ход")
                             }
                         }
                         Box {
-                            IconButton(onClick = { menuOpen = true }) {
+                            IconButton(
+                                onClick = { menuOpen = true },
+                                modifier = Modifier.size(48.dp)
+                            ) {
                                 Icon(Icons.Default.MoreVert, contentDescription = "Другие переходы")
                             }
                             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -1665,7 +1679,11 @@ internal fun ReviewNavigationBar(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onGoToPrevious, enabled = canGoBack) {
+                    IconButton(
+                        onClick = onGoToPrevious,
+                        enabled = canGoBack,
+                        modifier = Modifier.size(48.dp)
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Предыдущий ход")
                     }
                     Text(
@@ -1676,7 +1694,11 @@ internal fun ReviewNavigationBar(
                         softWrap = false,
                         modifier = Modifier.padding(horizontal = 2.dp)
                     )
-                    IconButton(onClick = onGoToNext, enabled = canGoForward) {
+                    IconButton(
+                        onClick = onGoToNext,
+                        enabled = canGoForward,
+                        modifier = Modifier.size(48.dp)
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Следующий ход")
                     }
                     Button(
@@ -1696,7 +1718,10 @@ internal fun ReviewNavigationBar(
                         )
                     }
                     Box {
-                        IconButton(onClick = { menuOpen = true }) {
+                        IconButton(
+                            onClick = { menuOpen = true },
+                            modifier = Modifier.size(48.dp)
+                        ) {
                             Icon(Icons.Default.MoreVert, contentDescription = "Другие переходы")
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {

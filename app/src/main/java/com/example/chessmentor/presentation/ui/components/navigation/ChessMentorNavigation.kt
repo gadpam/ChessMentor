@@ -435,7 +435,10 @@ private fun ChessMentorTopBar(
         },
         navigationIcon = {
             if (showBackButton) {
-                IconButton(onClick = onNavigateBack) {
+                IconButton(
+                    onClick = onNavigateBack,
+                    modifier = Modifier.size(48.dp)
+                ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_mentor_arrow_back),
                         contentDescription = "Назад",
@@ -446,7 +449,10 @@ private fun ChessMentorTopBar(
         },
         actions = {
             if (onOpenSettings != null) {
-                IconButton(onClick = onOpenSettings) {
+                IconButton(
+                    onClick = onOpenSettings,
+                    modifier = Modifier.size(48.dp)
+                ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_mentor_settings),
                         contentDescription = "Открыть настройки",

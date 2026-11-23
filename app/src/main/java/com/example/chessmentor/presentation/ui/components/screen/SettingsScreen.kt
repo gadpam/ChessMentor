@@ -435,7 +435,10 @@ private fun SettingsMessage(
                     }
                 )
             }
-            IconButton(onClick = onDismiss) {
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.size(48.dp)
+            ) {
                 Icon(Icons.Default.Close, contentDescription = "Закрыть")
             }
         }

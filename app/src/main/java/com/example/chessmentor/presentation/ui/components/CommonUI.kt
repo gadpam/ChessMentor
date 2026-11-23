@@ -149,7 +149,10 @@ fun MessageCard(
                     )
                 }
                 onDismiss?.let {
-                    IconButton(onClick = it) {
+                    IconButton(
+                        onClick = it,
+                        modifier = Modifier.size(48.dp)
+                    ) {
                         Icon(
                             painter = painterResource(R.drawable.ic_mentor_close),
                             contentDescription = "Закрыть",

@@ -18,6 +18,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.example.chessmentor.domain.engine.EngineStatus
@@ -207,11 +208,11 @@ class ResponsiveLayoutAndTargetTest {
                 }
             }
         }
-        ui.onNodeWithText("На доске").assertHeightIsAtLeast(48.dp).performClick()
+        ui.onNodeWithText("На доске").performScrollTo().assertHeightIsAtLeast(48.dp).performClick()
         ui.runOnIdle { assertEquals(1, openedReviewMove) }
-        ui.onNodeWithText("Зевок").assertIsDisplayed()
-        ui.onNodeWithText("Ошибка").assertIsDisplayed()
-        ui.onNodeWithText("Неточ.").assertIsDisplayed()
-        ui.onNodeWithText("Упущ.").assertIsDisplayed()
+        ui.onNodeWithText("Зевок").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("Ошибка").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("Неточ.").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("Упущ.").performScrollTo().assertIsDisplayed()
     }
 }

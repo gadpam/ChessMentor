@@ -222,7 +222,10 @@ fun GamesListScreen(
         if (indexedGames.isNotEmpty()) item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Партий: ${indexedGames.size}", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                IconButton(onClick = { searchOpen = !searchOpen; focusManager.clearFocus() }) {
+                IconButton(
+                    onClick = { searchOpen = !searchOpen; focusManager.clearFocus() },
+                    modifier = Modifier.size(48.dp)
+                ) {
                     Icon(Icons.Default.Search, contentDescription = "Поиск и фильтры")
                 }
                 AddGameButton(onNavigateToUpload)
@@ -413,7 +416,10 @@ private fun LibrarySearchAndFilters(
                 },
                 trailingIcon = if (searchQuery.isNotEmpty()) {
                     {
-                        IconButton(onClick = { onSearchChange("") }) {
+                        IconButton(
+                            onClick = { onSearchChange("") },
+                            modifier = Modifier.size(48.dp)
+                        ) {
                             Icon(Icons.Default.Clear, contentDescription = "Очистить поиск")
                         }
                     }
@@ -423,8 +429,12 @@ private fun LibrarySearchAndFilters(
             )
 
             Box {
-                FilledTonalIconButton(onClick = { onSortMenuToggle(true) },
-                    modifier = Modifier.semantics { stateDescription = activeSort.label }) {
+                FilledTonalIconButton(
+                    onClick = { onSortMenuToggle(true) },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .semantics { stateDescription = activeSort.label }
+                ) {
                     Icon(Icons.Default.Sort, contentDescription = "Сортировка")
                 }
                 DropdownMenu(
