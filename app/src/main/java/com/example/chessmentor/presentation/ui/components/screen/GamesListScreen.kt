@@ -32,7 +32,6 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.material3.LocalSnackbarHostState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -523,7 +522,6 @@ fun GameCard(
     var menuOpen by rememberSaveable(id) { mutableStateOf(false) }
     var pendingDeleteGame by remember { mutableStateOf<Game?>(null) }
     var deleteJob by remember { mutableStateOf<Job?>(null) }
-    val snackbarHost = LocalSnackbarHostState.current
     val white = game.playerColor == ChessColor.WHITE
     val detail = listOfNotNull(id?.takeIf { showNumber }?.let { "№$it" },
         info.dateLabel.takeIf { showDate }, info.timeControlLabel).joinToString(" · ")
@@ -594,7 +592,7 @@ fun GameCard(
                                     pendingDeleteGame = null
                                 }
                             }
-                            snackbarHost.showSnackbar(
+                            snackbarHostState?.showSnackbar(
                                 snackbarMessage = {
                                     Text(
                                         text = "Партия «${info.title.removePrefix("vs ")}» удалена",

@@ -369,7 +369,7 @@ private fun GameViewScreenContent(
             .background(MaterialTheme.colorScheme.background)
             .detectDragGestures(
                 onDragStart = { },
-                onDragEnd = { }
+                onDragEnd = { _ -> }
             )
     ) {
         // 1. Верхняя полоска игрока + часы + кнопки (переворот, Stockfish, Сводка)
