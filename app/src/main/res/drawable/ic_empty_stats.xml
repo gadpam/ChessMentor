@@ -18,8 +18,8 @@
         android:fillColor="#2196F3"
         android:pathData="M50,145 L80,115 L110,135 L140,95 Z"/>
     <!-- Точки на графике -->
-    <circle android:fillColor="#FFFFFF" android:cx="50" android:cy="140" android:r="4"/>
-    <circle android:fillColor="#FFFFFF" android:cx="80" android:cy="110" android:r="4"/>
-    <circle android:fillColor="#FFFFFF" android:cx="110" android:cy="130" android:r="4"/>
-    <circle android:fillColor="#FFFFFF" android:cx="140" android:cy="90" android:r="4"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M46,140 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M76,110 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M106,130 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M136,90 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0"/>
 </vector>
