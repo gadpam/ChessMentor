@@ -549,7 +549,7 @@ private fun NavigationHost(
     }
     val summaryState = key(reviewGameId) { rememberSaveableStateHolder() }
 
-    AnimatedContentSwitcher(key = currentScreen) {
+    AnimatedContentSwitcher(currentScreen) {
         when (currentScreen) {
             "home" -> {
             if (currentUser == null) {
