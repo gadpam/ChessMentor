@@ -1,10 +1,14 @@
 // presentation/ui/components/Icons.kt
 package com.example.chessmentor.presentation.ui.components
 
+import androidx.compose.foundation.Icon
 import androidx.compose.foundation.painter.rememberVectorPainter
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.chessmentor.R
 
