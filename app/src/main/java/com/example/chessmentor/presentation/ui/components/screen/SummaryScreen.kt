@@ -505,7 +505,7 @@ internal fun GraphMovePicker(
         expanded = expanded,
         onDismissRequest = { expanded = false }
     ) {
-        items(count) { index ->
+        repeat(count) { index ->
             DropdownMenuItem(
                 onClick = { expanded = false; onOpenReviewAtMove(index) },
                 modifier = Modifier.heightIn(min = 48.dp)
