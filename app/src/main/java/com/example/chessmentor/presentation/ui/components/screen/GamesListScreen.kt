@@ -592,16 +592,6 @@ fun GameCard(
                                     pendingDeleteGame = null
                                 }
                             }
-                            snackbarHostState?.showSnackbar(
-                                snackbarMessage = {
-                                    Text(
-                                        text = "Партия «${info.title.removePrefix("vs ")}» удалена",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                },
-                                actionLabel = { Text("Отменить") },
-                                duration = SnackbarDuration.Indefinite
-                            )
                         }
                     )
                 }

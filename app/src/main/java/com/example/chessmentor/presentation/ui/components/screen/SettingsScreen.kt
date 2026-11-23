@@ -827,7 +827,7 @@ private fun ChangePasswordCard(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .widthIn(max = strength.third.coerceAtLeast(0.01f).coerceAtMost(1f) * 100f, fill = false)
+                                        .widthIn(max = (strength.third.coerceAtLeast(0.01f).coerceAtMost(1f) * 100f).dp)
                                         .height(4.dp)
                                         .background(strength.second, RoundedCornerShape(2.dp))
                                 )
