@@ -74,6 +74,10 @@ jobs:
           java -version || true
           echo "=== Gradle version ==="
           ./gradlew --version || true
+          echo "=== CommonUI.kt imports ==="
+          grep -n "tween\|collapseHorizontally\|BottomRight\|AssignmentTurnedIn\|graphicsLayer\|Icons.Default.Close" app/src/main/java/com/example/chessmentor/presentation/ui/components/CommonUI.kt || true
+          echo "=== Drawable circle check ==="
+          grep -rl "<circle" app/src/main/res/drawable/ 2>/dev/null || echo "No <circle> in drawables"
 
       - name: Run JVM unit tests
         run: |
@@ -103,6 +107,9 @@ jobs:
           if emitted == 0:
               tail = " | ".join(l.strip() for l in log.splitlines()[-35:] if l.strip())
               print(f"::error title=Gradle::{tail[:900]}")
+          else:
+              echo "=== Full Gradle test log ==="
+              cat /tmp/gradle-test.log || true
           PY
             exit $STATUS
           }
@@ -224,6 +231,10 @@ jobs:
           java -version || true
           echo "=== Gradle version ==="
           ./gradlew --version || true
+          echo "=== CommonUI.kt imports ==="
+          grep -n "tween\|collapseHorizontally\|BottomRight\|AssignmentTurnedIn\|graphicsLayer\|Icons.Default.Close" app/src/main/java/com/example/chessmentor/presentation/ui/components/CommonUI.kt || true
+          echo "=== Drawable circle check ==="
+          grep -rl "<circle" app/src/main/res/drawable/ 2>/dev/null || echo "No <circle> in drawables"
 
       - name: Assemble Debug & R8-minified Release APKs
         env:
@@ -255,6 +266,9 @@ jobs:
           if emitted == 0:
               tail = " | ".join(l.strip() for l in log.splitlines()[-35:] if l.strip())
               print(f"::error title=AssembleGradle::{tail[:900]}")
+          else:
+              echo "=== Full Gradle APK log ==="
+              cat /tmp/gradle-apk.log || true
           PY
             exit $STATUS
           }
