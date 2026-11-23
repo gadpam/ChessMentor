@@ -45,7 +45,7 @@ import kotlin.random.Random
 /** Унифицированное пустое состояние для экранов без данных. */
 @Composable
 fun EmptyState(
-    icon: ImageVector = Icons.Default.AssignmentTurnedIn,
+    icon: ImageVector = Icons.Default.Info,
     title: String,
     subtitle: String? = null,
     onAction: (() -> Unit)? = null,
@@ -296,14 +296,12 @@ fun AnimatedContentSwitcher(
         targetState = key,
         modifier = modifier,
         transitionSpec = {
-            fadeIn(animationSpec = tween(250)) +
+            fadeIn() +
                 slideInVertically(
-                    initialOffsetY = { introHeight -> introHeight * 0.15f },
-                    animationSpec = tween(250)
+                    initialOffsetY = { introHeight -> introHeight * 0.15f }
                 ) +
                 slideOutVertically(
-                    targetOffsetY = { targetHeight -> targetHeight * 0.15f },
-                    animationSpec = tween(250)
+                    targetOffsetY = { targetHeight -> targetHeight * 0.15f }
                 )
         }
     ) { targetState ->
@@ -365,7 +363,7 @@ fun GlassCard(
             MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
         ),
         start = Alignment.TopStart,
-        end = Alignment.BottomRight,
+        end = Alignment.BottomEnd,
         tileMode = TileMode.Clamp
     )
 
@@ -381,7 +379,7 @@ fun GlassCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(gradientBrush, RoundedCornerShape(16.dp))
-                .alpha(0.12f)
+                .graphicsLayer { alpha = 0.12f }
         )
         Column(modifier = Modifier.padding(16.dp)) {
             content()
@@ -480,7 +478,7 @@ fun BrandEmptyState(
                             MaterialTheme.colorScheme.tertiary
                         ),
                         start = Alignment.TopLeft,
-                        end = Alignment.BottomRight
+                        end = Alignment.BottomEnd
                     ),
                     CircleShape
                 )
