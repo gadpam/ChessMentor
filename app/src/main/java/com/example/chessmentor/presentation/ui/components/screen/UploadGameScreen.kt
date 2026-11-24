@@ -197,7 +197,18 @@ fun UploadGameScreen(
                     onCopy = { gameViewModel.uploadAndAnalyzeGame(allowDuplicate = true) },
                     onOpenExistingGame = onOpenExistingGame,
                     onNextBatchWindow = { gameViewModel.showNextBatchWindow() },
-                    onResetBatchWindow = { gameViewModel.resetBatchWindow() }
+                    onResetBatchWindow = { gameViewModel.resetBatchWindow() },
+                    onUpdateNotes = { id ->
+                        gameViewModel.updateExistingGamePgnNotes(id) {
+                            onOpenExistingGame(id)
+                        }
+                    },
+                    onAddDifferentGame = {
+                        gameViewModel.saveGameWithoutAnalysis(
+                            allowDuplicate = true,
+                            onSavedToLibrary = { currentOnNavigateToLibrary() }
+                        )
+                    }
                 )
             }
         }
@@ -341,7 +352,9 @@ internal fun PgnLivePreviewCard(
     onCopy: () -> Unit,
     onOpenExistingGame: (Long) -> Unit,
     onNextBatchWindow: () -> Unit = {},
-    onResetBatchWindow: () -> Unit = {}
+    onResetBatchWindow: () -> Unit = {},
+    onUpdateNotes: (Long) -> Unit = {},
+    onAddDifferentGame: () -> Unit = {}
 ) {
     // 1. Ошибка разбора одиночного PGN
     if (!preview.isBatch && preview.singleError != null) {
@@ -665,43 +678,112 @@ internal fun PgnLivePreviewCard(
                 )
             }
 
-            // Предупреждение о дубликате с быстрым переходом к уже сохранённой партии
+            // Предупреждение о дубликате / обновлении заметок / совпадении ходов в другой партии
             preview.duplicateExistingGame?.id?.let { id ->
                 var confirmCopy by remember(id, parsed.fingerprint) { mutableStateOf(false) }
-                Text("Эта партия уже в библиотеке", style = MaterialTheme.typography.labelLarge)
-                Button(
-                    onClick = { onOpenExistingGame(id) },
-                    enabled = !isLoading,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                ) {
-                    Text("Открыть партию №$id")
-                }
-                if (confirmCopy) {
-                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Создать копию партии №$id?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("В библиотеке появится вторая запись. Stockfish разберёт копию; сохранённая партия не изменится.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-                            TextButton(onClick = { confirmCopy = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Отмена") }
-                            Button(
-                                onClick = { confirmCopy = false; onCopy() },
-                                enabled = !isLoading,
-                                modifier = Modifier.heightIn(min = 48.dp)
-                            ) {
-                                Text("Создать и разобрать")
-                            }
+                val matchInfo = preview.duplicateMatchInfo
+                when (matchInfo?.kind) {
+                    PgnParser.DuplicateMatchKind.ANNOTATED_REVISION -> {
+                        Text(
+                            text = "В партии №$id отличаются комментарии или варианты",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Можно обновить заметки в сохранённой партии без создания дубликата и без повторного разбора Stockfish.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Button(
+                            onClick = { onUpdateNotes(id) },
+                            enabled = !isLoading,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                        ) {
+                            Text("Обновить заметки в партии №$id")
+                        }
+                        OutlinedButton(
+                            onClick = { onOpenExistingGame(id) },
+                            enabled = !isLoading,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                        ) {
+                            Text("Открыть партию №$id")
                         }
                     }
-                } else {
-                    TextButton(
-                        onClick = { confirmCopy = true },
-                        enabled = !isLoading,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 48.dp)
-                    ) {
-                        Text("Создать отдельную копию")
+
+                    PgnParser.DuplicateMatchKind.DIFFERENT_CONTEXT -> {
+                        Text(
+                            text = "Совпали ходы с партией №$id, но различаются соперник или дата",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                        Text(
+                            text = "В библиотеке №$id: ${matchInfo.existingSummary}\nВ этом PGN: ${matchInfo.incomingSummary}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Button(
+                            onClick = onAddDifferentGame,
+                            enabled = !isLoading,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                        ) {
+                            Text("Добавить как другую партию")
+                        }
+                        OutlinedButton(
+                            onClick = { onOpenExistingGame(id) },
+                            enabled = !isLoading,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                        ) {
+                            Text("Открыть партию №$id")
+                        }
+                    }
+
+                    else -> {
+                        Text("Эта партия уже в библиотеке", style = MaterialTheme.typography.labelLarge)
+                        Button(
+                            onClick = { onOpenExistingGame(id) },
+                            enabled = !isLoading,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                        ) {
+                            Text("Открыть партию №$id")
+                        }
+                        if (confirmCopy) {
+                            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Создать копию партии №$id?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text("В библиотеке появится вторая запись. Stockfish разберёт копию; сохранённая партия не изменится.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                                    TextButton(onClick = { confirmCopy = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Отмена") }
+                                    Button(
+                                        onClick = { confirmCopy = false; onCopy() },
+                                        enabled = !isLoading,
+                                        modifier = Modifier.heightIn(min = 48.dp)
+                                    ) {
+                                        Text("Создать и разобрать")
+                                    }
+                                }
+                            }
+                        } else {
+                            TextButton(
+                                onClick = { confirmCopy = true },
+                                enabled = !isLoading,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                            ) {
+                                Text("Создать отдельную копию")
+                            }
+                        }
                     }
                 }
             }

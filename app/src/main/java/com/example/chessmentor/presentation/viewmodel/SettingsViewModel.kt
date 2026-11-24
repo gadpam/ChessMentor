@@ -261,18 +261,25 @@ class SettingsViewModel(
                         onUserUpdated(updated)
                         onDataRestored()
 
-                        message.value = if (s.totalChanges == 0) {
-                            "Копия проверена: все данные уже присутствуют на устройстве (без дублей)"
-                        } else {
-                            buildString {
-                                append("Восстановлено: ")
-                                val parts = buildList {
-                                    if (s.gamesImported > 0) add("партий ${s.gamesImported}")
-                                    if (s.gamesAnalysisUpgraded > 0) add("разборов ${s.gamesAnalysisUpgraded}")
-                                    if (s.exercisesImported > 0) add("задач ${s.exercisesImported}")
-                                    if (s.attemptsImported > 0) add("попыток ${s.attemptsImported}")
+                        message.value = when {
+                            s.totalChanges == 0 && s.preferencesUpdated -> {
+                                "Применены настройки профиля и оформления; все партии и попытки уже присутствуют на устройстве"
+                            }
+                            s.totalChanges == 0 -> {
+                                "Копия проверена: все данные уже присутствуют на устройстве (без дублей)"
+                            }
+                            else -> {
+                                buildString {
+                                    append("Восстановлено: ")
+                                    val parts = buildList {
+                                        if (s.gamesImported > 0) add("партий ${s.gamesImported}")
+                                        if (s.gamesAnalysisUpgraded > 0) add("разборов ${s.gamesAnalysisUpgraded}")
+                                        if (s.exercisesImported > 0) add("задач ${s.exercisesImported}")
+                                        if (s.attemptsImported > 0) add("попыток ${s.attemptsImported}")
+                                        if (s.preferencesUpdated) add("настройки профиля")
+                                    }
+                                    append(parts.joinToString(", "))
                                 }
-                                append(parts.joinToString(", "))
                             }
                         }
                     }

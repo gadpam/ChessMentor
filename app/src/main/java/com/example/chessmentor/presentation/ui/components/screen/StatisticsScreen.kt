@@ -900,7 +900,11 @@ private fun AccuracyTrendCard(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Последние ${points.size} разобранных · скользящая средняя (5)",
+                            text = if (points.size < 5) {
+                                "Выборка: ${points.size} разобранных (для тренда нужно от 5)"
+                            } else {
+                                "Последние ${points.size} разобранных · скользящая средняя (5)"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -914,7 +918,7 @@ private fun AccuracyTrendCard(
                         color = badgeColor.copy(alpha = 0.14f)
                     ) {
                         Text(
-                            text = "$sign${formatPct(delta)}%",
+                            text = "$sign${formatPct(delta)} п.п.",
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
@@ -2024,7 +2028,7 @@ private fun SpotlightOpeningBanner(
                     text = line.displayTitle(),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
@@ -2136,7 +2140,7 @@ private fun OpeningLineItem(
                     text = line.openingName,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = if (expanded) 2 else 1,
+                    maxLines = if (expanded) 3 else 2,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(

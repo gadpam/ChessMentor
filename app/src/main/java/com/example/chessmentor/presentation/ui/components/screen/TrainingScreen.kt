@@ -787,10 +787,16 @@ private fun SessionSummaryCard(
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
+                val attemptedCount = (summary.totalExercises - summary.skippedCount).coerceAtLeast(0)
                 Text(
-                    text = "Сессия из ${summary.totalExercises} задач завершена",
+                    text = if (summary.skippedCount > 0) {
+                        "Сессия завершена: решено $attemptedCount из ${summary.totalExercises}, пропущено ${summary.skippedCount}"
+                    } else {
+                        "Сессия из ${summary.totalExercises} задач завершена"
+                    },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
                 )
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -801,11 +807,21 @@ private fun SessionSummaryCard(
                 ) {
                     SummaryStatPill(
                         label = "С 1-й попытки",
-                        value = "${summary.cleanFirstTryCount}/${summary.totalExercises} (${summary.firstTryAccuracyPercent}%)"
+                        value = if (attemptedCount > 0) {
+                            "${summary.cleanFirstTryCount}/$attemptedCount (${summary.firstTryAccuracyPercent}%)"
+                        } else {
+                            "0/0"
+                        }
                     )
+                    if (summary.skippedCount > 0) {
+                        SummaryStatPill(
+                            label = "Пропущено",
+                            value = "${summary.skippedCount}"
+                        )
+                    }
                     SummaryStatPill(
                         label = "Ср. время",
-                        value = "${summary.averageTimeSeconds} с"
+                        value = if (summary.averageTimeSeconds > 0) "${summary.averageTimeSeconds} с" else "—"
                     )
                 }
 

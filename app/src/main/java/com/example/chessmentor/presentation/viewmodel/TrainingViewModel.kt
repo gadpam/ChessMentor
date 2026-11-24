@@ -222,6 +222,7 @@ class TrainingViewModel(
     private var smartSessionCleanCount: Int = 0
     private var smartSessionSolvedCount: Int = 0
     private var smartSessionFailedCount: Int = 0
+    private var smartSessionSkippedCount: Int = 0
     private var smartSessionImpulsiveCount: Int = 0
     private var smartSessionNetElo: Int = 0
     private var smartSessionTotalSeconds: Int = 0
@@ -234,6 +235,7 @@ class TrainingViewModel(
         smartSessionCleanCount = 0
         smartSessionSolvedCount = 0
         smartSessionFailedCount = 0
+        smartSessionSkippedCount = 0
         smartSessionImpulsiveCount = 0
         smartSessionNetElo = 0
         smartSessionTotalSeconds = 0
@@ -579,7 +581,8 @@ class TrainingViewModel(
                     impulsiveMistakeCount = smartSessionImpulsiveCount,
                     netRatingDelta = smartSessionNetElo,
                     totalTimeSeconds = smartSessionTotalSeconds,
-                    missedPatternNames = smartSessionMissedPatterns
+                    missedPatternNames = smartSessionMissedPatterns,
+                    skippedCount = smartSessionSkippedCount
                 )
                 _uiState.value = resetTransientUiState(state).copy(
                     isLoading = false,
@@ -651,6 +654,10 @@ class TrainingViewModel(
 
         val stats = state.sessionStats
         val updatedStreak = if (maxHintUsed == HintUsage.FULL_SOLUTION) 0 else stats.currentStreak
+        if (state.mode is TrainingMode.SmartSession && !smartSessionOutcomeRecorded && !attemptFailed) {
+            smartSessionOutcomeRecorded = true
+            smartSessionSkippedCount++
+        }
         _uiState.value = state.copy(
             sessionStats = stats.copy(
                 skipped = stats.skipped + 1,

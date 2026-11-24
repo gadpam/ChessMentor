@@ -104,4 +104,39 @@ class TrainingSessionPlannerTest {
         assertEquals(90, sharp.firstTryAccuracyPercent)
         assertEquals(14, sharp.averageTimeSeconds)
     }
+
+    @Test
+    fun buildSessionSummary_separatesSkippedPuzzlesFromMistakes() {
+        val partialSkip = TrainingSessionPlanner.buildSessionSummary(
+            totalExercises = 10,
+            cleanFirstTryCount = 6,
+            solvedTotalCount = 6,
+            failedOrRevealedCount = 0,
+            impulsiveMistakeCount = 0,
+            netRatingDelta = 30,
+            totalTimeSeconds = 72,
+            missedPatternNames = emptyList(),
+            skippedCount = 4
+        )
+        assertEquals(4, partialSkip.skippedCount)
+        assertEquals(100, partialSkip.firstTryAccuracyPercent)
+        assertEquals(12, partialSkip.averageTimeSeconds)
+        assertTrue(partialSkip.missedPatternNames.isEmpty())
+        assertTrue(partialSkip.coachTakeaway.contains("Пропущенные", ignoreCase = true))
+
+        val allSkipped = TrainingSessionPlanner.buildSessionSummary(
+            totalExercises = 10,
+            cleanFirstTryCount = 0,
+            solvedTotalCount = 0,
+            failedOrRevealedCount = 0,
+            impulsiveMistakeCount = 0,
+            netRatingDelta = 0,
+            totalTimeSeconds = 0,
+            missedPatternNames = emptyList(),
+            skippedCount = 10
+        )
+        assertEquals(10, allSkipped.skippedCount)
+        assertEquals(0, allSkipped.firstTryAccuracyPercent)
+        assertEquals("Все позиции пропущены", allSkipped.headline)
+    }
 }

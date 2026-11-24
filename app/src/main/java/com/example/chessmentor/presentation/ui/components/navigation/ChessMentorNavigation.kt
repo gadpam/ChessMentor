@@ -395,43 +395,49 @@ private fun ChessMentorTopBar(
     val showBackButton = currentUser != null && currentScreen !in setOf("home", "games", "stats")
     TopAppBar(
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val res = when (currentScreen) {
-                    "games" -> R.drawable.ic_mentor_games
-                    "upload" -> R.drawable.ic_mentor_upload
-                    "game_view" -> R.drawable.ic_mentor_search
-                    "summary" -> R.drawable.ic_mentor_emoji_events
-                    "training" -> R.drawable.ic_mentor_training
-                    "stats" -> R.drawable.ic_mentor_statistics
-                    "settings" -> R.drawable.ic_mentor_settings
-                    "engine_settings" -> R.drawable.ic_mentor_settings
-                    else -> R.drawable.ic_mentor_home
+            val fontScale = LocalDensity.current.fontScale
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val showDecorativeIcon = fontScale < 1.3f && maxWidth >= 230.dp
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (showDecorativeIcon) {
+                        val res = when (currentScreen) {
+                            "games" -> R.drawable.ic_mentor_games
+                            "upload" -> R.drawable.ic_mentor_upload
+                            "game_view" -> R.drawable.ic_mentor_search
+                            "summary" -> R.drawable.ic_mentor_emoji_events
+                            "training" -> R.drawable.ic_mentor_training
+                            "stats" -> R.drawable.ic_mentor_statistics
+                            "settings" -> R.drawable.ic_mentor_settings
+                            "engine_settings" -> R.drawable.ic_mentor_settings
+                            else -> R.drawable.ic_mentor_home
+                        }
+                        Icon(
+                            painter = painterResource(res),
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+
+                        Spacer(modifier = Modifier.width(12.dp))
+                    }
+
+                    Text(
+                        text = when (currentScreen) {
+                            "games" -> "Мои партии"
+                            "upload" -> "Загрузить партию"
+                            "game_view" -> "Разбор партии"
+                            "summary" -> "Сводка анализа"
+                            "training" -> "Тренировка"
+                            "stats" -> "Статистика"
+                            "settings" -> "Настройки"
+                            "engine_settings" -> "Настройки движка"
+                            else -> "Шахматный Ментор"
+                        },
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                Icon(
-                    painter = painterResource(res),
-                    contentDescription = null,
-                    modifier = Modifier.size(28.dp),
-                    tint = MaterialTheme.colorScheme.onBackground
-                )
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Text(
-                    text = when (currentScreen) {
-                        "games" -> "Мои партии"
-                        "upload" -> "Загрузить партию"
-                        "game_view" -> "Разбор партии"
-                        "summary" -> "Сводка анализа"
-                        "training" -> "Тренировка"
-                        "stats" -> "Статистика"
-                        "settings" -> "Настройки"
-                        "engine_settings" -> "Настройки движка"
-                        else -> "Шахматный Ментор"
-                    },
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
         },
         navigationIcon = {

@@ -18,8 +18,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.chessmentor.domain.entity.AnalyzedMove
@@ -118,6 +122,8 @@ fun HorizontalMoveList(
 
                 MoveQualityChip(
                     san = san,
+                    moveNumber = moveNumber,
+                    isWhiteMove = isWhiteMove,
                     isSelected = isSelected,
                     quality = quality,
                     onClick = { onMoveClick(index) }
@@ -148,7 +154,12 @@ private fun StartPositionChip(
             .defaultMinSize(minWidth = 44.dp, minHeight = 48.dp)
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .semantics { contentDescription = "Начальная позиция" },
+            .semantics {
+                role = Role.Button
+                selected = isSelected
+                contentDescription = "Начальная позиция"
+                if (isSelected) stateDescription = "Выбрана"
+            },
         contentAlignment = Alignment.Center
     ) {
         Box(
@@ -171,6 +182,8 @@ private fun StartPositionChip(
 @Composable
 private fun MoveQualityChip(
     san: String,
+    moveNumber: Int,
+    isWhiteMove: Boolean,
     isSelected: Boolean,
     quality: MoveQuality?,
     onClick: () -> Unit
@@ -183,6 +196,16 @@ private fun MoveQualityChip(
         MoveQuality.INACCURACY -> "?!"
         else -> ""
     }
+    val qualityDescription = when (quality) {
+        MoveQuality.BRILLIANT -> ", блестящий ход"
+        MoveQuality.GREAT_MOVE -> ", сильный ход"
+        MoveQuality.BLUNDER -> ", зевок"
+        MoveQuality.MISTAKE -> ", ошибка"
+        MoveQuality.MISSED_WIN -> ", упущенный шанс"
+        MoveQuality.INACCURACY -> ", неточность"
+        else -> ""
+    }
+    val spokenMove = "${moveNumber}${if (isWhiteMove) "." else "..."} $san$qualityDescription"
 
     val accent = when (quality) {
         MoveQuality.BRILLIANT,
@@ -213,7 +236,13 @@ private fun MoveQualityChip(
         modifier = Modifier
             .defaultMinSize(minWidth = 40.dp, minHeight = 48.dp)
             .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .semantics {
+                role = Role.Button
+                selected = isSelected
+                contentDescription = spokenMove
+                if (isSelected) stateDescription = "Выбран"
+            },
         contentAlignment = Alignment.Center
     ) {
         Box(

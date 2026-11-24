@@ -62,7 +62,8 @@ class ImportUserBackupUseCase(
         val gamesSkippedDuplicate: Int,
         val exercisesImported: Int,
         val attemptsImported: Int,
-        val attemptsSkippedDuplicate: Int
+        val attemptsSkippedDuplicate: Int,
+        val preferencesUpdated: Boolean = false
     ) {
         val totalChanges: Int
             get() = gamesImported + gamesAnalysisUpgraded + exercisesImported + attemptsImported
@@ -109,10 +110,16 @@ class ImportUserBackupUseCase(
         // Настройки вне БД пишутся только после успешной фиксации. SharedPreferences
         // живут вне транзакции Room, поэтому их запись внутри неё откатить нельзя:
         // тема и параметры движка изменились бы даже при проваленном восстановлении.
-        if (result is Result.Success && input.restorePreferences) {
-            applyOffDatabasePreferences(input.userId, snapshot.profile)
+        return if (result is Result.Success && input.restorePreferences) {
+            val offDbPrefsUpdated = applyOffDatabasePreferences(input.userId, snapshot.profile)
+            Result.Success(
+                result.summary.copy(
+                    preferencesUpdated = result.summary.preferencesUpdated || offDbPrefsUpdated
+                )
+            )
+        } else {
+            result
         }
-        return result
     }
 
     /**
@@ -126,16 +133,30 @@ class ImportUserBackupUseCase(
     private fun applyOffDatabasePreferences(
         userId: Long,
         profile: UserProgressBackupCodec.ProfileSection
-    ) {
-        sessionRepository?.setThemeMode(profile.appThemeMode)
+    ): Boolean {
+        var changed = false
+        sessionRepository?.let { sr ->
+            if (sr.themeMode.value != profile.appThemeMode) {
+                changed = true
+            }
+            sr.setThemeMode(profile.appThemeMode)
+        }
         profile.chessUsernameHint?.let { hint ->
             if (sessionRepository?.getChessUsernameHint(userId).isNullOrBlank()) {
                 sessionRepository?.saveChessUsernameHint(userId, hint)
+                changed = true
             }
         }
         profile.engineSettings?.let { settings ->
-            engineSettingsRepository?.saveSettings(settings.validate())
+            val validated = settings.validate()
+            engineSettingsRepository?.let { repo ->
+                if (repo.getSettings() != validated) {
+                    changed = true
+                }
+                repo.saveSettings(validated)
+            }
         }
+        return changed
     }
 
     private suspend fun applySnapshot(
@@ -159,6 +180,9 @@ class ImportUserBackupUseCase(
         } else {
             user.rating
         }
+
+        val dbPreferencesChanged = input.restorePreferences &&
+            (user.isSoundEnabled != profile.isSoundEnabled || user.preferredTheme != profile.preferredBoardTheme)
 
         val updatedUser = if (input.restorePreferences || mergedRating != user.rating) {
             val next = user.copy(
@@ -356,7 +380,8 @@ class ImportUserBackupUseCase(
                 gamesSkippedDuplicate = gamesSkipped,
                 exercisesImported = exercisesImported,
                 attemptsImported = attemptsImported,
-                attemptsSkippedDuplicate = attemptsSkipped
+                attemptsSkippedDuplicate = attemptsSkipped,
+                preferencesUpdated = dbPreferencesChanged
             )
         )
     }

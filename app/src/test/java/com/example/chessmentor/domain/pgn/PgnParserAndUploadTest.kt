@@ -515,4 +515,117 @@ class PgnParserAndUploadTest {
         assertTrue(secondPage.failedDetails.any { "#53" in it && "ErrorOpponent" in it })
         assertEquals(55, gameRepo.findByUserId(user.id!!).size)
     }
+
+    @Test
+    fun classifyDuplicateMatch_detectsAnnotatedRevisionAndUpdatePreservesAnalysis() = runBlocking {
+        val userRepo = FakeUserRepository()
+        val gameRepo = FakeGameRepository()
+        val user = userRepo.save(
+            User(nickname = "Hero", email = "hero@example.com", passwordHash = "h", rating = 1500)
+        )
+        val useCase = UploadGameUseCase(gameRepo, userRepo)
+
+        val plainPgn = """
+            [Site "https://lichess.org/Annot001"]
+            [White "Hero"]
+            [Black "Trainer"]
+            [Result "1-0"]
+
+            1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 1-0
+        """.trimIndent()
+        val clockOnlyPgn = """
+            [Site "https://lichess.org/Annot001"]
+            [White "Hero"]
+            [Black "Trainer"]
+            [Result "1-0"]
+
+            1. e4 { [%clk 0:03:00] } e5 { [%clk 0:02:59] } 2. Nf3 Nc6 3. Bb5 a6 1-0
+        """.trimIndent()
+        val coachPgn = """
+            [Site "https://lichess.org/Annot001"]
+            [White "Hero"]
+            [Black "Trainer"]
+            [Result "1-0"]
+
+            1. e4 { Захват центра } e5 2. Nf3 Nc6 3. Bb5 (3. Bc4 Bc5) 3... a6 1-0
+        """.trimIndent()
+
+        val saved = gameRepo.save(
+            Game(
+                userId = user.id!!,
+                pgnData = plainPgn,
+                playerColor = ChessColor.WHITE,
+                playedAt = 555_000L,
+                analysisStatus = AnalysisStatus.COMPLETED,
+                analyzedAt = 777_000L,
+                accuracy = 91.5,
+                totalMistakes = 1
+            )
+        )
+
+        val parsedClockOnly = (PgnParser.parseAndValidate(clockOnlyPgn) as PgnParser.ParseResult.Success).game
+        assertEquals(
+            PgnParser.DuplicateMatchKind.EXACT_OR_SAME_GAME,
+            PgnParser.classifyDuplicateMatch(saved.pgnData, parsedClockOnly).kind
+        )
+
+        val parsedCoach = (PgnParser.parseAndValidate(coachPgn) as PgnParser.ParseResult.Success).game
+        assertEquals(
+            PgnParser.DuplicateMatchKind.ANNOTATED_REVISION,
+            PgnParser.classifyDuplicateMatch(saved.pgnData, parsedCoach).kind
+        )
+
+        val updatedRes = useCase.updateGamePgnNotes(saved.id!!, coachPgn)
+        assertTrue(updatedRes is UploadGameUseCase.Result.Success)
+        val after = gameRepo.findById(saved.id!!)!!
+        assertEquals(1, gameRepo.findByUserId(user.id!!).size)
+        assertEquals(AnalysisStatus.COMPLETED, after.analysisStatus)
+        assertEquals(777_000L, after.analyzedAt)
+        assertEquals(91.5, after.accuracy!!, 0.01)
+        assertTrue(after.pgnData.contains("Захват центра"))
+    }
+
+    @Test
+    fun classifyDuplicateMatch_andBatchUpload_keepDifferentContextMiniatures() = runBlocking {
+        val userRepo = FakeUserRepository()
+        val gameRepo = FakeGameRepository()
+        val user = userRepo.save(
+            User(nickname = "Hero", email = "hero@example.com", passwordHash = "h", rating = 1500)
+        )
+        val useCase = UploadGameUseCase(gameRepo, userRepo)
+
+        val moves = "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. c3 Nf6 5. d4 exd4 6. cxd4 Bb4+ 7. Bd2 Bxd2+ 8. Nbxd2 d5 1-0"
+        val game1 = """
+            [White "Hero"]
+            [Black "AlphaOpponent"]
+            [Date "2026.10.01"]
+            [Result "1-0"]
+
+            $moves
+        """.trimIndent()
+        val game2 = """
+            [White "Hero"]
+            [Black "BetaOpponent"]
+            [Date "2026.10.12"]
+            [Result "1-0"]
+
+            $moves
+        """.trimIndent()
+
+        val parsed2 = (PgnParser.parseAndValidate(game2) as PgnParser.ParseResult.Success).game
+        val match = PgnParser.classifyDuplicateMatch(game1, parsed2)
+        assertEquals(PgnParser.DuplicateMatchKind.DIFFERENT_CONTEXT, match.kind)
+
+        val batch = useCase.executeBatch(
+            UploadGameUseCase.BatchInput(
+                userId = user.id!!,
+                rawPgnArchive = "$game1\n\n$game2",
+                fallbackColor = ChessColor.WHITE,
+                skipDuplicates = true
+            )
+        ) as UploadGameUseCase.BatchResult.Success
+
+        assertEquals(2, batch.importedGames.size)
+        assertEquals(0, batch.skippedDuplicates)
+    }
 }

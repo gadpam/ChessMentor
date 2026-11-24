@@ -157,4 +157,55 @@ class PgnPreviewTest {
         ui.waitUntil(5000) { vm.importPreview.value?.batchOffset == 0 }
         ui.onNodeWithText("Проверены записи 1–50 из 52").assertIsDisplayed()
     }
+
+    @Test fun annotatedRevisionAndDifferentContextDuplicateBranchesOfferDirectActions() {
+        var updatedGameId: Long? = null
+        var addedDifferentGame = 0
+        ui.setContent {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                vm.importPreview.value?.let {
+                    PgnLivePreviewCard(
+                        preview = it,
+                        selectedColor = vm.selectedColor.value,
+                        colorAutoDetected = false,
+                        isLoading = false,
+                        onCopy = {},
+                        onOpenExistingGame = {},
+                        onUpdateNotes = { id -> updatedGameId = id },
+                        onAddDifferentGame = { addedDifferentGame++ }
+                    )
+                }
+            }
+        }
+
+        val plainMoves = "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. c3 Nf6 5. d4 exd4 6. cxd4 Bb4+ 7. Bd2 Bxd2+ 8. Nbxd2 d5 1-0"
+        val existingRecord = Game(
+            id = 14,
+            userId = 1,
+            pgnData = "[White \"Tester\"]\n[Black \"FirstRival\"]\n[Date \"2026.10.01\"]\n[Result \"1-0\"]\n\n$plainMoves",
+            playerColor = ChessColor.WHITE
+        )
+        val annotatedPgn = "[White \"Tester\"]\n[Black \"FirstRival\"]\n[Date \"2026.10.01\"]\n[Result \"1-0\"]\n\n" +
+            "1. e4 { Сильный первый ход } e5 2. Nf3 Nc6 3. Bc4 (3. Bb5 a6) 3... Bc5 4. c3 Nf6 5. d4 exd4 6. cxd4 Bb4+ 7. Bd2 Bxd2+ 8. Nbxd2 d5 1-0"
+        val otherOpponentPgn = "[White \"Tester\"]\n[Black \"SecondRival\"]\n[Date \"2026.10.12\"]\n[Result \"1-0\"]\n\n$plainMoves"
+
+        ui.runOnIdle {
+            vm.userGames.clear()
+            vm.userGames.add(existingRecord)
+            vm.onPgnInputChanged(annotatedPgn)
+        }
+        ui.waitUntil(5000) { vm.importPreview.value?.duplicateExistingGame?.id == 14L }
+        ui.onNodeWithText("В партии №14 отличаются комментарии или варианты").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("Обновить заметки в партии №14").performScrollTo().performClick()
+        ui.runOnIdle { assertEquals(14L, updatedGameId) }
+
+        ui.runOnIdle { vm.onPgnInputChanged(otherOpponentPgn) }
+        ui.waitUntil(5000) {
+            vm.importPreview.value?.duplicateMatchInfo?.kind ==
+                com.example.chessmentor.domain.pgn.PgnParser.DuplicateMatchKind.DIFFERENT_CONTEXT
+        }
+        ui.onNodeWithText("Совпали ходы с партией №14, но различаются соперник или дата").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("Добавить как другую партию").performScrollTo().performClick()
+        ui.runOnIdle { assertEquals(1, addedDifferentGame) }
+    }
 }

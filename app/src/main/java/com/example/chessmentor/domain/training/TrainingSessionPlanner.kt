@@ -45,7 +45,8 @@ data class SessionSummary(
     val averageTimeSeconds: Int,
     val missedPatternNames: List<String>,
     val headline: String,
-    val coachTakeaway: String
+    val coachTakeaway: String,
+    val skippedCount: Int = 0
 )
 
 /**
@@ -143,22 +144,37 @@ object TrainingSessionPlanner {
         impulsiveMistakeCount: Int,
         netRatingDelta: Int,
         totalTimeSeconds: Int,
-        missedPatternNames: List<String>
+        missedPatternNames: List<String>,
+        skippedCount: Int = 0
     ): SessionSummary {
         val safeTotal = totalExercises.coerceAtLeast(1)
-        val cleanClamped = cleanFirstTryCount.coerceIn(0, safeTotal)
-        val firstTryPct = ((cleanClamped * 100.0) / safeTotal).roundToInt().coerceIn(0, 100)
-        val avgSeconds = (totalTimeSeconds.toDouble() / safeTotal).roundToInt().coerceAtLeast(1)
+        val safeSkipped = skippedCount.coerceIn(0, safeTotal)
+        val attemptedCount = (safeTotal - safeSkipped).coerceAtLeast(0)
+        val cleanClamped = cleanFirstTryCount.coerceIn(0, attemptedCount.coerceAtLeast(0))
+        val firstTryPct = if (attemptedCount > 0) {
+            ((cleanClamped * 100.0) / attemptedCount).roundToInt().coerceIn(0, 100)
+        } else {
+            0
+        }
+        val avgSeconds = if (attemptedCount > 0) {
+            (totalTimeSeconds.toDouble() / attemptedCount).roundToInt().coerceAtLeast(1)
+        } else {
+            0
+        }
         val distinctMissed = missedPatternNames.map { it.trim() }.filter { it.isNotEmpty() }.distinct().take(4)
 
         val headline = when {
+            attemptedCount == 0 -> "Все позиции пропущены"
             firstTryPct >= 90 -> "Блестящая сессия!"
             firstTryPct >= 70 -> "Отличная рабочая тренировка!"
             firstTryPct >= 50 -> "Хорошая нагрузка в зоне роста"
             else -> "Сложная сессия — точки роста найдены"
         }
 
-        val coachTakeaway = when {
+        val baseTakeaway = when {
+            attemptedCount == 0 -> {
+                "Позиции были пропущены без попытки — выберите более комфортный темп или прицельную тему."
+            }
             impulsiveMistakeCount >= 2 -> {
                 "Замечено $impulsiveMistakeCount поспешных первых хода. В следующей сессии делайте короткую паузу и проверяйте все шахи и взятия соперника до хода."
             }
@@ -176,11 +192,16 @@ object TrainingSessionPlanner {
                 "Не спешите с первым ходом: проваленные задачи вернутся по интервальному расписанию, когда мозг будет готов закрепить идею."
             }
         }
+        val coachTakeaway = if (safeSkipped > 0 && attemptedCount > 0) {
+            "$baseTakeaway Пропущенные без хода позиции ($safeSkipped) не засчитаны как ошибки и не отмечены слабыми темами."
+        } else {
+            baseTakeaway
+        }
 
         return SessionSummary(
             totalExercises = safeTotal,
             cleanFirstTryCount = cleanClamped,
-            solvedTotalCount = solvedTotalCount.coerceIn(0, safeTotal),
+            solvedTotalCount = solvedTotalCount.coerceIn(0, attemptedCount),
             failedOrRevealedCount = failedOrRevealedCount.coerceAtLeast(0),
             impulsiveMistakeCount = impulsiveMistakeCount.coerceAtLeast(0),
             firstTryAccuracyPercent = firstTryPct,
@@ -188,7 +209,8 @@ object TrainingSessionPlanner {
             averageTimeSeconds = avgSeconds,
             missedPatternNames = distinctMissed,
             headline = headline,
-            coachTakeaway = coachTakeaway
+            coachTakeaway = coachTakeaway,
+            skippedCount = safeSkipped
         )
     }
 }

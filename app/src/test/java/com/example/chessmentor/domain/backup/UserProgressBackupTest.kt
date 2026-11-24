@@ -478,6 +478,51 @@ class UserProgressBackupTest {
         assertEquals(AnalysisStatus.PENDING, dst.games.findByUserId(u2.id!!).single().analysisStatus)
     }
 
+    @Test
+    fun `import reports preferencesUpdated when only theme or sound changed`() = runBlocking {
+        val src = InMemoryEnv()
+        val u1 = src.users.save(
+            User(
+                nickname = "Styler",
+                email = "styler@b.com",
+                passwordHash = "h",
+                isSoundEnabled = false,
+                preferredTheme = "Tournament"
+            )
+        )
+        src.sessionRepo.setThemeMode(AppThemeMode.DARK)
+        val pgn = """
+            [White "Styler"]
+            [Black "Opponent"]
+            [Result "*"]
+
+            1. e4 e5 2. Nf3 Nc6 *
+        """.trimIndent()
+        src.games.save(Game(userId = u1.id!!, pgnData = pgn, playerColor = ChessColor.WHITE, playedAt = fixedNow))
+        val exported = (src.exporter().execute(ExportUserBackupUseCase.Input(u1.id!!, fixedNow))
+            as ExportUserBackupUseCase.Result.Success).backup
+
+        val dst = InMemoryEnv()
+        val u2 = dst.users.save(
+            User(
+                nickname = "Styler",
+                email = "styler@b.com",
+                passwordHash = "h",
+                isSoundEnabled = true,
+                preferredTheme = "Classic"
+            )
+        )
+        dst.games.save(Game(userId = u2.id!!, pgnData = pgn, playerColor = ChessColor.WHITE, playedAt = fixedNow))
+
+        val res = dst.importer().execute(ImportUserBackupUseCase.Input(u2.id!!, exported.jsonContent))
+        val summary = (res as ImportUserBackupUseCase.Result.Success).summary
+
+        assertEquals(0, summary.totalChanges)
+        assertTrue(summary.preferencesUpdated)
+        assertEquals(AppThemeMode.DARK, dst.sessionRepo.themeMode.value)
+        assertFalse(summary.updatedUser.isSoundEnabled)
+    }
+
     // ==================== IN-MEMORY ОКРУЖЕНИЕ ====================
 
     private class InMemoryEnv(

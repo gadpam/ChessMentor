@@ -1348,7 +1348,7 @@ object PlayerAnalyticsCalculator {
             actions.add(
                 CoachingAction(
                     title = "Зона роста: ${weakestPhase.phase.displayName} (${weakestPhase.accuracy.roundToInt()}%)",
-                    description = "Точность на ${formatOne(gap)}% ниже вашей лучшей фазы " +
+                    description = "Точность на ${formatOne(gap)} п.п. ниже вашей лучшей фазы " +
                         "(${report.phases.strongest?.phase?.displayName} ${report.phases.strongest?.accuracy?.roundToInt()}%), " +
                         "ошибок: ${weakestPhase.totalErrors} за ${weakestPhase.movesCount} ходов.",
                     actionLabel = "Тренировать",
@@ -1362,7 +1362,7 @@ object PlayerAnalyticsCalculator {
         if (report.timeTrouble.hasComparison && ttDrop != null && ttDrop >= 7.0) {
             actions.add(
                 CoachingAction(
-                    title = "Потери в цейтноте (−${formatOne(ttDrop)}% точности)",
+                    title = "Потери в цейтноте (−${formatOne(ttDrop)} п.п. точности)",
                     description = "При остатке менее 20 сек точность падает с " +
                         "${report.timeTrouble.normalAccuracy!!.roundToInt()}% до " +
                         "${report.timeTrouble.timeTroubleAccuracy!!.roundToInt()}%. " +

@@ -126,6 +126,34 @@ class UploadGameUseCase(
     }
 
     /**
+     * Обновляет PGN-текст (комментарии, варианты, пометки) у существующей партии без создания
+     * дубликата и без сброса уже выполненного анализа Stockfish.
+     */
+    suspend fun updateGamePgnNotes(gameId: Long, incomingPgn: String): Result {
+        val existing = gameRepository.findById(gameId)
+            ?: return Result.Error("Партия №$gameId не найдена")
+
+        val trimmed = incomingPgn.trim()
+        if (trimmed.isEmpty()) {
+            return Result.Error("PGN не может быть пустым")
+        }
+
+        val parsed = when (val res = PgnParser.parseAndValidate(trimmed)) {
+            is PgnParser.ParseResult.Success -> res.game
+            is PgnParser.ParseResult.Failure -> return Result.Error(res.errorMessage)
+        }
+
+        if (!PgnParser.hasSameMainlineMoves(existing.pgnData, parsed.enrichedPgn)) {
+            return Result.Error("Основные ходы не совпадают с сохранённой партией — обновите как новую партию")
+        }
+
+        val updated = gameRepository.update(
+            existing.copy(pgnData = parsed.enrichedPgn)
+        )
+        return Result.Success(updated, colorAutoDetected = false)
+    }
+
+    /**
      * Пакетный импорт PGN-текста или `.pgn`-файла (1..[MAX_BATCH_GAMES] партий).
      */
     suspend fun executeBatch(input: BatchInput): BatchResult {
@@ -150,11 +178,11 @@ class UploadGameUseCase(
         val remainingAfterWindow = (allBlocks.size - (safeOffset + blocks.size)).coerceAtLeast(0)
         val truncatedCount = remainingAfterWindow
 
-        val seenFingerprints = HashSet<String>()
+        val seenByFingerprint = HashMap<String, MutableList<String>>()
         if (input.skipDuplicates) {
             for (existing in gameRepository.findByUserId(input.userId)) {
                 PgnParser.computeFingerprintForStoredPgn(existing.pgnData)?.let { fp ->
-                    seenFingerprints.add(fp)
+                    seenByFingerprint.getOrPut(fp) { mutableListOf() }.add(existing.pgnData)
                 }
             }
         }
@@ -189,10 +217,16 @@ class UploadGameUseCase(
             }
 
             val parsed = (parseRes as PgnParser.ParseResult.Success).game
-            if (input.skipDuplicates && !seenFingerprints.add(parsed.fingerprint)) {
+            val existingMatches = seenByFingerprint[parsed.fingerprint].orEmpty()
+            val isDuplicate = input.skipDuplicates && existingMatches.any { existingPgn ->
+                PgnParser.classifyDuplicateMatch(existingPgn, parsed).kind !=
+                    PgnParser.DuplicateMatchKind.DIFFERENT_CONTEXT
+            }
+            if (isDuplicate) {
                 skippedDuplicates++
                 continue
             }
+            seenByFingerprint.getOrPut(parsed.fingerprint) { mutableListOf() }.add(parsed.enrichedPgn)
 
             val detectedColor = if (input.autoDetectColor) {
                 PgnParser.detectPlayerColor(parsed.metadata, candidateNames)

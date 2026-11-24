@@ -50,7 +50,8 @@ data class PgnImportPreview(
     val batchRemainingCount: Int = 0,
     val batchInvalidCount: Int = 0,
     val batchErrorDetails: List<String> = emptyList(),
-    val batchHasDatedGames: Boolean = false
+    val batchHasDatedGames: Boolean = false,
+    val duplicateMatchInfo: PgnParser.DuplicateMatchInfo? = null
 ) {
     val isBatch: Boolean get() = totalGames > 1
 }
@@ -470,13 +471,15 @@ class GameViewModel(
                     val parsed = res.game
                     val autoColor = PgnParser.detectPlayerColor(parsed.metadata, candidateNames)
                     val dup = existingByFingerprint[parsed.fingerprint]
+                    val matchInfo = dup?.let { PgnParser.classifyDuplicateMatch(it.pgnData, parsed) }
                     PgnImportPreview(
                         totalGames = 1,
                         validGamesCount = 1,
                         singleParsed = parsed,
                         autoDetectedColor = autoColor,
                         duplicateExistingGame = dup,
-                        sourceFileName = sourceFileName
+                        sourceFileName = sourceFileName,
+                        duplicateMatchInfo = matchInfo
                     )
                 }
                 is PgnParser.ParseResult.Failure -> {
@@ -494,7 +497,12 @@ class GameViewModel(
         val safeOffset = batchOffset.coerceIn(0, (blocks.size - 1).coerceAtLeast(0))
         val limited = blocks.drop(safeOffset).take(UploadGameUseCase.MAX_BATCH_GAMES)
         val remainingAfter = (blocks.size - (safeOffset + limited.size)).coerceAtLeast(0)
-        val seenFp = HashSet(existingByFingerprint.keys)
+        val seenByFp = HashMap<String, MutableList<String>>().apply {
+            for (g in existingGames) {
+                val fp = PgnParser.computeFingerprintForStoredPgn(g.pgnData) ?: continue
+                getOrPut(fp) { mutableListOf() }.add(g.pgnData)
+            }
+        }
         var validCount = 0
         var dupCount = 0
         var autoColorCount = 0
@@ -508,10 +516,16 @@ class GameViewModel(
             when (val res = PgnParser.parseAndValidate(block)) {
                 is PgnParser.ParseResult.Success -> {
                     val g = res.game
-                    if (!seenFp.add(g.fingerprint)) {
+                    val existingForFp = seenByFp[g.fingerprint].orEmpty()
+                    val isDup = existingForFp.any { existingPgn ->
+                        PgnParser.classifyDuplicateMatch(existingPgn, g).kind !=
+                            PgnParser.DuplicateMatchKind.DIFFERENT_CONTEXT
+                    }
+                    if (isDup) {
                         dupCount++
                         continue
                     }
+                    seenByFp.getOrPut(g.fingerprint) { mutableListOf() }.add(g.enrichedPgn)
                     validCount++
                     if (g.metadata.playedAtMillis != null) {
                         hasDatedGames = true
@@ -741,6 +755,68 @@ class GameViewModel(
                 isLoading.value = false
                 message.value = "Ошибка сохранения: ${e.message}"
                 Log.e(TAG, "Error saving game without analysis", e)
+            }
+        }
+    }
+
+    /**
+     * Обновляет комментарии и варианты у уже существующей партии без создания дубликата
+     * и без повторного запуска Stockfish.
+     */
+    fun updateExistingGamePgnNotes(
+        gameId: Long,
+        onUpdated: () -> Unit = {}
+    ) {
+        val userId = currentUser.value?.id
+        if (userId == null) {
+            message.value = "Ошибка: Необходимо войти в систему"
+            return
+        }
+
+        val pgn = pgnInput.value.trim()
+        if (pgn.isBlank()) {
+            message.value = "Ошибка: Введите или вставьте PGN партии"
+            return
+        }
+
+        isLoading.value = true
+        message.value = ""
+
+        viewModelScope.launch {
+            try {
+                val res = withContext(Dispatchers.IO) {
+                    container.uploadGameUseCase.updateGamePgnNotes(gameId, pgn)
+                }
+                isLoading.value = false
+                when (res) {
+                    is UploadGameUseCase.Result.Success -> {
+                        val updatedGame = res.game
+                        if (selectedGame.value?.id == updatedGame.id) {
+                            selectedGame.value = updatedGame
+                        }
+                        val idx = userGames.indexOfFirst { it.id == updatedGame.id }
+                        if (idx >= 0) {
+                            userGames[idx] = updatedGame
+                        }
+                        clearImportForm()
+                        loadUserData()
+                        message.value = "Заметки и варианты обновлены в партии №$gameId (разбор сохранён)"
+                        onUpdated()
+                    }
+                    is UploadGameUseCase.Result.Duplicate -> {
+                        message.value = "Ошибка: Не удалось обновить партию"
+                    }
+                    is UploadGameUseCase.Result.Error -> {
+                        message.value = "Ошибка: ${res.message}"
+                    }
+                }
+            } catch (e: CancellationException) {
+                isLoading.value = false
+                throw e
+            } catch (e: Exception) {
+                isLoading.value = false
+                message.value = "Ошибка обновления PGN: ${e.message}"
+                Log.e(TAG, "Error updating existing game PGN notes", e)
             }
         }
     }

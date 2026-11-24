@@ -127,6 +127,18 @@ object PgnParser {
         OTHER("")
     }
 
+    enum class DuplicateMatchKind {
+        EXACT_OR_SAME_GAME,
+        ANNOTATED_REVISION,
+        DIFFERENT_CONTEXT
+    }
+
+    data class DuplicateMatchInfo(
+        val kind: DuplicateMatchKind,
+        val existingSummary: String,
+        val incomingSummary: String
+    )
+
     data class TimeControlInfo(
         val raw: String,
         val shortLabel: String,
@@ -595,6 +607,180 @@ object PgnParser {
                 .filter { it.isNotEmpty() }
             if (tokens.isEmpty()) null else sha256Hex("san:${tokens.joinToString(" ")}")
         }.getOrNull()
+    }
+
+    fun hasSameMainlineMoves(firstPgn: String, secondPgn: String): Boolean {
+        val (m1, mt1) = extractMetadataAndMovetext(firstPgn.replace("\r\n", "\n").replace('\r', '\n'))
+        val (m2, mt2) = extractMetadataAndMovetext(secondPgn.replace("\r\n", "\n").replace('\r', '\n'))
+        val fen1 = m1.startFen?.trim().orEmpty()
+        val fen2 = m2.startFen?.trim().orEmpty()
+        if (fen1 != fen2) return false
+        val moves1 = extractMainlineTokensAndClocks(mt1).sanTokens.map(::normalizeSanToken).filter { it.isNotEmpty() }
+        val moves2 = extractMainlineTokensAndClocks(mt2).sanTokens.map(::normalizeSanToken).filter { it.isNotEmpty() }
+        return moves1.isNotEmpty() && moves1 == moves2
+    }
+
+    fun classifyDuplicateMatch(existingPgn: String, incomingParsed: ParsedPgnGame): DuplicateMatchInfo {
+        val cleanExisting = existingPgn.removePrefix("\uFEFF").replace("\r\n", "\n").replace('\r', '\n').trim()
+        val (existingMeta, existingMovetext) = extractMetadataAndMovetext(cleanExisting)
+        val (_, incomingMovetext) = extractMetadataAndMovetext(incomingParsed.rawPgn.trim())
+        val incomingMeta = incomingParsed.metadata
+
+        val existingUrl = existingMeta.gameUrl?.trim()?.trimEnd('/')?.lowercase(Locale.ROOT)?.takeIf(::isSpecificGameUrl)
+        val incomingUrl = incomingMeta.gameUrl?.trim()?.trimEnd('/')?.lowercase(Locale.ROOT)?.takeIf(::isSpecificGameUrl)
+        val hasSameUrl = existingUrl != null && incomingUrl != null && existingUrl == incomingUrl
+
+        val whiteDiffers = existingMeta.whiteName != null && incomingMeta.whiteName != null &&
+            !existingMeta.whiteName.equals(incomingMeta.whiteName, ignoreCase = true)
+        val blackDiffers = existingMeta.blackName != null && incomingMeta.blackName != null &&
+            !existingMeta.blackName.equals(incomingMeta.blackName, ignoreCase = true)
+        val dateDiffers = existingMeta.dateLabel != null && incomingMeta.dateLabel != null &&
+            existingMeta.dateLabel != incomingMeta.dateLabel
+        val resultDiffers = existingMeta.result != PgnResult.ONGOING && incomingMeta.result != PgnResult.ONGOING &&
+            existingMeta.result != incomingMeta.result
+
+        val existingNotes = extractAnnotationSignature(existingMovetext)
+        val incomingNotes = extractAnnotationSignature(incomingMovetext)
+        val hasAnnotationRevision = incomingNotes.isNotEmpty() && incomingNotes != existingNotes
+
+        val kind = when {
+            !hasSameUrl && (whiteDiffers || blackDiffers || dateDiffers || resultDiffers) ->
+                DuplicateMatchKind.DIFFERENT_CONTEXT
+            hasAnnotationRevision ->
+                DuplicateMatchKind.ANNOTATED_REVISION
+            else ->
+                DuplicateMatchKind.EXACT_OR_SAME_GAME
+        }
+
+        return DuplicateMatchInfo(
+            kind = kind,
+            existingSummary = formatComparisonSummary(existingMeta),
+            incomingSummary = formatComparisonSummary(incomingMeta)
+        )
+    }
+
+    private fun formatComparisonSummary(meta: PgnMetadata): String {
+        val players = if (meta.whiteName != null || meta.blackName != null) {
+            "${meta.whiteName ?: "?"} – ${meta.blackName ?: "?"}"
+        } else {
+            "Без имён игроков"
+        }
+        val extra = listOfNotNull(
+            meta.dateLabel,
+            meta.result.takeIf { it != PgnResult.ONGOING }?.displaySymbol()
+        ).joinToString(" · ")
+        return if (extra.isEmpty()) players else "$players ($extra)"
+    }
+
+    /**
+     * Извлекает нормализованную подпись комментариев, вариантов и оценочных знаков из PGN-текста ходов,
+     * отбрасывая технические теги `[%clk ...]`, `[%eval ...]`, `[%emt ...]`, `[%cal ...]`, `[%csl ...]`.
+     */
+    internal fun extractAnnotationSignature(movetext: String): String {
+        val parts = mutableListOf<String>()
+        val braceBuf = StringBuilder()
+        val parenBuf = StringBuilder()
+        val tokenBuf = StringBuilder()
+        var inBrace = false
+        var inLineComment = false
+        var parenDepth = 0
+
+        fun flushMainToken() {
+            if (tokenBuf.isEmpty()) return
+            val token = tokenBuf.toString()
+            tokenBuf.setLength(0)
+            if (NAG_TOKEN_REGEX.matches(token)) {
+                parts.add("nag:$token")
+            } else {
+                val trailing = TRAILING_ANNOTATION_REGEX.find(token)?.value
+                if (!trailing.isNullOrEmpty()) {
+                    parts.add("mark:$trailing")
+                }
+            }
+        }
+
+        fun recordComment(raw: String) {
+            val cleaned = raw
+                .replace(Regex("""\[%(?:clk|eval|emt|cal|csl)\s+[^\]]*]""", RegexOption.IGNORE_CASE), " ")
+                .replace(WHITESPACE_REGEX, " ")
+                .trim()
+            if (cleaned.isNotEmpty()) {
+                parts.add("c:$cleaned")
+            }
+        }
+
+        for (ch in movetext) {
+            if (inLineComment) {
+                if (ch == '\n') {
+                    inLineComment = false
+                    recordComment(braceBuf.toString())
+                    braceBuf.setLength(0)
+                } else {
+                    braceBuf.append(ch)
+                }
+                continue
+            }
+            if (inBrace) {
+                if (ch == '}') {
+                    inBrace = false
+                    if (parenDepth == 0) {
+                        recordComment(braceBuf.toString())
+                        braceBuf.setLength(0)
+                    } else {
+                        parenBuf.append('{').append(braceBuf).append('}')
+                        braceBuf.setLength(0)
+                    }
+                } else {
+                    braceBuf.append(ch)
+                }
+                continue
+            }
+            if (parenDepth > 0) {
+                if (ch == '{') {
+                    inBrace = true
+                    braceBuf.setLength(0)
+                } else if (ch == '(') {
+                    parenDepth++
+                    parenBuf.append(ch)
+                } else if (ch == ')') {
+                    parenDepth--
+                    if (parenDepth == 0) {
+                        val normVar = parenBuf.toString().replace(WHITESPACE_REGEX, " ").trim()
+                        if (normVar.isNotEmpty()) parts.add("v:$normVar")
+                        parenBuf.setLength(0)
+                    } else {
+                        parenBuf.append(ch)
+                    }
+                } else {
+                    parenBuf.append(ch)
+                }
+                continue
+            }
+            when {
+                ch == '{' -> {
+                    flushMainToken()
+                    inBrace = true
+                    braceBuf.setLength(0)
+                }
+                ch == ';' -> {
+                    flushMainToken()
+                    inLineComment = true
+                    braceBuf.setLength(0)
+                }
+                ch == '(' -> {
+                    flushMainToken()
+                    parenDepth = 1
+                    parenBuf.setLength(0)
+                }
+                ch.isWhitespace() -> flushMainToken()
+                else -> tokenBuf.append(ch)
+            }
+        }
+        flushMainToken()
+        if (inLineComment && braceBuf.isNotEmpty()) {
+            recordComment(braceBuf.toString())
+        }
+        return parts.joinToString("|")
     }
 
     private fun computeCanonicalFingerprint(
