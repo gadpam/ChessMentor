@@ -74,7 +74,7 @@ fun GameViewScreen(
     boardViewModel: BoardViewModel = viewModel(),
     chessEngine: ChessEngine? = null,
     onOpenSummary: (() -> Unit)? = null,
-    onPracticeMistake: ((gameId: Long, moveNumber: Int) -> Unit)? = null,
+    onPracticeMistake: ((gameId: Long, moveNumber: Int?) -> Unit)? = null,
     onNavigateBack: (() -> Unit)? = null,
     exerciseRepository: ExerciseRepository? = null
 ) {
@@ -117,7 +117,7 @@ private fun GameViewScreenContent(
     user: User?,
     chessEngine: ChessEngine?,
     onOpenSummary: (() -> Unit)?,
-    onPracticeMistake: ((gameId: Long, moveNumber: Int) -> Unit)?,
+    onPracticeMistake: ((gameId: Long, moveNumber: Int?) -> Unit)?,
     onNavigateBack: (() -> Unit)?,
     exerciseRepository: ExerciseRepository?
 ) {
