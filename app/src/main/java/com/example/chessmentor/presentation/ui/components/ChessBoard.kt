@@ -37,8 +37,10 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.chessmentor.presentation.ui.components.theme.ChessMentorTheme
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Piece
 import com.github.bhlangonijr.chesslib.Side
@@ -468,4 +470,16 @@ private fun describePieceRu(piece: Piece): String = when (piece) {
     Piece.BLACK_QUEEN -> "чёрный ферзь"
     Piece.BLACK_KING -> "чёрный король"
     Piece.NONE -> "пустая клетка"
+}
+
+@Preview(showBackground = true, name = "ChessBoard Light")
+@Composable
+private fun ChessBoardPreview() {
+    ChessMentorTheme(darkTheme = false) {
+        ChessBoard(
+            board = Board(),
+            modifier = Modifier.size(320.dp),
+            animateMove = false
+        )
+    }
 }

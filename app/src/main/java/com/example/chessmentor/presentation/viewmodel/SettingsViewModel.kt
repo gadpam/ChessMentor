@@ -313,4 +313,26 @@ class SettingsViewModel(
     fun clearMessage() {
         message.value = null
     }
+
+    fun seedDebugSampleLibrary(onSeeded: () -> Unit = {}) {
+        val uid = currentUser.value?.id ?: return
+        viewModelScope.launch {
+            try {
+                val added = withContext(Dispatchers.IO) {
+                    container.testerProfiles.seedSampleLibraryIfEmpty(uid)
+                }
+                refreshLibraryStats(uid)
+                if (added > 0) {
+                    onSeeded()
+                    message.value = "Добавлены тестовые партии ($added) с разбором и задачами"
+                } else {
+                    message.value = "Библиотека уже содержит партии — тестовые данные не добавлены"
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = "Ошибка подготовки тестовых данных: ${e.message}"
+            }
+        }
+    }
 }

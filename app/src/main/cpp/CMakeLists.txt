@@ -72,12 +72,17 @@ endif()
 target_compile_options(stockfish-lib PRIVATE
     -O3
     -fno-exceptions
+    -ffunction-sections
+    -fdata-sections
     -Wall
     -Wcast-qual
 )
 
-# Выравнивание сегментов по 16 КБ для совместимости с Android 15+.
-target_link_options(stockfish-lib PRIVATE "-Wl,-z,max-page-size=16384")
+# Выравнивание сегментов по 16 КБ для совместимости с Android 15+ и удаление неиспользуемых секций.
+target_link_options(stockfish-lib PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,--gc-sections"
+)
 
 find_library(log-lib log)
 target_link_libraries(stockfish-lib ${log-lib})

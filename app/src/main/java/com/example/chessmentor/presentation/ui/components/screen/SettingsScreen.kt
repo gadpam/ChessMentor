@@ -54,6 +54,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.chessmentor.BuildConfig
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.User
@@ -327,6 +328,21 @@ fun SettingsScreen(
             )
         }
 
+        if (BuildConfig.DEBUG) {
+            item {
+                OutlinedButton(
+                    onClick = { viewModel.seedDebugSampleLibrary(onSeeded = onDataRestored) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                ) {
+                    Icon(Icons.Default.Storage, contentDescription = "Засеять тестовые партии")
+                    Spacer(Modifier.width(8.dp))
+                    Text("Добавить демо-партии и задачи (Debug)")
+                }
+            }
+        }
+
         // Выход из аккаунта (обратимое действие: данные профиля остаются на устройстве)
         item {
             OutlinedButton(
@@ -346,7 +362,7 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = "ChessMentor 1.0 · Stockfish 19 (NNUE) · Локальная БД Room v5",
+                    text = "ChessMentor ${BuildConfig.VERSION_NAME} · Stockfish 19 (NNUE) · Локальная БД Room v5",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )

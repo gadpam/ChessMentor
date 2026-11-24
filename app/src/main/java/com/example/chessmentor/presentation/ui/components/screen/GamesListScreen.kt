@@ -1,6 +1,7 @@
 // presentation/ui/screen/GamesListScreen.kt
 package com.example.chessmentor.presentation.ui.components.screen
 
+import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.verticalScroll
@@ -37,8 +38,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.painterResource
+import com.example.chessmentor.presentation.ui.components.theme.ChessMentorTheme
 import com.example.chessmentor.R
 import kotlinx.coroutines.CoroutineScope
 import com.example.chessmentor.di.AppContainer
@@ -773,5 +776,33 @@ fun GameCard(
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    }
+}
+
+@Preview(
+    showBackground = true,
+    widthDp = 320,
+    fontScale = 1.5f,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    name = "GameCard Narrow Dark 1.5x"
+)
+@Composable
+private fun GameCardPreview() {
+    ChessMentorTheme(darkTheme = true) {
+        GameCard(
+            game = Game(
+                id = 1L,
+                userId = 1L,
+                pgnData = "[White \"Hero\"]\n[Black \"VeryLongOpponentNickname\"]\n[Result \"1-0\"]\n\n1. e4 e5 1-0",
+                playerColor = ChessColor.WHITE,
+                timeControl = "180+2",
+                playedAt = 1_764_000_000_000L,
+                analysisStatus = AnalysisStatus.COMPLETED,
+                accuracy = 87.4
+            ),
+            showDate = true,
+            onClick = {},
+            onDelete = {}
+        )
     }
 }

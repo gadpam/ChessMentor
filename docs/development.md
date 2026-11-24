@@ -23,7 +23,8 @@
 Версии зафиксированы в [gradle/libs.versions.toml](../gradle/libs.versions.toml) и [app/build.gradle.kts](../app/build.gradle.kts):
 
 - **Инструменты:** AGP `8.2.2`, Kotlin `2.0.0`, KSP `2.0.0-1.0.21`, JDK 17 (`coreLibraryDesugaringEnabled = true` с `desugar_jdk_libs:2.0.4`), Android SDK Platform `34`, Build Tools `34.0.0` (`35.0.0` в `sign-apk.sh`), NDK `26.1.10909125`, CMake `3.22.1`.
-- **Android-границы:** `applicationId = "com.example.chessmentor"`, `minSdk = 29` (Android 10), `targetSdk = 34`, `compileSdk = 34`, ABI: `arm64-v8a` и `x86_64`.
+- **Android-границы:** `applicationId = "com.example.chessmentor"`, `minSdk = 29` (Android 10), `targetSdk = 34`, `compileSdk = 34`, ABI по умолчанию: `arm64-v8a` и `x86_64` (для локального ускорения можно передать `-PdevAbi=arm64-v8a` или `-PdevAbi=x86_64`).
+- **Диагностика и UI-превью:** [DebugEnvironment](../app/src/debug/java/com/example/chessmentor/di/DebugEnvironment.kt) включает в `debug`-сборке `StrictMode` (логирование без падения; в `release` — пустая заглушка), а ключевые компоненты (`ChessBoard`, `EngineStatusBanner`, `GameCard`) снабжены `@Preview` для проверки вёрстки и тёмной/крупной темы в Android Studio без запуска эмулятора. Версия на экране настроек берётся динамически из `BuildConfig.VERSION_NAME`.
 - **Основные библиотеки:** Jetpack Compose BOM `2024.06.00`, Material 3 + `material-icons-extended`, Navigation Compose `2.8.0`, Lifecycle ViewModel Compose `2.8.0`, SplashScreen `1.0.1`, Room `2.6.1` (`room-runtime`, `room-ktx`, `room-compiler` через KSP), OkHttp `4.12.0`, `chesslib` `1.3.3`.
 - **Сборка release и ProGuard/R8:** в `buildTypes.release` включены `isMinifyEnabled = true` и `isShrinkResources = true`. Правила в [app/proguard-rules.pro](../app/proguard-rules.pro) сохраняют:
   - `native <methods>` в `StockfishEngine` (привязанные в `stockfish_jni.cpp`);
@@ -38,9 +39,9 @@
 
 ### C++ / JNI ([app/src/main/cpp](../app/src/main/cpp))
 
-- [CMakeLists.txt](../app/src/main/cpp/CMakeLists.txt) компилирует `stockfish-lib` (`C++17`, `-O3 -fno-exceptions -Wall -Wcast-qual`, `NDEBUG`, `IS_64BIT`, `USE_POPCNT`, `USE_PREFETCH`, **`NNUE_EMBEDDING_OFF`**) из исходников Stockfish `sf_19` (`app/src/main/cpp/stockfish/src/`, без `main.cpp`).
+- [CMakeLists.txt](../app/src/main/cpp/CMakeLists.txt) компилирует `stockfish-lib` (`C++17`, `-O3 -fno-exceptions -ffunction-sections -fdata-sections -Wall -Wcast-qual`, `NDEBUG`, `IS_64BIT`, `USE_POPCNT`, `USE_PREFETCH`, **`NNUE_EMBEDDING_OFF`**) из исходников Stockfish `sf_19` (`app/src/main/cpp/stockfish/src/`, без `main.cpp`).
 - Архитектурные флаги: `USE_NEON=8` для `arm64-v8a`; `USE_SSE2 USE_SSSE3 USE_SSE41` + `-msse4.1 -mpopcnt` для `x86_64`.
-- Линковка включает `-Wl,-z,max-page-size=16384` для обязательного **выравнивания ELF LOAD-сегментов по 16 КБ** (Android 15+), что проверяется в CI через `llvm-readelf`.
+- Линковка включает `-Wl,-z,max-page-size=16384` (обязательное **выравнивание ELF LOAD-сегментов по 16 КБ** для Android 15+, проверяемое в CI через `llvm-readelf`) и `-Wl,--gc-sections`.
 - [stockfish_bridge.h](../app/src/main/cpp/stockfish_bridge.h), [stockfish_bridge.cpp](../app/src/main/cpp/stockfish_bridge.cpp) и [stockfish_jni.cpp](../app/src/main/cpp/stockfish_jni.cpp) оборачивают `Stockfish::Engine`:
   - Все операции синхронизированы `opMutex_` (создание/поиск/настройки/разрушение), а `stop()` работает без захвата длинной блокировки через `stopRequested_` + `engine_->stop()`.
   - Если во время поиска была вызвана остановка (`stopRequested_.load(std::memory_order_acquire)` после `wait_for_search_finished()`), `StockfishBridge::search` возвращает `false` — обрезанный ответ малой глубины никогда не выдаётся за полноценный поиск.
@@ -89,7 +90,7 @@
 
 - **Хеширование паролей ([PasswordHasher.kt](../app/src/main/java/com/example/chessmentor/domain/security/PasswordHasher.kt)):** `PBKDF2WithHmacSHA256`, `310_000` итераций, случайная соль 16 байт, 256-битный ключ, сравнение через `MessageDigest.isEqual` за постоянное время. Формат записи: `pbkdf2_sha256$<iter>$<salt_b64>$<hash_b64>`. Устаревшие записи вида `hashed_<пароль>` автоматически перешифровываются в PBKDF2 при успешном входе (`LoginUserUseCase`).
 - **Сессия и предпочтения ([SharedPrefsSessionRepository.kt](../app/src/main/java/com/example/chessmentor/data/repository/SharedPrefsSessionRepository.kt)):** приватный `user_session.xml` хранит `active_user_id`, `last_login_email`, `app_theme_mode` (`SYSTEM`/`LIGHT`/`DARK`), подсказку ручного PGN-ника `chess_username_hint_<userId>` и ник публичного архива Chess.com `chesscom_source_<userId>`. Пароли и хеши в `SharedPreferences` не хранятся.
-- **Локальный отладочный профиль (`TesterProfiles.kt` в [debug](../app/src/debug/java/com/example/chessmentor/data/local/TesterProfiles.kt) / [release](../app/src/release/java/com/example/chessmentor/data/local/TesterProfiles.kt)):** реализован в отдельном `debug` source set (в `release` — пустая заглушка) и дополнительно защищён `BuildConfig.DEBUG`; маркер `local-debug-persona:v1` не является ни PBKDF2-хешем, ни legacy-паролем, поэтому обычный вход по паролю никогда не откроет профиль тестировщика (и наоборот). В release код тестовой персоны физически отсутствует.
+- **Локальный отладочный профиль (`TesterProfiles.kt` в [debug](../app/src/debug/java/com/example/chessmentor/data/local/TesterProfiles.kt) / [release](../app/src/release/java/com/example/chessmentor/data/local/TesterProfiles.kt)):** реализован в отдельном `debug` source set (в `release` — пустая заглушка) и дополнительно защищён `BuildConfig.DEBUG`; маркер `local-debug-persona:v1` не является ни PBKDF2-хешем, ни legacy-паролем, поэтому обычный вход по паролю никогда не откроет профиль тестировщика (и наоборот). Метод `seedSampleLibraryIfEmpty(userId)` (только в `debug`) через кнопку **«Добавить демо-партии и задачи (Debug)»** в настройках идемпотентно заполняет пустую библиотеку 3 партиями (2 разобранные с ошибками, цейтнотом и задачей + 1 в очереди), позволяя проверять графики, разбор и тренировки без ожидания NNUE. В `release` код тестовой персоны и фикстур физически отсутствует.
 
 ---
 
@@ -150,14 +151,24 @@
 Требуются JDK 17, Gradle Wrapper из репозитория, Android SDK Platform 34 / Build Tools `34.0.0`, NDK `26.1.10909125` и CMake `3.22.1`. Минимальный API `29`, ABI `arm64-v8a` и `x86_64`. При обновлении зависимостей или скриптов сверяться с [app/build.gradle.kts](../app/build.gradle.kts) и [Android CI](../.github/workflows/android-ci.yml). Из корня проекта:
 
 ```sh
+# Быстрая сборка под одну архитектуру (например, телефон arm64-v8a или эмулятор x86_64)
+bash gradlew :app:assembleDebug -PdevAbi=arm64-v8a
+# Полная сборка (оба ABI)
 bash gradlew :app:assembleDebug :app:assembleRelease
 bash gradlew :app:testDebugUnitTest :app:lintDebug :app:compileDebugAndroidTestKotlin
-python3 -m unittest discover -s .github/scripts
+python3 -m unittest discover -s .github/scripts -p "test_*.py" -v
+python3 .github/scripts/ci_preflight.py
 # Нужен подключённый Android или запущенный эмулятор (API 29+, arm64-v8a / x86_64):
 bash gradlew :app:connectedDebugAndroidTest
 ```
 
-В Windows вместо `bash gradlew` использовать `gradlew.bat`. Устанавливаемый файл локальной debug-сборки — `app/build/outputs/apk/debug/app-debug.apk`. Для релиза не использовать одноразовую подпись CI; [процесс публикации](android-release.md) отделён от сборки и тестов.
+В Windows вместо `bash gradlew` использовать `gradlew.bat`; окончания строк зафиксированы в [.gitattributes](../.gitattributes) (`LF` для `gradlew`/`*.sh`, `CRLF` для `*.bat`). В Android Studio доступны общие конфигурации запуска из `.idea/runConfigurations/` (`JVM Unit Tests`, `Android Lint (Debug)`, `Compile Android Instrumentation Tests`). Чтобы автоматически гонять Python-тесты и `ci_preflight.py` перед каждым `git push`, один раз подключите проектные хуки:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+Устанавливаемый файл локальной debug-сборки — `app/build/outputs/apk/debug/app-debug.apk`. Для релиза не использовать одноразовую подпись CI; [процесс публикации](android-release.md) отделён от сборки и тестов.
 
 ## Как поддерживать документацию вместе с кодом
 

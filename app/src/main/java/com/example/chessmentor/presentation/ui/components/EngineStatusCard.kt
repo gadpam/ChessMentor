@@ -22,10 +22,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.chessmentor.domain.engine.EngineErrorReason
 import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.engine.NnueIntegrity
+import com.example.chessmentor.presentation.ui.components.theme.ChessMentorTheme
 
 /**
  * Компактный баннер состояния загрузки/готовности нейросети Stockfish (NNUE).
@@ -634,6 +636,20 @@ private fun StatusPill(status: EngineStatus) {
             fontWeight = FontWeight.SemiBold,
             color = fg,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "EngineStatus Ready")
+@Composable
+private fun EngineStatusBannerPreview() {
+    ChessMentorTheme(darkTheme = false) {
+        EngineStatusBanner(
+            status = EngineStatus.Ready(netSizeBytes = 67_000_000L),
+            onRetry = {},
+            onCancel = {},
+            showWhenReady = true,
+            modifier = Modifier.padding(12.dp)
         )
     }
 }

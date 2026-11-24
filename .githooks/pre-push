@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+echo "[pre-push] Running Python CI script tests & DevOps preflight..."
+python3 -m unittest discover -s .github/scripts -p "test_*.py" -v
+python3 .github/scripts/ci_preflight.py

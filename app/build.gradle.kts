@@ -26,7 +26,20 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            val supportedAbis = listOf("arm64-v8a", "x86_64")
+            val devAbis = providers.gradleProperty("devAbi")
+                .orNull
+                ?.split(',')
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?.takeIf { it.isNotEmpty() }
+            if (devAbis != null) {
+                val unknown = devAbis.filterNot { it in supportedAbis }
+                if (unknown.isNotEmpty()) {
+                    throw GradleException("Unsupported devAbi value(s): $unknown. Expected any of $supportedAbis")
+                }
+            }
+            abiFilters += (devAbis ?: supportedAbis)
         }
 
         externalNativeBuild {

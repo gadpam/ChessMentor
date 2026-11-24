@@ -30,4 +30,17 @@ class TesterProfilesTest {
         assertNotEquals(id, tester.id)
         assertEquals("normal-hash", db.userDao().findById(id)?.passwordHash)
     }
+
+    @Test fun seedSampleLibraryIfEmptyInsertsThreeGamesIdempotently() = runBlocking {
+        val tester = requireNotNull(profiles.open(onlyIfEmpty = true))
+        val uid = requireNotNull(tester.id)
+        assertEquals(3, profiles.seedSampleLibraryIfEmpty(uid))
+        val games = db.gameDao().findByUserId(uid)
+        assertEquals(3, games.size)
+        assertEquals(2, games.count { it.isAnalyzed() })
+        assertEquals(2, db.mistakeDao().findByGameIds(games.mapNotNull { it.id }).size)
+        assertEquals(1, db.exerciseDao().getAttemptsByUserId(uid).size)
+        assertEquals(0, profiles.seedSampleLibraryIfEmpty(uid))
+        assertEquals(3, db.gameDao().findByUserId(uid).size)
+    }
 }

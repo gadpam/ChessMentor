@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
 import com.example.chessmentor.di.AppContainer
+import com.example.chessmentor.di.DebugEnvironment
 import com.example.chessmentor.presentation.ui.components.navigation.ChessMentorApp
 import com.example.chessmentor.presentation.ui.components.theme.ChessMentorTheme
 import com.example.chessmentor.presentation.viewmodel.ChessMentorViewModelFactory
@@ -24,6 +25,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        DebugEnvironment.configureStrictMode()
         super.onCreate(savedInstanceState)
 
         val container = AppContainer.getInstance(applicationContext)

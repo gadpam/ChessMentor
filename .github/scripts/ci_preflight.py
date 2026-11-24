@@ -263,6 +263,19 @@ def check_android_xml_and_appsec(root: Path) -> list[str]:
     elif "local-debug-persona" in release_tester.read_text(encoding="utf-8"):
         errors.append("Release TesterProfiles.kt stub must not contain local-debug-persona marker")
 
+    # DebugEnvironment (StrictMode) must live in debug/release source sets, never in main.
+    main_dbg = root / "app" / "src" / "main" / "java" / "com" / "example" / "chessmentor" / "di" / "DebugEnvironment.kt"
+    debug_dbg = root / "app" / "src" / "debug" / "java" / "com" / "example" / "chessmentor" / "di" / "DebugEnvironment.kt"
+    release_dbg = root / "app" / "src" / "release" / "java" / "com" / "example" / "chessmentor" / "di" / "DebugEnvironment.kt"
+    if main_dbg.exists():
+        errors.append("DebugEnvironment.kt must not reside in app/src/main (move to debug/release source sets)")
+    if not debug_dbg.is_file():
+        errors.append("Missing app/src/debug/.../DebugEnvironment.kt")
+    if not release_dbg.is_file():
+        errors.append("Missing app/src/release/.../DebugEnvironment.kt")
+    elif "android.os.StrictMode" in release_dbg.read_text(encoding="utf-8"):
+        errors.append("Release DebugEnvironment.kt stub must not import/use android.os.StrictMode")
+
     return errors
 
 
@@ -340,6 +353,34 @@ def check_git_hygiene_and_scripts(root: Path) -> list[str]:
         proc = subprocess.run(["bash", "-n", str(sh_file)], capture_output=True, text=True, check=False)
         if proc.returncode != 0:
             errors.append(f"{sh_file.relative_to(root)}: bash -n failed: {proc.stderr.strip()}")
+
+    gitattributes = root / ".gitattributes"
+    if not gitattributes.is_file():
+        errors.append("Missing .gitattributes at repository root")
+    else:
+        attr_text = gitattributes.read_text(encoding="utf-8")
+        if "gradlew text eol=lf" not in attr_text or "*.sh text eol=lf" not in attr_text:
+            errors.append(".gitattributes must enforce eol=lf for gradlew and *.sh")
+
+    pre_push = root / ".githooks" / "pre-push"
+    if pre_push.is_file():
+        if not os.access(pre_push, os.X_OK):
+            errors.append(".githooks/pre-push is not executable (+x)")
+        proc = subprocess.run(["bash", "-n", str(pre_push)], capture_output=True, text=True, check=False)
+        if proc.returncode != 0:
+            errors.append(f".githooks/pre-push: bash -n failed: {proc.stderr.strip()}")
+        if (root / ".git").exists():
+            hook_mode = subprocess.run(
+                ["git", "ls-files", "-s", ".githooks/pre-push"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if hook_mode.returncode == 0 and hook_mode.stdout.strip():
+                mode = hook_mode.stdout.strip().split()[0]
+                if mode != "100755":
+                    errors.append(f"Git index mode for .githooks/pre-push is {mode}, expected 100755")
 
     return errors
 
