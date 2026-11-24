@@ -661,7 +661,7 @@ class TrainingViewModel(
     fun onPauseTraining(nowMs: Long = System.currentTimeMillis()) {
         val state = _uiState.value
         if (state.isLoading || !state.hasActiveExercise || state.isSolved || state.isSolutionRevealed ||
-            state.isAnimatingIntro || state.isAnimatingPunishment || state.checkUnavailable || state.isPaused
+            state.checkUnavailable || state.isPaused
         ) {
             return
         }
@@ -1151,43 +1151,52 @@ class TrainingViewModel(
                 )
                 delay(INTRO_PRE_MOVE_DELAY_MS)
 
-                soundCounter++
+                val latest = _uiState.value
+                val pausedNow = latest.isPaused || pauseStartedAt != null
                 val introSound = when {
                     newBoard.isKingAttacked -> TrainingSoundEvent.CHECK
                     wasCapture -> TrainingSoundEvent.CAPTURE
                     else -> TrainingSoundEvent.MOVE
                 }
-                startTime = System.currentTimeMillis()
+                startTime = pauseStartedAt ?: System.currentTimeMillis()
                 firstMoveThinkTimeMs = null
-                _uiState.value = baseReadyState.copy(
+                if (!pausedNow) {
+                    soundCounter++
+                }
+                _uiState.value = latest.copy(
                     board = newBoard,
                     lastMove = initialPrevMove,
-                    isInputLocked = false,
+                    isPaused = pausedNow,
+                    isInputLocked = pausedNow,
                     isAnimatingIntro = false,
-                    feedbackMessage = initialBanner,
-                    soundEvent = introSound,
+                    feedbackMessage = if (pausedNow) "Пауза — позиция и подсказки сохранены" else initialBanner,
+                    soundEvent = if (pausedNow) latest.soundEvent else introSound,
                     soundEventId = soundCounter
                 )
             } else {
-                startTime = System.currentTimeMillis()
+                val pausedNow = _uiState.value.isPaused || pauseStartedAt != null
+                startTime = pauseStartedAt ?: System.currentTimeMillis()
                 firstMoveThinkTimeMs = null
                 _uiState.value = baseReadyState.copy(
                     board = newBoard,
                     lastMove = initialPrevMove,
-                    isInputLocked = false,
+                    isPaused = pausedNow,
+                    isInputLocked = pausedNow,
                     isAnimatingIntro = false,
-                    feedbackMessage = initialBanner
+                    feedbackMessage = if (pausedNow) "Пауза — позиция и подсказки сохранены" else initialBanner
                 )
             }
         } else {
-            startTime = System.currentTimeMillis()
+            val pausedNow = _uiState.value.isPaused || pauseStartedAt != null
+            startTime = pauseStartedAt ?: System.currentTimeMillis()
             firstMoveThinkTimeMs = null
             _uiState.value = baseReadyState.copy(
                 board = newBoard,
                 lastMove = initialPrevMove,
-                isInputLocked = false,
+                isPaused = pausedNow,
+                isInputLocked = pausedNow,
                 isAnimatingIntro = false,
-                feedbackMessage = initialBanner
+                feedbackMessage = if (pausedNow) "Пауза — позиция и подсказки сохранены" else initialBanner
             )
         }
 
@@ -1221,7 +1230,7 @@ class TrainingViewModel(
     private suspend fun extendSolutionWithEngine(fallbackUci: List<String>, board: Board) {
         withContext(Dispatchers.IO) {
             try {
-                val engine = container.chessEngine
+                val engine = verificationEngine
                 if (engine.init()) {
                     val line = engine.getBestMoveWithLine(board.fen, PUZZLE_GEN_DEPTH)
                     val validatedPv = normalizeSequenceToUci(
@@ -1354,18 +1363,22 @@ class TrainingViewModel(
         wasCapture: Boolean,
         unlockInput: Boolean = false
     ) {
-        soundCounter++
+        val latest = _uiState.value
+        val stillPaused = latest.isPaused || pauseStartedAt != null
         val sound = when {
             newBoard.isKingAttacked -> TrainingSoundEvent.CHECK
             wasCapture -> TrainingSoundEvent.CAPTURE
             else -> TrainingSoundEvent.MOVE
         }
-        _uiState.value = _uiState.value.copy(
+        if (!stillPaused) {
+            soundCounter++
+        }
+        _uiState.value = latest.copy(
             board = newBoard,
             lastMove = movePair,
             arrows = emptyList(),
-            isInputLocked = !unlockInput,
-            soundEvent = sound,
+            isInputLocked = !unlockInput || stillPaused,
+            soundEvent = if (stillPaused) latest.soundEvent else sound,
             soundEventId = soundCounter
         )
     }
@@ -1382,6 +1395,7 @@ class TrainingViewModel(
         val check = pendingCheck ?: return
         if (!_uiState.value.checkUnavailable || _uiState.value.isLoading) return
         _uiState.value = _uiState.value.copy(checkUnavailable = false)
+        currentJob?.cancel()
         currentJob = viewModelScope.launch { processUserMove(check) }
     }
 
@@ -1399,6 +1413,7 @@ class TrainingViewModel(
         val fenBefore = check.before.board.fen
         val move = check.move
         val userUci = ChessMoveUtils.moveToUci(move)
+        val moveIndexBeforeCheck = currentMoveIndex
 
         val expected = targetSequence.getOrNull(currentMoveIndex)?.lowercase()
         val isExactExpected = expected != null && userUci == expected
@@ -1437,6 +1452,7 @@ class TrainingViewModel(
                         maxPlies = remainingPlies.coerceAtMost(4)
                     )
                     if (continuation.size >= 2) {
+                        val previousSequence = targetSequence.toList()
                         // Перестраиваем остаток последовательности под сильный альтернативный ход игрока
                         val prefix = targetSequence.take(currentMoveIndex) + userUci
                         targetSequence.clear()
@@ -1445,18 +1461,27 @@ class TrainingViewModel(
                         val totalSteps = ((targetSequence.size + 1) / 2).coerceAtLeast(1)
 
                         delay(HUMAN_REACTION_DELAY_MS)
-                        val oppUci = targetSequence[currentMoveIndex]
-                        val applied = makeOpponentMove(oppUci)
+                        val oppUci = targetSequence.getOrNull(currentMoveIndex)
+                        val applied = oppUci != null && makeOpponentMove(oppUci)
+                        if (!applied) {
+                            if (_uiState.value.board.isMated) {
+                                handleSuccess("Мат! Задача решена!")
+                            } else {
+                                rollbackCorruptedOpponentStep(check, moveIndexBeforeCheck, previousSequence)
+                            }
+                            return
+                        }
                         currentMoveIndex++
 
-                        if (!applied || currentMoveIndex >= targetSequence.size || _uiState.value.board.isMated) {
+                        if (currentMoveIndex >= targetSequence.size || _uiState.value.board.isMated) {
                             handleSuccess("Отличный альтернативный ход!")
                         } else {
                             val nextStep = (currentMoveIndex / 2) + 1
-                            _uiState.value = _uiState.value.copy(
+                            val latest = _uiState.value
+                            _uiState.value = latest.copy(
                                 currentStepNumber = nextStep,
                                 totalPlayerSteps = totalSteps,
-                                feedbackMessage = "Сильный ход! Найдите продолжение."
+                                feedbackMessage = if (latest.isPaused) latest.feedbackMessage else "Сильный ход! Найдите продолжение."
                             )
                         }
                         return
@@ -1477,17 +1502,26 @@ class TrainingViewModel(
         if (targetSequence.isNotEmpty() && currentMoveIndex < targetSequence.size && !_uiState.value.board.isMated) {
             delay(HUMAN_REACTION_DELAY_MS)
 
-            val opponentMoveUci = targetSequence[currentMoveIndex]
-            val applied = makeOpponentMove(opponentMoveUci)
+            val opponentMoveUci = targetSequence.getOrNull(currentMoveIndex)
+            val applied = opponentMoveUci != null && makeOpponentMove(opponentMoveUci)
+            if (!applied) {
+                if (_uiState.value.board.isMated) {
+                    handleSuccess("Мат! Задача решена!")
+                } else {
+                    rollbackCorruptedOpponentStep(check, moveIndexBeforeCheck, previousSequence = null)
+                }
+                return
+            }
             currentMoveIndex++
 
-            if (!applied || currentMoveIndex >= targetSequence.size || _uiState.value.board.isMated) {
+            if (currentMoveIndex >= targetSequence.size || _uiState.value.board.isMated) {
                 handleSuccess("Комбинация завершена!")
             } else {
                 val nextStep = (currentMoveIndex / 2) + 1
-                _uiState.value = _uiState.value.copy(
+                val latest = _uiState.value
+                _uiState.value = latest.copy(
                     currentStepNumber = nextStep,
-                    feedbackMessage = "Верно. Найдите продолжение."
+                    feedbackMessage = if (latest.isPaused) latest.feedbackMessage else "Верно. Найдите продолжение."
                 )
             }
         } else {
@@ -1500,6 +1534,44 @@ class TrainingViewModel(
         }
     }
 
+    private fun rollbackCorruptedOpponentStep(
+        check: PendingMoveCheck,
+        previousMoveIndex: Int,
+        previousSequence: List<String>?
+    ) {
+        if (previousSequence != null) {
+            targetSequence.clear()
+            targetSequence.addAll(previousSequence)
+        }
+        if (recordedMoves.isNotEmpty()) {
+            recordedMoves.removeAt(recordedMoves.lastIndex)
+        }
+        currentMoveIndex = previousMoveIndex
+        pendingCheck = null
+        startTime += (System.currentTimeMillis() - check.startedAt).coerceAtLeast(0L)
+        firstMoveThinkTimeMs = check.previousThinkMs
+        positionBeforePlayerMove = check.before.board.fen
+        lastMoveBeforePlayerMove = check.before.lastMove
+        val latest = _uiState.value
+        val pausedNow = latest.isPaused || pauseStartedAt != null
+        _uiState.value = check.before.copy(
+            isPaused = pausedNow,
+            isInputLocked = pausedNow,
+            soundEvent = null,
+            soundEventId = soundCounter,
+            feedbackMessage = if (pausedNow) {
+                "Пауза — позиция и подсказки сохранены"
+            } else {
+                "Не удалось применить ответ соперника — пропустите или перезапустите задачу."
+            }
+        )
+    }
+
+    internal fun overrideTargetSequenceForTest(moves: List<String>) {
+        targetSequence.clear()
+        targetSequence.addAll(moves)
+    }
+
     /**
      * Запрашивает у движка чётное число полуходов после альтернативного хода игрока:
      * `[ответ_соперника, добивающий_ход_игрока, ...]`, чтобы финал остался за игроком.
@@ -1510,7 +1582,7 @@ class TrainingViewModel(
     ): List<String> = withContext(Dispatchers.IO) {
         if (maxPlies < 2) return@withContext emptyList()
         try {
-            val engine = container.chessEngine
+            val engine = verificationEngine
             if (!engine.init()) return@withContext emptyList()
             val line = engine.getBestMoveWithLine(fenAfterUserMove, VERIFICATION_DEPTH) ?: return@withContext emptyList()
             val validated = normalizeSequenceToUci(fenAfterUserMove, line.principalVariation.take(maxPlies))
@@ -1651,7 +1723,7 @@ class TrainingViewModel(
         }
 
         try {
-            val engine = container.chessEngine
+            val engine = verificationEngine
             if (!engine.init()) {
                 fallbackMistakeHandling(fenBefore, userMove)
                 return
@@ -1757,13 +1829,13 @@ class TrainingViewModel(
 
     private suspend fun fallbackMistakeHandling(fenBefore: String, userMove: Move) {
         try {
-            val engine = container.chessEngine
+            val engine = verificationEngine
             if (engine.init()) {
                 val boardAfterPlayer = Board()
                 boardAfterPlayer.loadFromFen(fenBefore)
                 if (boardAfterPlayer.doMove(userMove)) {
                     val punishmentUci = withContext(Dispatchers.IO) {
-                        engine.getBestMove(boardAfterPlayer.fen, 10)
+                        engine.getBestMove(boardAfterPlayer.fen, VERIFICATION_DEPTH)
                     }
 
                     val arrow = punishmentUci?.let { createArrowFromUci(it, Color(0xAAF44336)) }
@@ -1806,6 +1878,7 @@ class TrainingViewModel(
         board.loadFromFen(fen)
 
         val prev = _uiState.value
+        val stillPaused = prev.isPaused || pauseStartedAt != null
         val keptExplanation = if (keepAnalysis) {
             prev.currentMistakeAnalysis?.explanation
                 ?.let { cleanEvaluationText(it) }
@@ -1829,13 +1902,13 @@ class TrainingViewModel(
         _uiState.value = prev.copy(
             board = board,
             lastMove = lastMoveBeforePlayerMove,
-            isInputLocked = false,
+            isInputLocked = stillPaused,
             isAnimatingPunishment = false,
             arrows = emptyList(),
             punishmentAnimationStep = 0,
             currentMistakeAnalysis = if (keepAnalysis) prev.currentMistakeAnalysis else null,
             showBetterMoveHint = if (keepAnalysis) prev.showBetterMoveHint else false,
-            feedbackMessage = prompt
+            feedbackMessage = if (stillPaused) "Пауза — позиция и подсказки сохранены" else prompt
         )
     }
 
@@ -2402,7 +2475,7 @@ class TrainingViewModel(
         analysisJob = viewModelScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
-                    val engine = container.chessEngine
+                    val engine = verificationEngine
                     if (!engine.init()) return@withContext null
                     val depth = runCatching {
                         EngineAnalysisProfile.interactiveDepth(container.engineSettingsRepository.getSettings())

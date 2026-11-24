@@ -2,6 +2,7 @@ package com.example.chessmentor.domain.training
 
 import com.example.chessmentor.data.engine.AnalysisLine
 import com.example.chessmentor.data.engine.ChessEngine
+import com.example.chessmentor.domain.engine.EngineAnalysisProfile
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Square
 import com.github.bhlangonijr.chesslib.move.Move
@@ -34,8 +35,28 @@ class TrainingMoveVerifierTest {
 
     @Test fun compareVerifiedOpponentScoreFromPlayersPerspective() = runBlocking {
         for ((opponentScore, expected) in listOf(-80 to TrainingMoveQuality.EXCELLENT, 80 to TrainingMoveQuality.MISTAKE)) {
-            val engine = engine { if (it == fen) line("e2e4", 100) else line("d7d5", opponentScore) }
+            val requestedDepths = mutableListOf<Int>()
+            val engine = object : ChessEngine {
+                override suspend fun init() = true
+                override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int): AnalysisLine? {
+                    requestedDepths.add(depthLimit)
+                    return if (fen == this@TrainingMoveVerifierTest.fen) {
+                        line("e2e4", 100)
+                    } else {
+                        line("d7d5", opponentScore)
+                    }
+                }
+                override suspend fun evaluate(fen: String, depthLimit: Int): Int = error("Need a verified score")
+                override suspend fun getBestMove(fen: String, depthLimit: Int): String? = error("Need a line")
+                override suspend fun setOption(name: String, value: String) = Unit
+                override fun stop() = Unit
+                override fun destroy() = Unit
+            }
             assertEquals(expected, verifyTrainingMove(engine, fen, move, false))
+            assertEquals(
+                listOf(EngineAnalysisProfile.MOVE_VERIFICATION_DEPTH, EngineAnalysisProfile.MOVE_VERIFICATION_DEPTH),
+                requestedDepths
+            )
         }
     }
 

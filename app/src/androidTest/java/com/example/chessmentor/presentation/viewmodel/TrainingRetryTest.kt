@@ -6,12 +6,16 @@ import com.example.chessmentor.data.engine.AnalysisLine
 import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.ChessColor
+import com.example.chessmentor.domain.entity.Exercise
 import com.example.chessmentor.domain.entity.ExerciseSource
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.domain.entity.TacticalPattern
+import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.training.AttemptMetadata
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.TrainingMode
+import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Square
 import com.github.bhlangonijr.chesslib.move.Move
 import kotlinx.coroutines.Dispatchers
@@ -224,6 +228,227 @@ class TrainingRetryTest {
             // No-op because pendingCheck was cleared on reveal.
             withContext(Dispatchers.Main) { vm.returnFromMoveCheck() }
             assertTrue(withContext(Dispatchers.Main) { vm.uiState.value.isSolutionRevealed })
+        } finally {
+            vm.viewModelScope.cancel()
+            repo.deleteBySourceGameId(gid)
+            container.gameRepository.deleteById(gid)
+            container.userRepository.deleteById(uid)
+        }
+    }
+
+    @Test fun verificationEngineHandlesMistakeFallbackContinuationAndFreeAnalysis() = runBlocking {
+        val container = AppContainer.getInstance(InstrumentationRegistry.getInstrumentation().targetContext)
+        val user = container.userRepository.save(User(nickname = "VerifyEngine", email = "vengine${System.nanoTime()}@test.local", passwordHash = "test"))
+        val uid = requireNotNull(user.id)
+        val game = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.BLACK, playedAt = 1L, pgnData = "1. a3 *"))
+        val gid = requireNotNull(game.id)
+        val puzzle = CuratedExerciseBank.puzzles.single { it.id == "back_rank_black_2" }
+        val repo = container.exerciseRepository
+
+        val badFen = Board().apply {
+            loadFromFen(puzzle.fen)
+            assertTrue(doMove(Move(Square.H7, Square.H6)))
+        }.fen
+        val altFen = Board().apply {
+            loadFromFen(puzzle.fen)
+            assertTrue(doMove(Move(Square.D8, Square.D1)))
+        }.fen
+
+        var badFenLineCalls = 0
+        var fallbackGetBestMoveCalls = 0
+        var altContinuationCalls = 0
+        var freeAnalysisCalls = 0
+
+        val fakeEngine = object : ChessEngine {
+            override suspend fun init() = true
+            override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int): AnalysisLine? = when (fen) {
+                puzzle.fen -> {
+                    freeAnalysisCalls++
+                    AnalysisLine("d7d1", ChessEngine.MATE_VALUE, 2, listOf("d7d1", "c1d1", "d8d1"))
+                }
+                badFen -> {
+                    badFenLineCalls++
+                    // First call verifies the mistake; returning null on the second routes into fallbackMistakeHandling.
+                    if (badFenLineCalls == 1) AnalysisLine("c1c8", 500, null, listOf("c1c8")) else null
+                }
+                altFen -> {
+                    altContinuationCalls++
+                    AnalysisLine("c1d1", -ChessEngine.MATE_VALUE + 2, 1, listOf("c1d1", "d7d1"))
+                }
+                else -> null
+            }
+            override suspend fun evaluate(fen: String, depthLimit: Int): Int = 0
+            override suspend fun getBestMove(fen: String, depthLimit: Int): String? {
+                if (fen == badFen) {
+                    fallbackGetBestMoveCalls++
+                    return "c1c8"
+                }
+                return null
+            }
+            override suspend fun setOption(name: String, value: String) = Unit
+            override fun stop() = Unit
+            override fun destroy() = Unit
+        }
+        val vm = TrainingViewModel(container, fakeEngine)
+        suspend fun awaitState(predicate: (TrainingUiState) -> Boolean) = withTimeout(15_000L) {
+            while (!withContext(Dispatchers.Main) { predicate(vm.uiState.value) }) delay(20)
+        }
+        try {
+            repo.saveExercise(puzzle.toExercise().copy(createdFrom = ExerciseSource.MISTAKE, sourceGameId = gid, sourceMoveNumber = 1))
+            withContext(Dispatchers.Main) { vm.init(user, TrainingMode.FromGame(gid, 1)) }
+            awaitState { it.hasActiveExercise && !it.isAnimatingIntro && !it.isInputLocked }
+
+            // 1. Mistake -> handleMistakeComprehensive -> fallbackMistakeHandling via verificationEngine
+            withContext(Dispatchers.Main) { vm.onMoveMade(Move(Square.H7, Square.H6)) }
+            awaitState { it.isAnimatingPunishment }
+            awaitState { !it.isAnimatingPunishment && !it.isInputLocked && it.board.fen == puzzle.fen }
+            assertEquals(2, badFenLineCalls)
+            assertEquals(1, fallbackGetBestMoveCalls)
+
+            // 2. Alternative move d8d1 -> verifyTrainingMove + fetchEvenContinuationForOpponent via verificationEngine
+            withContext(Dispatchers.Main) { vm.onMoveMade(Move(Square.D8, Square.D1)) }
+            awaitState { !it.isInputLocked && it.lastMove == (Square.C1 to Square.D1) }
+            assertTrue(altContinuationCalls >= 2)
+
+            // 3. Finish mate & trigger free analysis on starting position via verificationEngine
+            withContext(Dispatchers.Main) { vm.onMoveMade(Move(Square.D7, Square.D1)) }
+            awaitState { it.isSolved }
+            val callsBeforeFreeAnalysis = freeAnalysisCalls
+            withContext(Dispatchers.Main) {
+                vm.onReviewFirst()
+                vm.onToggleFreeAnalysis()
+            }
+            awaitState { it.isFreeAnalysisMode && !it.isAnalyzingPosition && it.analysisBestMoveUci == "d7d1" }
+            assertTrue(freeAnalysisCalls > callsBeforeFreeAnalysis)
+        } finally {
+            vm.viewModelScope.cancel()
+            repo.deleteBySourceGameId(gid)
+            container.gameRepository.deleteById(gid)
+            container.userRepository.deleteById(uid)
+        }
+    }
+
+    @Test fun verificationEngineExtendsShortNonCuratedSolution() = runBlocking {
+        val container = AppContainer.getInstance(InstrumentationRegistry.getInstrumentation().targetContext)
+        val user = container.userRepository.save(User(nickname = "ExtendEngine", email = "ext${System.nanoTime()}@test.local", passwordHash = "test"))
+        val uid = requireNotNull(user.id)
+        val game = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.WHITE, playedAt = 1L, pgnData = "1. e4 *"))
+        val gid = requireNotNull(game.id)
+        val startFen = "r5k1/5ppp/8/8/8/8/5PPP/R2R2K1 w - - 0 1"
+        val afterFirstFen = Board().apply {
+            loadFromFen(startFen)
+            assertTrue(doMove(Move(Square.D1, Square.D8)))
+        }.fen
+        val repo = container.exerciseRepository
+        var extensionCalls = 0
+        val fakeEngine = object : ChessEngine {
+            override suspend fun init() = true
+            override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int): AnalysisLine? {
+                if (fen == afterFirstFen) {
+                    extensionCalls++
+                    return AnalysisLine("a8d8", -ChessEngine.MATE_VALUE + 2, 1, listOf("a8d8", "a1d8"))
+                }
+                return null
+            }
+            override suspend fun evaluate(fen: String, depthLimit: Int): Int = 0
+            override suspend fun getBestMove(fen: String, depthLimit: Int): String? = null
+            override suspend fun setOption(name: String, value: String) = Unit
+            override fun stop() = Unit
+            override fun destroy() = Unit
+        }
+        val vm = TrainingViewModel(container, fakeEngine)
+        suspend fun awaitState(predicate: (TrainingUiState) -> Boolean) = withTimeout(15_000L) {
+            while (!withContext(Dispatchers.Main) { predicate(vm.uiState.value) }) delay(20)
+        }
+        try {
+            repo.saveExercise(
+                Exercise(
+                    fenPosition = startFen,
+                    solutionMoves = listOf("d1d8"),
+                    tacticalPattern = TacticalPattern.BACK_RANK_MATE,
+                    difficultyRating = 25,
+                    theme = TacticalTheme.MATE,
+                    createdFrom = ExerciseSource.MISTAKE,
+                    sourceGameId = gid,
+                    sourceMoveNumber = 1
+                )
+            )
+            withContext(Dispatchers.Main) { vm.init(user, TrainingMode.FromGame(gid, 1)) }
+            awaitState { it.hasActiveExercise && !it.isInputLocked }
+            assertEquals(1, extensionCalls)
+            assertEquals(2, withContext(Dispatchers.Main) { vm.uiState.value.totalPlayerSteps })
+        } finally {
+            vm.viewModelScope.cancel()
+            repo.deleteBySourceGameId(gid)
+            container.gameRepository.deleteById(gid)
+            container.userRepository.deleteById(uid)
+        }
+    }
+
+    @Test fun corruptedOpponentStepRollsBackWithoutFalseWinOrRating() = runBlocking {
+        val container = AppContainer.getInstance(InstrumentationRegistry.getInstrumentation().targetContext)
+        val user = container.userRepository.save(User(nickname = "CorruptSeq", email = "corrupt${System.nanoTime()}@test.local", passwordHash = "test"))
+        val uid = requireNotNull(user.id)
+        val game = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.BLACK, playedAt = 1L, pgnData = "1. a3 *"))
+        val gid = requireNotNull(game.id)
+        val puzzle = CuratedExerciseBank.puzzles.single { it.id == "back_rank_black_2" }
+        val repo = container.exerciseRepository
+        val vm = TrainingViewModel(container)
+        suspend fun awaitState(predicate: (TrainingUiState) -> Boolean) = withTimeout(15_000L) {
+            while (!withContext(Dispatchers.Main) { predicate(vm.uiState.value) }) delay(20)
+        }
+        try {
+            repo.saveExercise(puzzle.toExercise().copy(createdFrom = ExerciseSource.MISTAKE, sourceGameId = gid, sourceMoveNumber = 1))
+            withContext(Dispatchers.Main) { vm.init(user, TrainingMode.FromGame(gid, 1)) }
+            awaitState { it.hasActiveExercise && !it.isAnimatingIntro && !it.isInputLocked }
+
+            withContext(Dispatchers.Main) {
+                vm.overrideTargetSequenceForTest(listOf("d7d1", "e1e8", "d8d1"))
+                vm.onMoveMade(Move(Square.D7, Square.D1))
+            }
+            awaitState { !it.isInputLocked && it.board.fen == puzzle.fen && it.feedbackMessage?.contains("Не удалось применить ответ соперника") == true }
+
+            val state = withContext(Dispatchers.Main) { vm.uiState.value }
+            assertTrue(!state.isSolved)
+            assertEquals(puzzle.fen, state.board.fen)
+            assertEquals(user.rating, container.userRepository.findById(uid)?.rating)
+            assertTrue(repo.getAttemptsByUserId(uid).isEmpty())
+        } finally {
+            vm.viewModelScope.cancel()
+            repo.deleteBySourceGameId(gid)
+            container.gameRepository.deleteById(gid)
+            container.userRepository.deleteById(uid)
+        }
+    }
+
+    @Test fun pauseDuringIntroAnimationPreservesPausedAndLockedStateAfterIntro() = runBlocking {
+        val container = AppContainer.getInstance(InstrumentationRegistry.getInstrumentation().targetContext)
+        val user = container.userRepository.save(User(nickname = "IntroPause", email = "intropause${System.nanoTime()}@test.local", passwordHash = "test"))
+        val uid = requireNotNull(user.id)
+        val game = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.BLACK, playedAt = 1L, pgnData = "1. a3 *"))
+        val gid = requireNotNull(game.id)
+        val puzzle = CuratedExerciseBank.puzzles.single { it.id == "back_rank_black_2" }
+        val repo = container.exerciseRepository
+        val vm = TrainingViewModel(container)
+        suspend fun awaitFast(predicate: (TrainingUiState) -> Boolean) = withTimeout(15_000L) {
+            while (!withContext(Dispatchers.Main) { predicate(vm.uiState.value) }) delay(5)
+        }
+        try {
+            repo.saveExercise(puzzle.toExercise().copy(createdFrom = ExerciseSource.MISTAKE, sourceGameId = gid, sourceMoveNumber = 1))
+            withContext(Dispatchers.Main) { vm.init(user, TrainingMode.FromGame(gid, 1)) }
+            awaitFast { it.isAnimatingIntro }
+            withContext(Dispatchers.Main) { vm.onPauseTraining(nowMs = 1_000_000L) }
+            awaitFast { !it.isAnimatingIntro }
+
+            val pausedState = withContext(Dispatchers.Main) { vm.uiState.value }
+            assertTrue(pausedState.isPaused)
+            assertTrue(pausedState.isInputLocked)
+            assertEquals(puzzle.fen, pausedState.board.fen)
+
+            withContext(Dispatchers.Main) { vm.onResumeTraining(nowMs = 1_120_000L) }
+            val resumedState = withContext(Dispatchers.Main) { vm.uiState.value }
+            assertTrue(!resumedState.isPaused)
+            assertTrue(!resumedState.isInputLocked)
         } finally {
             vm.viewModelScope.cancel()
             repo.deleteBySourceGameId(gid)

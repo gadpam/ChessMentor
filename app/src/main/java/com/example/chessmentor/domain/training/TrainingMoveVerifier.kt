@@ -1,6 +1,7 @@
 package com.example.chessmentor.domain.training
 
 import com.example.chessmentor.data.engine.ChessEngine
+import com.example.chessmentor.domain.engine.EngineAnalysisProfile
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.Move
@@ -23,7 +24,8 @@ internal suspend fun verifyTrainingMove(
 
         if (!engine.init()) return TrainingMoveQuality.UNAVAILABLE
 
-        val bestLine = engine.getBestMoveWithLine(fen, 10)?.takeIf { it.bestMove.isNotBlank() }
+        val bestLine = engine.getBestMoveWithLine(fen, EngineAnalysisProfile.MOVE_VERIFICATION_DEPTH)
+            ?.takeIf { it.bestMove.isNotBlank() }
             ?: return TrainingMoveQuality.UNAVAILABLE
 
         val userUci = ChessMoveUtils.moveToUci(move = userMove)
@@ -34,7 +36,8 @@ internal suspend fun verifyTrainingMove(
         val opponentEvalAfterUser = if (userBoard.isStaleMate || userBoard.isDraw) {
             0
         } else {
-            engine.getBestMoveWithLine(userBoard.fen, 10)?.takeIf { it.bestMove.isNotBlank() }?.score
+            engine.getBestMoveWithLine(userBoard.fen, EngineAnalysisProfile.MOVE_VERIFICATION_DEPTH)
+                ?.takeIf { it.bestMove.isNotBlank() }?.score
                 ?: return TrainingMoveQuality.UNAVAILABLE
         }
         val playerEvalAfterUser = -opponentEvalAfterUser
