@@ -197,7 +197,7 @@ fun SummaryScreen(
         }
     }
     val boardTheme = remember(gameViewModel.currentUser.value?.preferredTheme) {
-        BoardThemes.getByName(gameViewModel.currentUser.value?.preferredTheme ?: BoardThemes.DEFAULT_NAME)
+        BoardThemes.getByName(gameViewModel.currentUser.value?.preferredTheme)
     }
     val layoutDirection = LocalLayoutDirection.current
 
@@ -344,7 +344,7 @@ internal fun SummaryMiniBoardCard(
     board: Board,
     lastMove: Pair<Square, Square>?,
     flipped: Boolean,
-    boardTheme: com.example.chessmentor.presentation.ui.components.BoardTheme = BoardThemes.getByName(BoardThemes.DEFAULT_NAME),
+    boardTheme: com.example.chessmentor.presentation.ui.components.BoardTheme = BoardThemes.Classic,
     title: String,
     subtitle: String? = null,
     evalCp: Int? = null,
