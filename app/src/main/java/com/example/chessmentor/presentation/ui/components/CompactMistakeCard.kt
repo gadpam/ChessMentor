@@ -190,7 +190,7 @@ internal fun MistakeReviewActions(
     if (onRevealAnswer != null) {
         OutlinedButton(onClick = onRevealAnswer, modifier = action) { Text("Показать лучший ход") }
     } else if (onShowEngineLine != null) {
-        OutlinedButton(onClick = onShowEngineLine, modifier = action) { Text("Вариант до ошибки") }
+        OutlinedButton(onClick = onShowEngineLine, modifier = action) { Text("Лучший вариант") }
     }
     if (onPracticeInTrainer != null) {
         TextButton(onClick = onPracticeInTrainer, modifier = action) { Text("В тренажёр") }

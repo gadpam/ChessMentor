@@ -250,10 +250,19 @@ class GameViewModel(
         val known = withContext(Dispatchers.IO) {
             indexSavedGames(container.gameRepository.findByUserId(userId)).mapValues { it.value.id!! }
         }
-        return container.chessComArchive.latest(name, period, known)
+        return container.chessComArchive.latest(
+            user = name,
+            period = period,
+            known = known,
+            limit = ChessComArchive.FULL_MONTH_FETCH_LIMIT
+        )
     }
 
-    internal fun importChessComGames(userId: Long, selection: List<ArchiveGame>) {
+    internal fun importChessComGames(
+        userId: Long,
+        selection: List<ArchiveGame>,
+        onImportedToLibrary: () -> Unit = {}
+    ) {
         if (isLoading.value || currentUser.value?.id != userId || selection.isEmpty()) return
         isLoading.value = true
         message.value = "Сохраняем выбранные партии…"
@@ -261,6 +270,7 @@ class GameViewModel(
             var saved = 0
             var duplicates = 0
             var invalid = 0
+            var succeeded = false
             try {
                 // Per-side batches use the archive identity, never the unrelated local nickname.
                 for ((side, games) in selection.groupBy { it.side }) {
@@ -280,13 +290,19 @@ class GameViewModel(
                     }
                 }
                 message.value = "Chess.com → библиотека: добавлено $saved, повторов $duplicates, ошибок $invalid."
+                succeeded = true
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 message.value = "Ошибка импорта Chess.com: ${e.localizedMessage}"
             } finally {
                 isLoading.value = false
-                if (currentUser.value?.id == userId) loadUserData()
+                if (currentUser.value?.id == userId) {
+                    loadUserData()
+                    if (succeeded && (saved > 0 || duplicates > 0)) {
+                        onImportedToLibrary()
+                    }
+                }
             }
         }
     }

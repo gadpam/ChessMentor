@@ -2,6 +2,7 @@ package com.example.chessmentor.presentation.ui.components.screen
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -25,6 +26,8 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+private const val CHESSCOM_PAGE_SIZE = 10
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ChessComImportDialog(
@@ -39,6 +42,8 @@ internal fun ChessComImportDialog(
     var period by remember(source) { mutableStateOf<String?>(null) }
     var games by remember(source, period) { mutableStateOf(emptyList<ArchiveGame>()) }
     var selected by remember(source, period) { mutableStateOf(emptySet<String>()) }
+    var timeFilter by remember(source, period) { mutableStateOf<String?>(null) }
+    var visibleLimit by remember(source, period, timeFilter) { mutableIntStateOf(CHESSCOM_PAGE_SIZE) }
     var busy by remember(source, period) { mutableStateOf(source != null) }
     var error by remember(source, period) { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
@@ -185,11 +190,55 @@ internal fun ChessComImportDialog(
                         month == null -> Text("В публичном архиве пока нет партий.")
                         games.isEmpty() -> Text("За этот месяц нет доступных партий в обычные шахматы.")
                         else -> {
-                            Text("До 10 последних партий за месяц. Выберите нужные. Новые партии могут появляться с задержкой.")
-                            for (game in games) {
+                            val availableClasses = remember(games) {
+                                listOf("rapid", "blitz", "bullet", "daily").filter { tc ->
+                                    games.any { it.timeClass == tc }
+                                }
+                            }
+                            if (availableClasses.isNotEmpty()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = timeFilter == null,
+                                        onClick = { timeFilter = null },
+                                        label = { Text("Все (${games.size})") }
+                                    )
+                                    for (tc in availableClasses) {
+                                        val label = ChessComArchive.localizeTimeClass(tc) ?: tc
+                                        val count = games.count { it.timeClass == tc }
+                                        FilterChip(
+                                            selected = timeFilter == tc,
+                                            onClick = { timeFilter = if (timeFilter == tc) null else tc },
+                                            label = { Text("$label ($count)") }
+                                        )
+                                    }
+                                }
+                            }
+                            val filtered = remember(games, timeFilter) {
+                                val f = timeFilter
+                                if (f == null) games else games.filter { it.timeClass == f }
+                            }
+                            val displayed = remember(filtered, visibleLimit) {
+                                filtered.take(visibleLimit)
+                            }
+                            Text(
+                                text = if (filtered.size > displayed.size) {
+                                    "Показано ${displayed.size} из ${filtered.size} партий за месяц. Выберите нужные."
+                                } else {
+                                    "Партий за месяц: ${filtered.size}. Выберите нужные."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant
+                            )
+                            for (game in displayed) {
                                 val checked = game.fingerprint in selected
                                 val fill = if (checked) colors.primaryContainer else colors.surfaceVariant
                                 val ink = if (checked) colors.onPrimaryContainer else colors.onSurfaceVariant
+                                val tcBadge = ChessComArchive.localizeTimeClass(game.timeClass)?.let { " · $it" }.orEmpty()
                                 Row(
                                     Modifier
                                         .fillMaxWidth()
@@ -212,7 +261,7 @@ internal fun ChessComImportDialog(
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(game.opponent, style = MaterialTheme.typography.titleMedium, color = ink)
                                         Text(
-                                            "${dateFormat.format(Instant.ofEpochSecond(game.ended))} · ${game.side.getDisplayName()} · ${game.outcome}",
+                                            "${dateFormat.format(Instant.ofEpochSecond(game.ended))} · ${game.side.getDisplayName()} · ${game.outcome}$tcBadge",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = ink
                                         )
@@ -226,6 +275,18 @@ internal fun ChessComImportDialog(
                                         onClick = { onOpenSaved(id) },
                                         modifier = Modifier.heightIn(min = 48.dp)
                                     ) { Text("Открыть партию №$id") }
+                                }
+                            }
+                            if (filtered.size > displayed.size) {
+                                val remaining = filtered.size - displayed.size
+                                val nextStep = minOf(CHESSCOM_PAGE_SIZE, remaining)
+                                OutlinedButton(
+                                    onClick = { visibleLimit += CHESSCOM_PAGE_SIZE },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                ) {
+                                    Text("Показать ещё $nextStep (осталось $remaining)")
                                 }
                             }
                         }

@@ -482,7 +482,7 @@ object PgnParser {
             originalCleaned = cleaned,
             metadata = finalMetadata,
             detectedEco = detectedEco,
-            detectedOpeningName = detectedOpeningName,
+            detectedOpeningName = detectedOpeningName ?: finalMetadata.openingName,
             resolvedResult = resolvedResult
         )
 
@@ -673,15 +673,23 @@ object PgnParser {
         val speedCategory = tcInfo?.category ?: TimeControlCategory.UNKNOWN
         val timeControlLabel = tcInfo?.fullLabel ?: "Без контроля"
 
-        // Дебют: сначала из тегов (у новых партий там уже русское название), иначе быстрый поиск по первым ходам
+        // Дебют: сначала из тегов (включая локализованный [Opening] / [ECOUrl]), иначе быстрый поиск по первым ходам
         var eco = metadata.eco
         var openingName = metadata.openingName
-        if (openingName == null && metadata.startFen == null && extracted.sanTokens.isNotEmpty()) {
+        if (metadata.startFen == null && extracted.sanTokens.isNotEmpty() &&
+            (openingName == null || ':' !in openingName)
+        ) {
             val detected = detectOpeningFast(extracted.sanTokens)
             if (detected != null) {
                 eco = eco ?: detected.first
-                openingName = detected.second
+                if (openingName == null || ':' in detected.second) {
+                    openingName = detected.second
+                }
             }
+        }
+        if (openingName == null && eco != null) {
+            openingName = OpeningDatabase.ecoFallbackName(eco)
+                ?: OpeningDatabase.findByEco(eco).firstOrNull()?.name
         }
         val openingLabel = formatOpeningLabel(eco, openingName)
 
@@ -960,11 +968,13 @@ object PgnParser {
 
         val openingBase = tag("Opening")?.takeIf { it.isNotEmpty() && it != "?" }
         val variation = tag("Variation")?.takeIf { it.isNotEmpty() && it != "?" }
-        val openingName = when {
+        val rawCombinedOpening = when {
             openingBase != null && variation != null && !openingBase.contains(variation, ignoreCase = true) ->
                 "$openingBase: $variation"
             else -> openingBase
         }
+        val openingName = OpeningDatabase.translateOpeningName(rawCombinedOpening)
+            ?: OpeningDatabase.parseEcoUrlOpeningName(tag("ECOUrl"))
 
         val timeControl = parseTimeControl(tag("TimeControl"), fromPgnTag = true)
 
@@ -1265,11 +1275,13 @@ object PgnParser {
 
     fun formatOpeningLabel(eco: String?, openingName: String?): String? {
         val e = eco?.trim()?.takeIf { it.isNotEmpty() }
-        val n = openingName?.trim()?.takeIf { it.isNotEmpty() }
+        val n = OpeningDatabase.translateOpeningName(openingName)
+            ?: OpeningDatabase.ecoFallbackName(e)
+            ?: e?.let { OpeningDatabase.findByEco(it).firstOrNull()?.name }
         return when {
             e != null && n != null -> "$e · $n"
             n != null -> n
-            e != null -> "ECO $e"
+            e != null -> "Дебют $e"
             else -> null
         }
     }

@@ -20,15 +20,26 @@ import java.util.concurrent.TimeUnit
 internal data class ArchiveGame(
     val fingerprint: String, val pgn: String, val ended: Long,
     val opponent: String, val side: ChessColor, val outcome: String,
-    val libraryId: Long?
+    val libraryId: Long?,
+    val timeClass: String = ""
 ) {
     val inLibrary get() = libraryId != null
 }
 
 internal class ChessComArchive(private val get: suspend (String) -> String) {
     companion object {
+        const val DEFAULT_PAGE_LIMIT = 10
+        const val FULL_MONTH_FETCH_LIMIT = 200
         val nickname = Regex("[a-zA-Z0-9][a-zA-Z0-9_-]{0,48}[a-zA-Z0-9]|[a-zA-Z0-9]")
         private val month = Regex("[0-9]{4}/(0[1-9]|1[0-2])")
+
+        fun localizeTimeClass(raw: String): String? = when (raw.trim().lowercase(Locale.ROOT)) {
+            "bullet" -> "Пуля"
+            "blitz" -> "Блиц"
+            "rapid" -> "Рапид"
+            "daily" -> "Заочные"
+            else -> null
+        }
     }
 
     private fun base(user: String): String {
@@ -43,10 +54,15 @@ internal class ChessComArchive(private val get: suspend (String) -> String) {
             .filter(month::matches).distinct().sortedDescending()
     }
 
-    suspend fun latest(user: String, period: String, known: Map<String, Long>): List<ArchiveGame> = withContext(Dispatchers.IO) {
+    suspend fun latest(
+        user: String,
+        period: String,
+        known: Map<String, Long>,
+        limit: Int = DEFAULT_PAGE_LIMIT
+    ): List<ArchiveGame> = withContext(Dispatchers.IO) {
         require(month.matches(period)) { "Неверный месяц архива" }
         val items = JSONObject(get(base(user) + period)).getJSONArray("games")
-        (0 until items.length()).asSequence().mapNotNull { items.optJSONObject(it) }
+        val seq = (0 until items.length()).asSequence().mapNotNull { items.optJSONObject(it) }
             .filter { it.optString("rules") == "chess" && it.optLong("end_time") in 1..253402300799L }
             .sortedByDescending { it.optLong("end_time") }
             .mapNotNull { game ->
@@ -60,10 +76,18 @@ internal class ChessComArchive(private val get: suspend (String) -> String) {
                     user.equals(meta.blackName, true) -> ChessColor.BLACK
                     else -> return@mapNotNull null
                 }
-                ArchiveGame(parsed.fingerprint, pgn, game.getLong("end_time"),
-                    (if (side == ChessColor.WHITE) meta.blackName else meta.whiteName) ?: "Без имени",
-                    side, meta.result.forPlayer(side).displayName, known[parsed.fingerprint])
-            }.distinctBy { it.fingerprint }.take(10).toList()
+                ArchiveGame(
+                    fingerprint = parsed.fingerprint,
+                    pgn = pgn,
+                    ended = game.getLong("end_time"),
+                    opponent = (if (side == ChessColor.WHITE) meta.blackName else meta.whiteName) ?: "Без имени",
+                    side = side,
+                    outcome = meta.result.forPlayer(side).displayName,
+                    libraryId = known[parsed.fingerprint],
+                    timeClass = game.optString("time_class").trim().lowercase(Locale.ROOT)
+                )
+            }.distinctBy { it.fingerprint }
+        if (limit > 0) seq.take(limit).toList() else seq.toList()
     }
 }
 

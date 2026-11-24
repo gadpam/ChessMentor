@@ -2,6 +2,7 @@
 package com.example.chessmentor.presentation.ui.components
 
 import com.example.chessmentor.R
+import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -25,6 +26,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -401,6 +404,67 @@ fun BrandEmptyState(
                     .padding(horizontal = 24.dp)
                     .widthIn(max = 320.dp)
                     .fillMaxWidth()
+            )
+        }
+    }
+}
+
+/** Круглый шахматный медальон с фигурой короля — вместо квадратов, похожих на чекбоксы. */
+@Composable
+fun ChessSideBadge(
+    color: ChessColor,
+    size: Dp = 22.dp,
+    semanticsDescription: String? = null,
+    modifier: Modifier = Modifier
+) {
+    val bgColor = if (color == ChessColor.WHITE) Color(0xFFF3F5EE) else Color(0xFFD6DDD0)
+    val iconRes = if (color == ChessColor.WHITE) R.drawable.ic_king_white else R.drawable.ic_king_black
+    Surface(
+        shape = CircleShape,
+        color = bgColor,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+        modifier = modifier.size(size)
+    ) {
+        Image(
+            painter = painterResource(iconRes),
+            contentDescription = semanticsDescription,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding((size * 0.14f).coerceAtLeast(2.dp))
+        )
+    }
+}
+
+/** Читаемая плашка стороны игрока (для шапки сводки партии). */
+@Composable
+fun ChessSidePill(
+    color: ChessColor,
+    semanticsDescription: String = if (color == ChessColor.WHITE) "Вы играли белыми" else "Вы играли чёрными",
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier.semantics(mergeDescendants = true) {
+            contentDescription = semanticsDescription
+        }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            ChessSideBadge(
+                color = color,
+                size = 20.dp,
+                semanticsDescription = null
+            )
+            Text(
+                text = if (color == ChessColor.WHITE) "Белые" else "Чёрные",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
     }

@@ -52,14 +52,14 @@ class MistakeDisclosureTest {
         val answer = if (savedMistake) "Nf3" else "Лучше: Nf3"
         ui.onNodeWithText(answer).assertDoesNotExist()
         ui.onNodeWithText(comment).assertDoesNotExist()
-        ui.onNodeWithText("Вариант до ошибки").assertDoesNotExist()
+        ui.onNodeWithText("Лучший вариант").assertDoesNotExist()
         ui.onNodeWithText("Попробовать снова").performScrollTo().assertHeightIsAtLeast(48.dp).performClick()
         ui.onNodeWithText(answer).assertDoesNotExist()
         ui.onNodeWithText("Показать лучший ход").performScrollTo().performClick()
         ui.onNodeWithText(answer).assertExists()
         ui.onNodeWithText(comment).assertExists()
         ui.runOnIdle { assertEquals(listOf("retry"), calls) }
-        ui.onNodeWithText("Вариант до ошибки").performScrollTo().performClick()
+        ui.onNodeWithText("Лучший вариант").performScrollTo().performClick()
         if (savedMistake) ui.onNodeWithText("В тренажёр").performScrollTo().performClick()
         else ui.onNodeWithText("В тренажёр").assertDoesNotExist()
         ui.runOnIdle { assertEquals(if (savedMistake) listOf("retry", "engine", "trainer") else listOf("retry", "engine"), calls) }

@@ -106,8 +106,13 @@ fun SummaryScreen(
         PgnParser.extractGameCardInfo(game)
     }
 
-    val openingLabel = remember(game.id, boardViewModel.moveNotations.size, cardInfo.openingLabel) {
-        boardViewModel.getDetectedOpeningLabel() ?: cardInfo.openingLabel
+    val openingLabel = remember(game.id, boardViewModel.moveNotations.size, cardInfo.openingLabel, cardInfo.openingName) {
+        val detected = boardViewModel.getDetectedOpeningLabel()
+        when {
+            detected != null && cardInfo.openingName == null -> detected
+            detected != null && ':' !in (cardInfo.openingName ?: "") && ':' in detected -> detected
+            else -> cardInfo.openingLabel ?: detected
+        }
     }
 
     val coachReport = remember(
@@ -770,21 +775,8 @@ private fun SummaryHeader(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .background(
-                        color = if (game.playerColor == ChessColor.WHITE) Color.White else Color(0xFF1E1E1E),
-                        shape = RoundedCornerShape(6.dp)
-                    )
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
-                    .semantics {
-                        contentDescription = if (game.playerColor == ChessColor.WHITE) {
-                            "Вы играли белыми"
-                        } else {
-                            "Вы играли чёрными"
-                        }
-                    }
+            com.example.chessmentor.presentation.ui.components.ChessSidePill(
+                color = game.playerColor
             )
         }
     }
@@ -919,7 +911,7 @@ internal fun GameMetricsCard(
                     emoji = "?!",
                     label = "Неточности",
                     count = game.inaccuraciesCount,
-                    color = LocalChessPalette.current.caution
+                    color = LocalChessPalette.current.inaccuracy
                 )
             }
         }

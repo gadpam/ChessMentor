@@ -344,4 +344,40 @@ class PgnParserAndUploadTest {
         assertEquals(6, card.plyCount)
         assertEquals(3, card.fullMoveCount)
     }
+
+    @Test
+    fun extractGameCardInfo_localizesChessComEcoUrlAndNeverExposesRawEcoFallback() {
+        val chessComPgn = """
+            [Event "Live Chess"]
+            [Site "Chess.com"]
+            [White "Hero"]
+            [Black "Opponent"]
+            [Result "1-0"]
+            [ECO "A40"]
+            [ECOUrl "https://www.chess.com/openings/Queens-Pawn-Opening-Horwitz-Defense-2.c4-e6"]
+
+            1. d4 e6 2. c4 b6 3. e4 Bb7 1-0
+        """.trimIndent()
+
+        val card = PgnParser.extractGameCardInfo(
+            Game(id = 7L, userId = 1L, pgnData = chessComPgn, playerColor = ChessColor.WHITE, playedAt = 1L)
+        )
+        assertEquals("A40", card.eco)
+        assertEquals("Дебют ферзевых пешек: защита Горвица", card.openingName)
+        assertEquals("A40 · Дебют ферзевых пешек: защита Горвица", card.openingLabel)
+
+        val bareEcoPgn = """
+            [White "Hero"]
+            [Black "Opponent"]
+            [ECO "A40"]
+            [Result "1/2-1/2"]
+
+            1/2-1/2
+        """.trimIndent()
+        val bareCard = PgnParser.extractGameCardInfo(
+            Game(id = 8L, userId = 1L, pgnData = bareEcoPgn, playerColor = ChessColor.WHITE, playedAt = 1L)
+        )
+        assertEquals("A40 · Дебют ферзевых пешек", bareCard.openingLabel)
+        assertFalse(bareCard.openingLabel!!.startsWith("ECO "))
+    }
 }

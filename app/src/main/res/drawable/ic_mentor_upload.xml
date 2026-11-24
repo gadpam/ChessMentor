@@ -3,11 +3,8 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Стрелка вверх в коробке (загрузка) -->
-    <path
-        android:fillColor="#81B64C"
-        android:pathData="M5,20 L19,20 L19,4 L5,4 Z M7,6 L17,6 L17,18 L7,18 Z"/>
+    <!-- Загрузка: стрелка вверх над лотком -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M12,4 L15,7 L12,7 L12,14 L9,14 L9,7 L12,7 Z M12,14 L11,18 L13,18 Z"/>
+        android:pathData="M5,20 h14 v-2 H5 V20 Z M9,16 h6 v-6 h4 l-7,-7 l-7,7 h4 V16 Z" />
 </vector>

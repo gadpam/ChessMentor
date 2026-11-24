@@ -569,16 +569,12 @@ object PlayerAnalyticsCalculator {
 
     private fun resolveOpeningIdentity(card: PgnParser.GameCardInfo): OpeningIdentity? {
         val eco = card.eco?.trim()?.uppercase(Locale.ROOT)?.takeIf { it.length == 3 }
-        val rawName = card.openingName?.trim()?.takeIf { it.isNotEmpty() }
+        val rawName = OpeningDatabase.translateOpeningName(card.openingName)
 
-        // Если в PGN был только код ECO без названия — подтягиваем русское имя из OpeningDatabase
-        val dbOpeningName = if (rawName == null && eco != null) {
-            OpeningDatabase.findByEco(eco).firstOrNull()?.name
-        } else {
-            null
-        }
-
-        val fullName = rawName ?: dbOpeningName ?: eco?.let { ecoFallbackName(it) } ?: return null
+        // Если в PGN был только код ECO без названия — берём единое русское имя семейства из OpeningDatabase
+        val fullName = rawName ?: eco?.let {
+            OpeningDatabase.ecoFallbackName(it) ?: OpeningDatabase.findByEco(it).firstOrNull()?.name
+        } ?: return null
         // Группируем родственные подварианты вида "Сицилианская защита: вариант Найдорфа" в базовый дебют,
         // если название содержит двоеточие, сохраняя читаемость репертуара
         val familyName = fullName.substringBefore(':').trim().ifEmpty { fullName }
@@ -819,46 +815,8 @@ object PlayerAnalyticsCalculator {
         else -> "Дебюты ECO $code" to ""
     }
 
-    private fun ecoFallbackName(eco: String): String = when (eco.firstOrNull()) {
-        'A' -> when (eco) {
-            in "A10".."A39" -> "Английское начало"
-            in "A45".."A49" -> "Индийская система"
-            in "A56".."A79" -> "Защита Бенони"
-            in "A80".."A99" -> "Голландская защита"
-            else -> "Фланговый дебют"
-        }
-        'B' -> when (eco) {
-            "B01" -> "Скандинавская защита"
-            in "B02".."B05" -> "Защита Алехина"
-            in "B07".."B09" -> "Защита Пирца-Уфимцева"
-            in "B10".."B19" -> "Защита Каро-Канн"
-            in "B20".."B99" -> "Сицилианская защита"
-            else -> "Полуоткрытый дебют"
-        }
-        'C' -> when (eco) {
-            in "C00".."C19" -> "Французская защита"
-            in "C30".."C39" -> "Королевский гамбит"
-            in "C42".."C43" -> "Русская партия"
-            in "C44".."C45" -> "Шотландская партия"
-            in "C50".."C59" -> "Итальянская партия"
-            in "C60".."C99" -> "Испанская партия"
-            else -> "Открытый дебют"
-        }
-        'D' -> when (eco) {
-            in "D10".."D19" -> "Славянская защита"
-            in "D30".."D69" -> "Ферзевый гамбит"
-            in "D70".."D99" -> "Защита Грюнфельда"
-            else -> "Дебют ферзевых пешек"
-        }
-        'E' -> when (eco) {
-            in "E01".."E09" -> "Каталонское начало"
-            in "E12".."E19" -> "Новоиндийская защита"
-            in "E20".."E59" -> "Защита Нимцовича"
-            in "E60".."E99" -> "Староиндийская защита"
-            else -> "Индийская защита"
-        }
-        else -> "Дебют $eco"
-    }
+    private fun ecoFallbackName(eco: String): String =
+        OpeningDatabase.ecoFallbackName(eco) ?: "Дебют $eco"
 
     // ==================== ФАЗЫ ПАРТИИ И КАЧЕСТВО ХОДОВ ====================
 

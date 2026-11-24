@@ -1428,7 +1428,7 @@ private fun MoveQualityBreakdownCard(
                     Triple("Лучшие", quality.best, LocalChessPalette.current.positive),
                     Triple("Хорошие", quality.excellent + quality.good, LocalChessPalette.current.positive),
                     Triple("Теория", quality.book, LocalChessPalette.current.theory),
-                    Triple("Неточн. ?!", quality.inaccuracy, LocalChessPalette.current.caution),
+                    Triple("Неточн. ?!", quality.inaccuracy, LocalChessPalette.current.inaccuracy),
                     Triple("Ошибки ?", quality.mistake, LocalChessPalette.current.caution),
                     Triple("Упущено", quality.missedWin, LocalChessPalette.current.negative),
                     Triple("Зевки ??", quality.blunder, LocalChessPalette.current.negative)
@@ -1467,7 +1467,7 @@ private fun MoveQualityBreakdownCard(
                     items = listOf(
                         Triple("Зевки ??", fallbackBlunders, LocalChessPalette.current.negative),
                         Triple("Ошибки ?", fallbackMistakes, LocalChessPalette.current.caution),
-                        Triple("Неточн. ?!", fallbackInaccuracies, LocalChessPalette.current.caution)
+                        Triple("Неточн. ?!", fallbackInaccuracies, LocalChessPalette.current.inaccuracy)
                     ),
                     columnsWhenWide = 3
                 )

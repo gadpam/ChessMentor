@@ -233,6 +233,7 @@ private fun GameViewScreenContent(
     // 2) при показе линии Stockfish — синяя стрелка хода движка;
     // 3) на ходе с ошибкой — коралловая стрелка сыгранного хода + зелёная стрелка лучшего хода.
     val arrowsList = remember(
+        board.fen,
         currentMoveIndex,
         currentAnalyzedMove,
         currentMistake,
@@ -255,13 +256,17 @@ private fun GameViewScreenContent(
 
         val liveLine = engineLine
         if (liveLine != null && !liveLine.bestMoveUci.isNullOrBlank()) {
-            val arrow = parseMoveToArrow(
-                moveNotation = liveLine.bestMoveUci,
-                fenBefore = liveLine.analyzedFen,
-                color = Color(0xCC1E88E5)
-            )
-            if (arrow != null) {
-                return@remember listOf(arrow)
+            val boardKey = board.fen.split(' ').take(4).joinToString(" ")
+            val lineKey = liveLine.analyzedFen.split(' ').take(4).joinToString(" ")
+            if (boardKey == lineKey) {
+                val arrow = parseMoveToArrow(
+                    moveNotation = liveLine.bestMoveUci,
+                    fenBefore = liveLine.analyzedFen,
+                    color = Color(0xCC1E88E5)
+                )
+                if (arrow != null) {
+                    return@remember listOf(arrow)
+                }
             }
         }
 
@@ -1074,14 +1079,10 @@ private fun PlayerInfoBadge(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(12.dp)
-                .background(
-                    if (color == ChessColor.WHITE) Color.White else Color(0xFF1E1E1E),
-                    RoundedCornerShape(3.dp)
-                )
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(3.dp))
+        ChessSideBadge(
+            color = color,
+            size = 18.dp,
+            semanticsDescription = if (color == ChessColor.WHITE) "Белые" else "Чёрные"
         )
         Text(
             text = nameLabel,
@@ -1417,7 +1418,7 @@ private fun EngineLineCard(
                         }
                         Text(
                             text = if (state.isAlternativeBeforeMove) {
-                                "Сильнейшее продолжение"
+                                "Лучший вариант (до ошибки)"
                             } else {
                                 "Stockfish"
                             },

@@ -3,15 +3,9 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Гиря с шахматной фигурой -->
-    <path
-        android:fillColor="#81B64C"
-        android:pathData="M12,4 L16,8 L16,14 L12,18 L8,14 L8,8 Z"/>
-    <path
-        android:fillColor="#316446"
-        android:pathData="M12,6 L14,8 L14,12 L12,14 L10,12 L10,8 Z"/>
-    <!-- Конь внутри -->
+    <!-- Задачи: шахматный конь с вырезанным глазом и базой (evenOdd) -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M12,12 L13,14 L14,14 L14,16 L12,16 Z M11,14 L12,14 L12,16 L11,16 Z"/>
+        android:fillType="evenOdd"
+        android:pathData="M11.5,2.5 L13.1,4.3 L14.7,2.6 L15.4,4.5 C18.4,5.7 20.4,9.2 20.4,13.6 C20.4,15.4 20.0,16.8 19.3,18.0 L7.6,18.0 C8.7,15.6 10.1,13.4 11.4,12.2 C9.8,12.2 8.2,12.8 6.4,13.5 C5.4,13.8 4.4,13.0 4.5,11.9 C4.6,10.7 5.2,9.7 6.3,8.5 L8.6,5.9 L10.0,4.5 Z M9.2,6.8 a1.0,1.0 0 1,0 0,2.0 a1.0,1.0 0 1,0 0,-2.0 Z M4.5,19.2 H19.5 V21.5 H4.5 Z" />
 </vector>

@@ -540,10 +540,12 @@ fun GameCard(
     val detail = listOfNotNull(id?.takeIf { showNumber }?.let { "№$it" },
         info.dateLabel.takeIf { showDate }, info.timeControlLabel).joinToString(" · ")
     val identity: @Composable (Boolean) -> Unit = { stacked ->
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box(Modifier.size(12.dp).background(if (white) Color.White else Color.Black, MaterialTheme.shapes.extraSmall)
-                .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.extraSmall)
-                .semantics { contentDescription = if (white) "Вы белыми" else "Вы чёрными" })
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            com.example.chessmentor.presentation.ui.components.ChessSideBadge(
+                color = game.playerColor,
+                size = 22.dp,
+                semanticsDescription = if (white) "Вы белыми" else "Вы чёрными"
+            )
             Column {
                 Text(
                     text = info.title.removePrefix("vs "),

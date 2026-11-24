@@ -3,11 +3,9 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Галочка в круге -->
-    <path
-        android:fillColor="#81B64C"
-        android:pathData="M12,2 C6.48,2 2,6.48 2,12 S6.48,22 12,22 22,17.52 22,12 17.52,2 12,2 Z"/>
+    <!-- Галочка в круге (вырезана через evenOdd) -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M9,16.17 L4.83,12.01 L6.24,10.6 L9,13.34 L16.96,5.92 L18.4,7.34 Z"/>
+        android:fillType="evenOdd"
+        android:pathData="M12,2 C6.48,2 2,6.48 2,12 s4.48,10 10,10 s10,-4.48 10,-10 S17.52,2 12,2 Z M10,17 l-5,-5 l1.41,-1.41 L10,14.17 l7.59,-7.59 L19,8 l-9,9 Z" />
 </vector>

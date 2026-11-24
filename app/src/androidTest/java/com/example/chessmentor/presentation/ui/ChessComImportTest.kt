@@ -35,6 +35,44 @@ class ChessComImportTest {
         assertEquals(37L, rows.first().libraryId)
         assertEquals(ChessColor.BLACK, rows.first().side)
         assertEquals("Победа", rows.first().outcome)
+
+        val extended = source.latest("ArchiveNick", "2025/04", emptyMap(), limit = ChessComArchive.FULL_MONTH_FETCH_LIMIT)
+        assertEquals(60, extended.size)
+        assertEquals(60L, extended.first().ended)
+        assertEquals(1L, extended.last().ended)
+    }
+
+    @Test fun paginationAndTimeClassFilterRevealOlderGamesBeyondTen() {
+        val monthGames = (25 downTo 1).map { idx ->
+            ArchiveGame(
+                fingerprint = "fp_$idx",
+                pgn = "",
+                ended = idx.toLong(),
+                opponent = "Opponent$idx",
+                side = ChessColor.WHITE,
+                outcome = "Победа",
+                libraryId = null,
+                timeClass = if (idx % 2 == 0) "rapid" else "blitz"
+            )
+        }
+        ui.setContent {
+            ChessComImportDialog(
+                savedName = "ArchiveNick",
+                rememberSource = {},
+                monthsFor = { listOf("2025/04") },
+                gamesFor = { _, _ -> monthGames },
+                onOpenSaved = {},
+                onImport = {},
+                onClose = {}
+            )
+        }
+        ui.onNodeWithText("Opponent25").assertExists()
+        ui.onNodeWithText("Opponent15").assertDoesNotExist()
+        ui.onNodeWithText("Показать ещё 10 (осталось 15)").performScrollTo().performClick()
+        ui.onNodeWithText("Opponent15").assertExists()
+        ui.onNodeWithText("Рапид (12)").performScrollTo().performClick()
+        ui.onNodeWithText("Opponent24").assertExists()
+        ui.onNodeWithText("Opponent25").assertDoesNotExist()
     }
 
     @Test fun monthSelectionNeverImportsUntilConfirmed() {

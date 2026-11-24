@@ -131,8 +131,10 @@ fun UploadGameScreen(
             gamesFor = { name, period -> gameViewModel.archiveGames(userId, name, period) },
             onOpenSaved = { id -> showChessCom = false; onOpenExistingGame(id) },
             onImport = { selected ->
-                gameViewModel.importChessComGames(userId, selected)
                 showChessCom = false
+                gameViewModel.importChessComGames(userId, selected) {
+                    currentOnNavigateToLibrary()
+                }
             },
             onClose = { showChessCom = false }
         )

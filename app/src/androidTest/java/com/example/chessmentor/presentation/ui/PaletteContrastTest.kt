@@ -27,7 +27,7 @@ class PaletteContrastTest {
                     add(m.onSurfaceVariant to m.surfaceVariant)
                     add(m.onPrimary to m.primary)
                     add(m.onErrorContainer to m.errorContainer)
-                    for (accent in listOf(p.positive, p.negative, p.caution, p.neutral, p.insight, p.brilliant, p.theory)) {
+                    for (accent in listOf(p.positive, p.negative, p.caution, p.inaccuracy, p.neutral, p.insight, p.brilliant, p.theory)) {
                         add(p.onAccent to accent)
                         for (surface in listOf(m.surface, m.surfaceContainer, m.background)) {
                             add(accent to surface)

@@ -212,6 +212,29 @@ class PlayerAnalyticsCalculatorTest {
         // Тома ECO: B (4 партии) и C (1 партия)
         assertEquals(listOf('B', 'C'), rep.ecoFamilies.map { it.code })
         assertEquals(4, rep.ecoFamilies.first { it.code == 'B' }.gamesCount)
+
+        // Проверяем унификацию A40 ("Дебют ферзевых пешек") и локализацию Chess.com ECOUrl
+        val a40Game = Game(
+            id = 99L,
+            userId = 1L,
+            pgnData = """
+                [White "Hero"]
+                [Black "Rival"]
+                [Result "1-0"]
+                [ECO "A40"]
+                [ECOUrl "https://www.chess.com/openings/Queens-Pawn-Opening-Horwitz-Defense-2.c4-e6"]
+                1. d4 e6 2. c4 b6 1-0
+            """.trimIndent(),
+            playerColor = ChessColor.WHITE,
+            playedAt = fixedNow - 10L
+        )
+        val a40Rep = PlayerAnalyticsCalculator.computeGameAnalytics(
+            games = listOf(a40Game),
+            analyzedMovesByGameId = emptyMap(),
+            mistakesByGameId = emptyMap(),
+            nowMs = fixedNow
+        ).repertoire
+        assertEquals("Дебют ферзевых пешек", a40Rep.whiteOpenings.first().openingName)
     }
 
     @Test

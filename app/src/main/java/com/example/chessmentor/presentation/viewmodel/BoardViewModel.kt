@@ -723,7 +723,8 @@ class BoardViewModel : ViewModel() {
 
         // Если мы на главной линии и игрок сделал ровно следующий ход партии — идём по партии
         if (!isInVariation()) {
-            val nextIdx = currentMoveIndex.intValue + 1
+            val isAltBefore = engineLineState.value?.isAlternativeBeforeMove == true && currentMoveIndex.intValue >= 0
+            val nextIdx = if (isAltBefore) currentMoveIndex.intValue else currentMoveIndex.intValue + 1
             if (nextIdx in moves.indices) {
                 val gameNextUci = ChessMoveUtils.moveToUci(moves[nextIdx])
                 if (gameNextUci.equals(moveUci, ignoreCase = true)) {
@@ -731,7 +732,7 @@ class BoardViewModel : ViewModel() {
                     return true
                 }
             }
-            variationAnchorIndex.intValue = currentMoveIndex.intValue
+            variationAnchorIndex.intValue = if (isAltBefore) currentMoveIndex.intValue - 1 else currentMoveIndex.intValue
         }
 
         val step = GameReviewHelper.buildVariationSteps(
@@ -836,7 +837,8 @@ class BoardViewModel : ViewModel() {
     }
 
     /**
-     * Запрашивает у Stockfish сильнейшую линию ДО сыгранной ошибки (объясняя, почему лучший ход работает).
+     * Запрашивает у Stockfish сильнейшую линию ДО сыгранной ошибки (объясняя, почему лучший ход работает)
+     * и переводит доску в пред-ошибочную позицию, чтобы стрелка и линия точно соответствовали фигурам.
      */
     fun analyzeBestAlternativeForCurrentMove(engine: ChessEngine, isEngineBusy: Boolean = false) {
         cachedEngine = engine
@@ -844,18 +846,33 @@ class BoardViewModel : ViewModel() {
         val analyzeBefore = !isInVariation() && idx >= 0 &&
             (getCurrentMistake() != null || getCurrentAnalyzedMove()?.isMistake() == true)
         val targetFen = if (analyzeBefore) getFenBeforeMove(idx) else board.value.fen
+        if (analyzeBefore && !isEngineBusy) {
+            clearInteractiveOverlays()
+            board.value = boardFromFen(targetFen)
+            lastMove.value = lastMovesByPly.getOrNull(idx - 1)
+            highlightedSquares.value = emptySet()
+        }
         requestEngineAnalysis(
             engine = engine,
             fen = targetFen,
-            isAlternativeBeforeMove = analyzeBefore,
+            isAlternativeBeforeMove = analyzeBefore && !isEngineBusy,
             isEngineBusy = isEngineBusy
         )
     }
 
     fun dismissEngineLine() {
+        val wasAltBefore = engineLineState.value?.isAlternativeBeforeMove == true
         engineJob?.cancel()
         isLiveEngineEnabled.value = false
         engineLineState.value = null
+        if (wasAltBefore && !isInVariation() && !isInRetryMode()) {
+            val idx = currentMoveIndex.intValue
+            if (idx in fensAfterPly.indices) {
+                board.value = boardFromFen(fensAfterPly[idx])
+                lastMove.value = lastMovesByPly.getOrNull(idx)
+                updateHighlights()
+            }
+        }
     }
 
     private fun onBoardPositionChanged() {
