@@ -195,7 +195,9 @@ fun UploadGameScreen(
                     colorAutoDetected = colorAutoDetected,
                     isLoading = isLoading,
                     onCopy = { gameViewModel.uploadAndAnalyzeGame(allowDuplicate = true) },
-                    onOpenExistingGame = onOpenExistingGame
+                    onOpenExistingGame = onOpenExistingGame,
+                    onNextBatchWindow = { gameViewModel.showNextBatchWindow() },
+                    onResetBatchWindow = { gameViewModel.resetBatchWindow() }
                 )
             }
         }
@@ -337,7 +339,9 @@ internal fun PgnLivePreviewCard(
     colorAutoDetected: Boolean,
     isLoading: Boolean,
     onCopy: () -> Unit,
-    onOpenExistingGame: (Long) -> Unit
+    onOpenExistingGame: (Long) -> Unit,
+    onNextBatchWindow: () -> Unit = {},
+    onResetBatchWindow: () -> Unit = {}
 ) {
     // 1. Ошибка разбора одиночного PGN
     if (!preview.isBatch && preview.singleError != null) {
@@ -379,6 +383,9 @@ internal fun PgnLivePreviewCard(
 
     // 2. Пакет из нескольких партий (мульти-PGN)
     if (preview.isBatch) {
+        var showErrors by remember(preview.batchOffset, preview.batchErrorDetails.size) { mutableStateOf(false) }
+        val windowStart = preview.batchOffset + 1
+        val windowEnd = preview.batchOffset + preview.batchWindowCount.coerceAtLeast(1)
         Card(
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
@@ -404,6 +411,14 @@ internal fun PgnLivePreviewCard(
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
+                        if (preview.totalGames > PgnParser.MAX_BATCH_GAMES || preview.batchOffset > 0) {
+                            Text(
+                                text = "Проверены записи $windowStart–$windowEnd из ${preview.totalGames}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
                         preview.sourceFileName?.let { name ->
                             Text(
                                 text = "Файл: $name",
@@ -415,17 +430,18 @@ internal fun PgnLivePreviewCard(
                 }
 
                 val metaSummary = buildList {
-                    add("новых к импорту: ${preview.validGamesCount}")
+                    add("новых в этой части: ${preview.validGamesCount}")
                     if (preview.batchDuplicatesCount > 0) {
                         add("повторов: ${preview.batchDuplicatesCount}")
                     }
                     if (preview.validGamesCount > 0) {
                         add("цвет определён по нику: ${preview.batchAutoColorCount}/${preview.validGamesCount}")
                     }
-                    val invalid = preview.totalGames - preview.validGamesCount - preview.batchDuplicatesCount - preview.truncatedCount
-                    if (invalid > 0) add("с ошибками: $invalid")
-                    if (preview.truncatedCount > 0) {
-                        add("сверх лимита: ${preview.truncatedCount}")
+                    if (preview.batchInvalidCount > 0) {
+                        add("с ошибками: ${preview.batchInvalidCount}")
+                    }
+                    if (preview.batchRemainingCount > 0) {
+                        add("далее в файле: ${preview.batchRemainingCount}")
                     }
                 }.joinToString(" · ")
 
@@ -445,6 +461,70 @@ internal fun PgnLivePreviewCard(
                             overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
+                    }
+                }
+
+                if (preview.batchErrorDetails.isNotEmpty()) {
+                    TextButton(
+                        onClick = { showErrors = !showErrors },
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Text(
+                            if (showErrors) {
+                                "Скрыть ошибки (${preview.batchInvalidCount})"
+                            } else {
+                                "Посмотреть ошибки (${preview.batchInvalidCount})"
+                            }
+                        )
+                    }
+                    if (showErrors) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                preview.batchErrorDetails.forEach { errLine ->
+                                    Text(
+                                        text = "• $errLine",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (preview.batchRemainingCount > 0 || preview.batchOffset > 0) {
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (preview.batchRemainingCount > 0) {
+                            val nextStep = minOf(PgnParser.MAX_BATCH_GAMES, preview.batchRemainingCount)
+                            OutlinedButton(
+                                onClick = onNextBatchWindow,
+                                enabled = !isLoading,
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Text("Проверить следующие $nextStep")
+                            }
+                        }
+                        if (preview.batchOffset > 0) {
+                            TextButton(
+                                onClick = onResetBatchWindow,
+                                enabled = !isLoading,
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Text("К записям 1–${PgnParser.MAX_BATCH_GAMES}")
+                            }
+                        }
                     }
                 }
             }
@@ -735,7 +815,8 @@ internal fun UploadForm(
             @OptIn(ExperimentalLayoutApi::class)
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                 val fontScale = LocalDensity.current.fontScale
-                val wrapActions = maxWidth < (290 * fontScale).dp
+                val minSingleRowWidth = if (pgnInput.isNotEmpty()) 330 else 280
+                val wrapActions = maxWidth < (minSingleRowWidth * fontScale).dp
                 if (wrapActions) {
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
@@ -1005,6 +1086,13 @@ internal fun UploadForm(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Импортировать ($importableCount) и разобрать самую свежую")
+                    }
+                    if (preview != null && !preview.batchHasDatedGames) {
+                        Text(
+                            text = "В этих записях нет даты игры — будет разобрана первая добавленная партия.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             } else if (!hasDuplicate && pgnInput.isNotBlank()) {

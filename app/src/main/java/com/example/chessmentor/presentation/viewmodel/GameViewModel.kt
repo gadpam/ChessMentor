@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.chessmentor.data.chesscom.ArchiveGame
 import com.example.chessmentor.data.chesscom.ChessComArchive
 import com.example.chessmentor.di.AppContainer
+import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
@@ -43,7 +44,13 @@ data class PgnImportPreview(
     val batchAutoColorCount: Int = 0,
     val batchDuplicatesCount: Int = 0,
     val truncatedCount: Int = 0,
-    val sourceFileName: String? = null
+    val sourceFileName: String? = null,
+    val batchOffset: Int = 0,
+    val batchWindowCount: Int = 0,
+    val batchRemainingCount: Int = 0,
+    val batchInvalidCount: Int = 0,
+    val batchErrorDetails: List<String> = emptyList(),
+    val batchHasDatedGames: Boolean = false
 ) {
     val isBatch: Boolean get() = totalGames > 1
 }
@@ -91,6 +98,8 @@ class GameViewModel(
     var chessUsernameHint = mutableStateOf("")
     var colorAutoDetected = mutableStateOf(false)
     var importPreview = mutableStateOf<PgnImportPreview?>(null)
+    var batchOffset = mutableStateOf(0)
+    val lastBatchErrors = mutableStateListOf<String>()
 
     var message = mutableStateOf("")
     var isLoading = mutableStateOf(false)
@@ -295,7 +304,11 @@ class GameViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                message.value = "Ошибка импорта Chess.com: ${e.localizedMessage}"
+                message.value = if (saved > 0) {
+                    "Ошибка: Частичный импорт с Chess.com — добавлено $saved из ${selection.size}, остальные не сохранены (${e.localizedMessage ?: "сбой записи"})."
+                } else {
+                    "Ошибка импорта Chess.com: ${e.localizedMessage}"
+                }
             } finally {
                 isLoading.value = false
                 if (currentUser.value?.id == userId) {
@@ -316,7 +329,22 @@ class GameViewModel(
         timeControl.value = ""
         colorAutoDetected.value = false
         importPreview.value = null
+        batchOffset.value = 0
+        lastBatchErrors.clear()
         lastSourceFileName = null
+    }
+
+    fun showNextBatchWindow() {
+        val current = importPreview.value ?: return
+        if (current.batchRemainingCount <= 0) return
+        batchOffset.value += UploadGameUseCase.MAX_BATCH_GAMES
+        schedulePgnPreview(pgnInput.value, lastSourceFileName, debounce = false)
+    }
+
+    fun resetBatchWindow() {
+        if (batchOffset.value == 0) return
+        batchOffset.value = 0
+        schedulePgnPreview(pgnInput.value, lastSourceFileName, debounce = false)
     }
 
     fun setImportTimeControl(value: String) {
@@ -351,6 +379,8 @@ class GameViewModel(
         val wasBlank = pgnInput.value.isBlank()
         pgnInput.value = newPgn
         lastSourceFileName = sourceFileName
+        batchOffset.value = 0
+        lastBatchErrors.clear()
         manualTimeControl = false
         timeControl.value = ""
         if (newPgn.isBlank()) {
@@ -363,7 +393,8 @@ class GameViewModel(
     private fun schedulePgnPreview(
         rawPgn: String,
         sourceFileName: String?,
-        debounce: Boolean
+        debounce: Boolean,
+        extraExistingGames: List<Game> = emptyList()
     ) {
         previewJob?.cancel()
         importPreview.value = null
@@ -371,14 +402,22 @@ class GameViewModel(
         colorAutoDetected.value = false
         val userSnapshot = currentUser.value
         val hintSnapshot = chessUsernameHint.value
-        val existingSnapshot = userGames.toList()
+        val existingSnapshot = (userGames.toList() + extraExistingGames).distinctBy { it.id ?: it.pgnData.hashCode().toLong() }
+        val offsetSnapshot = batchOffset.value
 
         previewJob = viewModelScope.launch {
             if (debounce) {
                 delay(180L)
             }
             val preview = withContext(Dispatchers.Default) {
-                buildPreviewInternal(rawPgn, userSnapshot, hintSnapshot, existingSnapshot, sourceFileName)
+                buildPreviewInternal(
+                    rawPgn = rawPgn,
+                    user = userSnapshot,
+                    usernameHint = hintSnapshot,
+                    existingGames = existingSnapshot,
+                    sourceFileName = sourceFileName,
+                    batchOffset = offsetSnapshot
+                )
             }
             if (preview != null && !preview.isBatch) {
                 preview.autoDetectedColor?.let { detected ->
@@ -408,7 +447,8 @@ class GameViewModel(
         user: User?,
         usernameHint: String,
         existingGames: List<Game>,
-        sourceFileName: String?
+        sourceFileName: String?,
+        batchOffset: Int = 0
     ): PgnImportPreview? {
         val trimmed = rawPgn.trim()
         if (trimmed.isEmpty()) return null
@@ -450,33 +490,54 @@ class GameViewModel(
             }
         }
 
-        // Мульти-PGN архив
-        val truncated = (blocks.size - UploadGameUseCase.MAX_BATCH_GAMES).coerceAtLeast(0)
-        val limited = blocks.take(UploadGameUseCase.MAX_BATCH_GAMES)
+        // Мульти-PGN архив с поддержкой смещения batchOffset для архивов > 50 партий
+        val safeOffset = batchOffset.coerceIn(0, (blocks.size - 1).coerceAtLeast(0))
+        val limited = blocks.drop(safeOffset).take(UploadGameUseCase.MAX_BATCH_GAMES)
+        val remainingAfter = (blocks.size - (safeOffset + limited.size)).coerceAtLeast(0)
         val seenFp = HashSet(existingByFingerprint.keys)
         var validCount = 0
         var dupCount = 0
         var autoColorCount = 0
+        var invalidCount = 0
+        var hasDatedGames = false
         val samples = mutableListOf<String>()
+        val errorDetails = mutableListOf<String>()
 
-        for (block in limited) {
-            val res = PgnParser.parseAndValidate(block)
-            if (res is PgnParser.ParseResult.Success) {
-                val g = res.game
-                if (!seenFp.add(g.fingerprint)) {
-                    dupCount++
-                    continue
+        for ((idx, block) in limited.withIndex()) {
+            val globalNumber = safeOffset + idx + 1
+            when (val res = PgnParser.parseAndValidate(block)) {
+                is PgnParser.ParseResult.Success -> {
+                    val g = res.game
+                    if (!seenFp.add(g.fingerprint)) {
+                        dupCount++
+                        continue
+                    }
+                    validCount++
+                    if (g.metadata.playedAtMillis != null) {
+                        hasDatedGames = true
+                    }
+                    if (PgnParser.detectPlayerColor(g.metadata, candidateNames) != null) {
+                        autoColorCount++
+                    }
+                    if (samples.size < 4) {
+                        val w = g.metadata.whiteName ?: "Белые"
+                        val b = g.metadata.blackName ?: "Чёрные"
+                        val resSym = g.metadata.result.displaySymbol()
+                        val ecoPart = g.effectiveEco?.let { " · $it" }.orEmpty()
+                        samples.add("$w – $b ($resSym$ecoPart)")
+                    }
                 }
-                validCount++
-                if (PgnParser.detectPlayerColor(g.metadata, candidateNames) != null) {
-                    autoColorCount++
-                }
-                if (samples.size < 4) {
-                    val w = g.metadata.whiteName ?: "Белые"
-                    val b = g.metadata.blackName ?: "Чёрные"
-                    val resSym = g.metadata.result.displaySymbol()
-                    val ecoPart = g.effectiveEco?.let { " · $it" }.orEmpty()
-                    samples.add("$w – $b ($resSym$ecoPart)")
+                is PgnParser.ParseResult.Failure -> {
+                    invalidCount++
+                    if (errorDetails.size < 20) {
+                        val meta = runCatching { PgnParser.extractMetadata(block) }.getOrNull()
+                        val players = if (meta != null && (meta.whiteName != null || meta.blackName != null)) {
+                            " (${meta.whiteName ?: "?"} – ${meta.blackName ?: "?"})"
+                        } else {
+                            ""
+                        }
+                        errorDetails.add("Запись #$globalNumber$players: ${res.errorMessage}")
+                    }
                 }
             }
         }
@@ -487,8 +548,14 @@ class GameViewModel(
             batchSampleLines = samples,
             batchAutoColorCount = autoColorCount,
             batchDuplicatesCount = dupCount,
-            truncatedCount = truncated,
-            sourceFileName = sourceFileName
+            truncatedCount = remainingAfter,
+            sourceFileName = sourceFileName,
+            batchOffset = safeOffset,
+            batchWindowCount = limited.size,
+            batchRemainingCount = remainingAfter,
+            batchInvalidCount = invalidCount,
+            batchErrorDetails = errorDetails,
+            batchHasDatedGames = hasDatedGames
         )
     }
 
@@ -562,7 +629,7 @@ class GameViewModel(
                     pgnData = pgn,
                     playerColor = color,
                     timeControl = time,
-                    playedAt = System.currentTimeMillis(),
+                    playedAt = null,
                     playerNameHint = hint,
                     allowDuplicate = allowDuplicate
                 )
@@ -646,7 +713,7 @@ class GameViewModel(
                             pgnData = pgn,
                             playerColor = color,
                             timeControl = time,
-                            playedAt = System.currentTimeMillis(),
+                            playedAt = null,
                             playerNameHint = hint,
                             allowDuplicate = allowDuplicate
                         )
@@ -700,9 +767,11 @@ class GameViewModel(
         val fallbackColor = selectedColor.value
         val manualTc = timeControl.value.trim().ifEmpty { null }
         val hint = chessUsernameHint.value.trim().ifEmpty { null }
+        val currentOffset = batchOffset.value
 
         isLoading.value = true
         message.value = ""
+        lastBatchErrors.clear()
 
         viewModelScope.launch {
             try {
@@ -715,7 +784,8 @@ class GameViewModel(
                             manualTimeControl = manualTc,
                             playerNameHint = hint,
                             autoDetectColor = true,
-                            skipDuplicates = true
+                            skipDuplicates = true,
+                            startOffset = currentOffset
                         )
                     )
                 }
@@ -723,9 +793,17 @@ class GameViewModel(
                 when (batchRes) {
                     is UploadGameUseCase.BatchResult.Success -> {
                         val importedCount = batchRes.importedGames.size
+                        lastBatchErrors.clear()
+                        lastBatchErrors.addAll(batchRes.failedDetails)
+
                         if (importedCount == 0) {
                             isLoading.value = false
-                            message.value = "Все партии из файла (${batchRes.skippedDuplicates}) уже есть в библиотеке"
+                            val rangeText = "${batchRes.startOffset + 1}–${batchRes.startOffset + batchRes.processedCount}"
+                            message.value = if (batchRes.remainingAfterWindow > 0) {
+                                "В записях $rangeText из ${batchRes.totalInArchive} новых партий нет (повторов: ${batchRes.skippedDuplicates}). Нажмите «Проверить следующие», чтобы перейти к остальным."
+                            } else {
+                                "Все партии из этого диапазона (${batchRes.skippedDuplicates}) уже есть в библиотеке"
+                            }
                             return@launch
                         }
 
@@ -733,35 +811,62 @@ class GameViewModel(
                             isLoading.value = false
                             return@launch
                         }
-                        clearImportForm()
+
+                        val hasMoreOrErrors = batchRes.remainingAfterWindow > 0 || batchRes.failedCount > 0
+                        if (!hasMoreOrErrors) {
+                            clearImportForm()
+                        }
                         loadUserData()
 
                         val details = buildList {
-                            add("импортировано: $importedCount")
+                            add("добавлено: $importedCount")
                             if (batchRes.skippedDuplicates > 0) {
-                                add("дубликатов пропущено: ${batchRes.skippedDuplicates}")
+                                add("повторов: ${batchRes.skippedDuplicates}")
                             }
                             if (batchRes.failedCount > 0) {
                                 add("с ошибками: ${batchRes.failedCount}")
                             }
-                            if (batchRes.truncatedCount > 0) {
-                                add("лимит ${UploadGameUseCase.MAX_BATCH_GAMES} за раз")
+                            if (batchRes.remainingAfterWindow > 0) {
+                                add("в файле осталось ещё ${batchRes.remainingAfterWindow}")
                             }
                         }.joinToString(" · ")
 
-                        val newestId = batchRes.importedGames
+                        val newestId = (batchRes.importedGames
+                            .filter { it.playedAt > 0L }
                             .maxByOrNull { it.playedAt }
+                            ?: batchRes.importedGames.firstOrNull())
                             ?.id
 
                         if (analyzeNewest && newestId != null) {
-                            message.value = "Пакет загружен ($details). Запускаем анализ последней партии..."
+                            if (hasMoreOrErrors) {
+                                schedulePgnPreview(
+                                    rawArchive,
+                                    lastSourceFileName,
+                                    debounce = false,
+                                    extraExistingGames = batchRes.importedGames
+                                )
+                            }
+                            message.value = "Пакет загружен ($details). Запускаем разбор партии..."
                             if (!analyzeGameWithProgress(newestId)) {
                                 isLoading.value = false
                             }
                         } else {
                             isLoading.value = false
-                            message.value = "Готово — $details"
-                            onImportedToLibrary()
+                            message.value = if (hasMoreOrErrors) {
+                                "Частично готово — $details. Подробности доступны в предпросмотре ниже."
+                            } else {
+                                "Готово — $details"
+                            }
+                            if (hasMoreOrErrors) {
+                                schedulePgnPreview(
+                                    rawArchive,
+                                    lastSourceFileName,
+                                    debounce = false,
+                                    extraExistingGames = batchRes.importedGames
+                                )
+                            } else {
+                                onImportedToLibrary()
+                            }
                         }
                     }
 
@@ -1067,6 +1172,68 @@ class GameViewModel(
             } catch (e: Exception) {
                 message.value = "Ошибка удаления: ${e.message}"
                 Log.e(TAG, "Error deleting game", e)
+            }
+        }
+    }
+
+    /**
+     * Исправляет сторону игрока (`playerColor`) у уже сохранённой партии.
+     * Если партия ранее была проанализирована, прежние оценки, ошибки и персональные
+     * задачи этой партии транзакционно сбрасываются, чтобы анализ не оставался приписанным
+     * ходам соперника. Идентификатор партии, ходы, имена и исход белых/чёрных сохраняются.
+     */
+    fun changeGamePlayerColor(gameId: Long, newColor: ChessColor) {
+        if (activeAnalysisGameId == gameId) {
+            cancelAnalysis()
+        }
+        viewModelScope.launch {
+            try {
+                val updated = container.transactionRunner.run {
+                    val current = container.gameRepository.findById(gameId)
+                        ?: return@run null
+                    if (current.playerColor == newColor) return@run current
+
+                    val hadAnalysisArtifacts = current.analysisStatus != AnalysisStatus.PENDING ||
+                        current.analyzedAt != null ||
+                        current.evaluationsJson != null ||
+                        current.totalMistakes > 0
+                    if (hadAnalysisArtifacts) {
+                        container.exerciseRepository.deleteBySourceGameId(gameId)
+                        container.analyzedMoveRepository.deleteByGameId(gameId)
+                        container.mistakeRepository.deleteByGameId(gameId)
+                    }
+
+                    val nextGame = if (hadAnalysisArtifacts) {
+                        current.copy(
+                            playerColor = newColor,
+                            analysisStatus = AnalysisStatus.PENDING,
+                            analyzedAt = null,
+                            accuracy = null,
+                            averageEvaluationLoss = null,
+                            totalMistakes = 0,
+                            blundersCount = 0,
+                            mistakesCount = 0,
+                            inaccuraciesCount = 0,
+                            evaluationsJson = null
+                        )
+                    } else {
+                        current.copy(playerColor = newColor)
+                    }
+                    container.gameRepository.update(nextGame)
+                    nextGame
+                } ?: return@launch
+
+                _userMistakes.removeAll { it.gameId == gameId }
+                _mistakesByGameId.value = _userMistakes.groupBy { it.gameId }
+                if (selectedGame.value?.id == gameId) {
+                    selectGame(updated)
+                }
+                message.value = "Ваша сторона обновлена: ${newColor.getDisplayName()}"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = "Ошибка обновления стороны: ${e.message}"
+                Log.e(TAG, "Error changing player color", e)
             }
         }
     }

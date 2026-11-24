@@ -369,7 +369,7 @@ object PlayerAnalyticsCalculator {
     ): GameAnalyticsReport {
         val cutoff = period.cutoffMillis(nowMs)
         val filteredGames = if (cutoff != null) {
-            games.filter { it.playedAt >= cutoff }
+            games.filter { it.playedAt > 0L && it.playedAt >= cutoff }
         } else {
             games
         }
@@ -1230,9 +1230,11 @@ object PlayerAnalyticsCalculator {
         val today: LocalDate = Instant.ofEpochMilli(nowMs).atZone(zoneId).toLocalDate()
         val todayEpoch = today.toEpochDay()
 
-        val gamesByDay = games.groupingBy { g ->
-            Instant.ofEpochMilli(g.playedAt).atZone(zoneId).toLocalDate().toEpochDay()
-        }.eachCount()
+        val gamesByDay = games
+            .filter { it.playedAt > 0L }
+            .groupingBy { g ->
+                Instant.ofEpochMilli(g.playedAt).atZone(zoneId).toLocalDate().toEpochDay()
+            }.eachCount()
 
         val solvedByDay = attempts
             .filter { it.solved }

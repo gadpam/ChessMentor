@@ -343,7 +343,7 @@ class TrainingViewModel(
             sessionStepNumber = 1,
             sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
             sessionPhase = firstPhase,
-            feedbackMessage = "Готовим сессию из ${TrainingSessionPlanner.DEFAULT_SESSION_SIZE} задач..."
+            feedbackMessage = "Подбираем задачу…"
         )
 
         currentJob = viewModelScope.launch {
@@ -393,7 +393,7 @@ class TrainingViewModel(
             sessionStepNumber = smartSessionStep,
             sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
             sessionPhase = initialPhase,
-            feedbackMessage = "Подбираем задачу (${mode.displayName})..."
+            feedbackMessage = "Подбираем задачу…"
         )
 
         currentJob = viewModelScope.launch {
@@ -451,7 +451,7 @@ class TrainingViewModel(
             sessionStepNumber = smartSessionStep,
             sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
             sessionPhase = initialPhase,
-            feedbackMessage = "Подготавливаем задачи..."
+            feedbackMessage = "Подбираем задачу…"
         )
 
         currentJob = viewModelScope.launch {
@@ -872,21 +872,31 @@ class TrainingViewModel(
                 is GetTrainingExerciseUseCase.Result.NoSuitableExercises -> {
                     currentExercise = null
                     val isMistakesMode = mode is TrainingMode.MyMistakes
+                    val hasAnalyzedGames = if (isMistakesMode) {
+                        runCatching {
+                            container.gameRepository.findByUserId(userId).any { it.isAnalyzed() }
+                        }.getOrDefault(false)
+                    } else {
+                        false
+                    }
+                    val missingPersonalSources = isMistakesMode && !hasAnalyzedGames
                     val emptyMessage = when {
                         mode is TrainingMode.FromGame && excludeId > 0L ->
                             "Отлично! Все ключевые ошибки этой партии отработаны. Можно вернуться к разбору партии или продолжить тренировку в общем режиме."
                         mode is TrainingMode.FromGame ->
                             "В этой партии не найдено подходящих тактических ошибок для тренажёра. Вернитесь к разбору партии или выберите общий режим!"
+                        missingPersonalSources ->
+                            "У вас пока нет разобранных партий. Загрузите PGN и запустите анализ — или выберите общий режим!"
                         isMistakesMode ->
-                            "У вас пока нет задач из собственных партий. Загрузите PGN и запустите анализ — или выберите общий режим!"
+                            "В ваших разобранных партиях пока не нашлось тактических ошибок для тренажёра. Попробуйте общий тактический банк!"
                         else ->
-                            "В выбранной теме пока нет задач. Попробуйте другую тему или общий режим."
+                            "В выбранном режиме сейчас нет новых задач. Переключите режим сверху или откройте общий банк."
                     }
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         isInputLocked = true,
                         hasActiveExercise = false,
-                        hasNoUserMistakes = isMistakesMode,
+                        hasNoUserMistakes = missingPersonalSources,
                         feedbackMessage = emptyMessage
                     )
                 }

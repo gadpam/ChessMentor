@@ -422,4 +422,97 @@ class PgnParserAndUploadTest {
         assertFalse(okCard.hasResultConflict)
         assertEquals(PgnParser.PlayerOutcome.WIN, okCard.outcome)
     }
+
+    @Test
+    fun undatedPgn_setsPlayedAtZeroAndDisplaysUnknownDateLabel() = runBlocking {
+        val userRepo = FakeUserRepository()
+        val gameRepo = FakeGameRepository()
+        val user = userRepo.save(
+            User(nickname = "Hero", email = "hero@example.com", passwordHash = "h", rating = 1400)
+        )
+        val useCase = UploadGameUseCase(gameRepo, userRepo)
+        val undatedPgn = """
+            [White "Hero"]
+            [Black "Rival"]
+            [Result "1-0"]
+
+            1. e4 e5 2. Nf3 Nc6 1-0
+        """.trimIndent()
+
+        val result = useCase.execute(
+            UploadGameUseCase.Input(
+                userId = user.id!!,
+                pgnData = undatedPgn,
+                playerColor = ChessColor.WHITE
+            )
+        )
+        assertTrue(result is UploadGameUseCase.Result.Success)
+        val saved = (result as UploadGameUseCase.Result.Success).game
+        assertEquals(0L, saved.playedAt)
+        val card = PgnParser.extractGameCardInfo(saved)
+        assertEquals("Дата игры неизвестна", card.dateLabel)
+    }
+
+    @Test
+    fun batchUpload_supportsStartOffsetForArchivesOver50GamesAndReportsPerEntryErrors() = runBlocking {
+        val userRepo = FakeUserRepository()
+        val gameRepo = FakeGameRepository()
+        val user = userRepo.save(
+            User(nickname = "Hero", email = "hero@example.com", passwordHash = "h", rating = 1400)
+        )
+        val useCase = UploadGameUseCase(gameRepo, userRepo)
+
+        val entries = (1..56).map { idx ->
+            if (idx == 53) {
+                """
+                [Site "https://lichess.org/GameNo53"]
+                [White "Hero"]
+                [Black "ErrorOpponent"]
+                [Result "1-0"]
+
+                1. e4 e5 2. Bh6 1-0
+                """.trimIndent()
+            } else {
+                """
+                [Site "https://lichess.org/GameNo$idx"]
+                [White "Hero"]
+                [Black "Opp$idx"]
+                [Result "1-0"]
+
+                1. e4 e5 2. Nf3 Nc6 1-0
+                """.trimIndent()
+            }
+        }
+        val archive = entries.joinToString("\n\n")
+
+        val firstPage = useCase.executeBatch(
+            UploadGameUseCase.BatchInput(
+                userId = user.id!!,
+                rawPgnArchive = archive,
+                fallbackColor = ChessColor.WHITE,
+                startOffset = 0
+            )
+        ) as UploadGameUseCase.BatchResult.Success
+
+        assertEquals(50, firstPage.importedGames.size)
+        assertEquals(56, firstPage.totalInArchive)
+        assertEquals(6, firstPage.remainingAfterWindow)
+        assertEquals(0, firstPage.failedCount)
+
+        val secondPage = useCase.executeBatch(
+            UploadGameUseCase.BatchInput(
+                userId = user.id!!,
+                rawPgnArchive = archive,
+                fallbackColor = ChessColor.WHITE,
+                startOffset = 50
+            )
+        ) as UploadGameUseCase.BatchResult.Success
+
+        assertEquals(5, secondPage.importedGames.size)
+        assertEquals(1, secondPage.failedCount)
+        assertEquals(0, secondPage.remainingAfterWindow)
+        assertEquals(50, secondPage.startOffset)
+        assertTrue(secondPage.failedDetails.any { "#53" in it && "ErrorOpponent" in it })
+        assertEquals(55, gameRepo.findByUserId(user.id!!).size)
+    }
 }

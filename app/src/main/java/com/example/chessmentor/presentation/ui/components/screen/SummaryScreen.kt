@@ -219,7 +219,10 @@ fun SummaryScreen(
             SummaryHeader(
                 game = game,
                 cardInfo = cardInfo,
-                openingLabel = openingLabel
+                openingLabel = openingLabel,
+                onChangePlayerColor = game.id?.let { gid ->
+                    { newColor -> gameViewModel.changeGamePlayerColor(gid, newColor) }
+                }
             )
         }
 
@@ -938,82 +941,152 @@ private fun ReanalyzeHint(
 // ==================== СУЩЕСТВУЮЩИЕ КОМПОНЕНТЫ (без изменений) ====================
 
 @Composable
-private fun SummaryHeader(
+internal fun SummaryHeader(
     game: Game,
     cardInfo: PgnParser.GameCardInfo,
-    openingLabel: String? = null
+    openingLabel: String? = null,
+    onChangePlayerColor: ((ChessColor) -> Unit)? = null
 ) {
+    var showChangeColorDialog by rememberSaveable(game.id) { mutableStateOf(false) }
+
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer
         ),
         shape = RoundedCornerShape(12.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
             ) {
-                Text(
-                    text = cardInfo.title,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                // Результат, контроль времени, число ходов, дата, платформа
-                val metaLine = buildList {
-                    if (cardInfo.outcome != PgnParser.PlayerOutcome.UNKNOWN) {
-                        val term = cardInfo.terminationRu?.let { " ($it)" }.orEmpty()
-                        add("${cardInfo.outcome.displayName} ${cardInfo.result.displaySymbol()}$term")
-                    }
-                    add(cardInfo.timeControlLabel)
-                    if (cardInfo.fullMoveCount > 0) add("${cardInfo.fullMoveCount} х.")
-                    if (cardInfo.dateLabel.isNotBlank()) add(cardInfo.dateLabel)
-                    if (cardInfo.platform != PgnParser.GamePlatform.OTHER) {
-                        add(cardInfo.platform.displayName)
-                    }
-                }.joinToString(" · ")
-
-                Text(
-                    text = metaLine,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                )
-
-                if (!openingLabel.isNullOrBlank()) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Text(
-                        text = "Дебют: $openingLabel",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        text = cardInfo.title,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+
+                    // Результат, контроль времени, число ходов, дата, платформа
+                    val metaLine = buildList {
+                        if (cardInfo.outcome != PgnParser.PlayerOutcome.UNKNOWN) {
+                            val term = cardInfo.terminationRu?.let { " ($it)" }.orEmpty()
+                            add("${cardInfo.outcome.displayName} ${cardInfo.result.displaySymbol()}$term")
+                        }
+                        add(cardInfo.timeControlLabel)
+                        if (cardInfo.fullMoveCount > 0) add("${cardInfo.fullMoveCount} х.")
+                        if (cardInfo.dateLabel.isNotBlank()) add(cardInfo.dateLabel)
+                        if (cardInfo.platform != PgnParser.GamePlatform.OTHER) {
+                            add(cardInfo.platform.displayName)
+                        }
+                    }.joinToString(" · ")
+
+                    Text(
+                        text = metaLine,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                    )
+
+                    if (!openingLabel.isNullOrBlank()) {
+                        Text(
+                            text = "Дебют: $openingLabel",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    if (cardInfo.playerTimeTroubleMoves > 0) {
+                        Text(
+                            text = "Ходов в цейтноте (<20 с): ${cardInfo.playerTimeTroubleMoves}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                        )
+                    }
                 }
 
-                if (cardInfo.playerTimeTroubleMoves > 0) {
-                    Text(
-                        text = "Ходов в цейтноте (<20 с): ${cardInfo.playerTimeTroubleMoves}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
-                    )
-                }
+                Spacer(modifier = Modifier.width(12.dp))
+
+                com.example.chessmentor.presentation.ui.components.ChessSidePill(
+                    color = game.playerColor
+                )
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
-
-            com.example.chessmentor.presentation.ui.components.ChessSidePill(
-                color = game.playerColor
-            )
+            if (onChangePlayerColor != null) {
+                TextButton(
+                    onClick = { showChangeColorDialog = true },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                ) {
+                    Text("Исправить мою сторону (сейчас: ${game.playerColor.getDisplayName()})")
+                }
+            }
         }
+    }
+
+    if (showChangeColorDialog && onChangePlayerColor != null) {
+        val nextColor = game.playerColor.opposite()
+        val hasSavedAnalysis = game.isAnalyzed() || game.analyzedAt != null || game.totalMistakes > 0
+        AlertDialog(
+            onDismissRequest = { showChangeColorDialog = false },
+            title = { Text("Исправить вашу сторону?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Белые: ${cardInfo.whiteDisplay}\nЧёрные: ${cardInfo.blackDisplay}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "Сейчас партия записана за ${game.playerColor.getDisplayName().lowercase()}. " +
+                            "После изменения вашей стороной станут ${nextColor.getDisplayName().lowercase()}; ходы, имена игроков и итоговый счёт партии не изменятся.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (hasSavedAnalysis) {
+                        Text(
+                            text = "Прежний разбор и связанные с этой партией задачи будут сброшены, чтобы анализ не оставался на ходах соперника — после смены можно сразу запустить разбор заново.",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showChangeColorDialog = false
+                        onChangePlayerColor(nextColor)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text("Сменить на ${nextColor.getDisplayName().lowercase()}")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showChangeColorDialog = false },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 }
 

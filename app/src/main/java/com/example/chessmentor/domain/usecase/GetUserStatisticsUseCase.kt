@@ -116,7 +116,7 @@ class GetUserStatisticsUseCase(
         val allGames = gameRepository.findByUserId(userId)
         val cutoff = input.period.cutoffMillis(input.nowMs)
         val scopedGames = if (cutoff != null) {
-            allGames.filter { it.playedAt >= cutoff }
+            allGames.filter { it.playedAt > 0L && it.playedAt >= cutoff }
         } else {
             allGames
         }

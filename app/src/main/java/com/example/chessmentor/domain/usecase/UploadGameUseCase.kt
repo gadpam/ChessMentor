@@ -26,7 +26,7 @@ class UploadGameUseCase(
         val pgnData: String,
         val playerColor: ChessColor,
         val timeControl: String? = null,
-        val playedAt: Long = System.currentTimeMillis(),
+        val playedAt: Long? = null,
         val autoDetectColor: Boolean = false,
         val playerNameHint: String? = null,
         val allowDuplicate: Boolean = false
@@ -45,7 +45,8 @@ class UploadGameUseCase(
         val manualTimeControl: String? = null,
         val playerNameHint: String? = null,
         val autoDetectColor: Boolean = true,
-        val skipDuplicates: Boolean = true
+        val skipDuplicates: Boolean = true,
+        val startOffset: Int = 0
     )
 
     sealed class BatchResult {
@@ -55,7 +56,12 @@ class UploadGameUseCase(
             val failedCount: Int,
             val truncatedCount: Int,
             val autoDetectedColorsCount: Int,
-            val firstError: String? = null
+            val firstError: String? = null,
+            val startOffset: Int = 0,
+            val processedCount: Int = 0,
+            val totalInArchive: Int = 0,
+            val remainingAfterWindow: Int = 0,
+            val failedDetails: List<String> = emptyList()
         ) : BatchResult()
 
         data class Error(val message: String) : BatchResult()
@@ -105,7 +111,7 @@ class UploadGameUseCase(
         val finalColor = detectedColor ?: input.playerColor
 
         val resolvedTimeControl = resolveTimeControl(input.timeControl, parsed)
-        val resolvedPlayedAt = parsed.metadata.playedAtMillis ?: input.playedAt
+        val resolvedPlayedAt = parsed.metadata.playedAtMillis ?: input.playedAt ?: 0L
 
         val game = Game(
             userId = input.userId,
@@ -139,8 +145,10 @@ class UploadGameUseCase(
             return BatchResult.Error("В тексте не обнаружено ни одной партии")
         }
 
-        val truncatedCount = (allBlocks.size - MAX_BATCH_GAMES).coerceAtLeast(0)
-        val blocks = allBlocks.take(MAX_BATCH_GAMES)
+        val safeOffset = input.startOffset.coerceIn(0, allBlocks.size)
+        val blocks = allBlocks.drop(safeOffset).take(MAX_BATCH_GAMES)
+        val remainingAfterWindow = (allBlocks.size - (safeOffset + blocks.size)).coerceAtLeast(0)
+        val truncatedCount = remainingAfterWindow
 
         val seenFingerprints = HashSet<String>()
         if (input.skipDuplicates) {
@@ -157,14 +165,25 @@ class UploadGameUseCase(
         var failedCount = 0
         var autoDetectedCount = 0
         var firstError: String? = null
-        val fallbackNow = System.currentTimeMillis()
+        val failedDetails = mutableListOf<String>()
 
         for ((index, block) in blocks.withIndex()) {
+            val globalNumber = safeOffset + index + 1
             val parseRes = PgnParser.parseAndValidate(block)
             if (parseRes is PgnParser.ParseResult.Failure) {
                 failedCount++
+                val meta = runCatching { PgnParser.extractMetadata(block) }.getOrNull()
+                val playersLabel = if (meta != null && (meta.whiteName != null || meta.blackName != null)) {
+                    " (${meta.whiteName ?: "?"} – ${meta.blackName ?: "?"})"
+                } else {
+                    ""
+                }
+                val errLine = "Партия #$globalNumber$playersLabel: ${parseRes.errorMessage}"
                 if (firstError == null) {
-                    firstError = "Партия #${index + 1}: ${parseRes.errorMessage}"
+                    firstError = errLine
+                }
+                if (failedDetails.size < 20) {
+                    failedDetails.add(errLine)
                 }
                 continue
             }
@@ -187,8 +206,7 @@ class UploadGameUseCase(
                 pgnData = parsed.enrichedPgn,
                 playerColor = detectedColor ?: input.fallbackColor,
                 timeControl = resolveTimeControl(input.manualTimeControl, parsed),
-                // Небольшой сдвиг для партий без даты, чтобы сохранялся исходный порядок в файле
-                playedAt = parsed.metadata.playedAtMillis ?: (fallbackNow - index * 1000L)
+                playedAt = parsed.metadata.playedAtMillis ?: 0L
             )
             imported.add(gameRepository.save(game))
         }
@@ -200,7 +218,11 @@ class UploadGameUseCase(
                     skippedDuplicates = skippedDuplicates,
                     failedCount = 0,
                     truncatedCount = truncatedCount,
-                    autoDetectedColorsCount = 0
+                    autoDetectedColorsCount = 0,
+                    startOffset = safeOffset,
+                    processedCount = blocks.size,
+                    totalInArchive = allBlocks.size,
+                    remainingAfterWindow = remainingAfterWindow
                 )
                 firstError != null -> BatchResult.Error(firstError)
                 else -> BatchResult.Error("Не удалось импортировать ни одной партии")
@@ -213,7 +235,12 @@ class UploadGameUseCase(
             failedCount = failedCount,
             truncatedCount = truncatedCount,
             autoDetectedColorsCount = autoDetectedCount,
-            firstError = firstError
+            firstError = firstError,
+            startOffset = safeOffset,
+            processedCount = blocks.size,
+            totalInArchive = allBlocks.size,
+            remainingAfterWindow = remainingAfterWindow,
+            failedDetails = failedDetails
         )
     }
 

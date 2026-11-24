@@ -84,6 +84,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -667,10 +672,16 @@ internal fun ModePicker(
                     TrainingMode.WeakPatterns, TrainingMode.PatternVision, TrainingMode.DeepCalculation, TrainingMode.Defense)
             }
             modes.forEach { mode ->
+                val isCurrentMode = mode == selectedMode ||
+                    (mode is TrainingMode.FromGame && selectedMode is TrainingMode.FromGame)
                 DropdownMenuItem(
+                    modifier = Modifier.semantics {
+                        selected = isCurrentMode
+                        role = Role.RadioButton
+                    },
                     text = { Text(if (mode == TrainingMode.WeakPatterns && dueReviewCount > 0)
                         "${mode.displayName} · повторить: $dueReviewCount" else mode.displayName) },
-                    trailingIcon = if (mode == selectedMode || (mode is TrainingMode.FromGame && selectedMode is TrainingMode.FromGame)) {
+                    trailingIcon = if (isCurrentMode) {
                         { Icon(Icons.Default.Check, contentDescription = "Выбрано") }
                     } else null,
                     onClick = { choose(mode) }
@@ -678,8 +689,14 @@ internal fun ModePicker(
             }
             if (!choosingTheme) {
                 HorizontalDivider()
-                DropdownMenuItem(text = { Text("По тактической теме") }, onClick = { choosingTheme = true },
-                    trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) })
+                DropdownMenuItem(
+                    modifier = Modifier.semantics {
+                        contentDescription = "По тактической теме — открыть список тем"
+                    },
+                    text = { Text("По тактической теме") },
+                    onClick = { choosingTheme = true },
+                    trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) }
+                )
             }
         }
     }

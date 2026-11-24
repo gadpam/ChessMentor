@@ -478,6 +478,35 @@ class PlayerAnalyticsCalculatorTest {
         assertNotNull(stats.coachingActions.firstOrNull())
     }
 
+    @Test
+    fun `undated games stay in ALL time but are excluded from 7d 30d and daily activity`() {
+        val dated = sampleGame(1L, ChessColor.WHITE, "1-0", "C50", "Итальянская партия", 1500, "180+2", fixedNow - dayMs, 88.0, 22, 0)
+        val undated = sampleGame(2L, ChessColor.BLACK, "0-1", "B10", "Защита Каро-Канн", 1520, "180+2", 0L, 90.0, 18, 0)
+
+        val allReport = PlayerAnalyticsCalculator.computeGameAnalytics(
+            listOf(dated, undated), emptyMap(), emptyMap(), StatsPeriod.ALL, fixedNow
+        )
+        val weekReport = PlayerAnalyticsCalculator.computeGameAnalytics(
+            listOf(dated, undated), emptyMap(), emptyMap(), StatsPeriod.LAST_7_DAYS, fixedNow
+        )
+        val monthReport = PlayerAnalyticsCalculator.computeGameAnalytics(
+            listOf(dated, undated), emptyMap(), emptyMap(), StatsPeriod.LAST_30_DAYS, fixedNow
+        )
+
+        assertEquals(2, allReport.overall.gamesCount)
+        assertEquals(1, weekReport.overall.gamesCount)
+        assertEquals(1, monthReport.overall.gamesCount)
+
+        val (activity, streak) = PlayerAnalyticsCalculator.computeDailyActivity(
+            games = listOf(dated, undated),
+            attempts = emptyList(),
+            nowMs = fixedNow,
+            zoneId = ZoneOffset.UTC
+        )
+        assertEquals(1, activity.sumOf { it.gamesCount })
+        assertEquals(1, streak)
+    }
+
     // ==================== ТЕСТОВЫЕ ХЕЛПЕРЫ ====================
 
     private fun sampleGame(

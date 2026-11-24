@@ -117,4 +117,44 @@ class PgnPreviewTest {
         ui.onNodeWithText("Импортировать партию и разобрать").assertIsNotEnabled()
         ui.onNodeWithText("Импортировать в библиотеку (2)").assertDoesNotExist()
     }
+
+    @Test fun batchArchiveOverLimitSupportsWindowPaginationAndErrorInspection() {
+        val archive = (1..52).joinToString("\n\n") { idx ->
+            if (idx == 52) {
+                "[Site \"https://lichess.org/Pag52\"]\n[White \"Hero\"]\n[Black \"BrokenRival\"]\n\n1. e4 e5 2. Bh6 1-0"
+            } else {
+                "[Site \"https://lichess.org/Pag$idx\"]\n[White \"Hero\"]\n[Black \"Rival$idx\"]\n\n1. e4 e5 2. Nf3 Nc6 1-0"
+            }
+        }
+        ui.setContent {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                vm.importPreview.value?.let {
+                    PgnLivePreviewCard(
+                        preview = it,
+                        selectedColor = vm.selectedColor.value,
+                        colorAutoDetected = false,
+                        isLoading = false,
+                        onCopy = {},
+                        onOpenExistingGame = {},
+                        onNextBatchWindow = { vm.showNextBatchWindow() },
+                        onResetBatchWindow = { vm.resetBatchWindow() }
+                    )
+                }
+            }
+        }
+        ui.runOnIdle { vm.onPgnInputChanged(archive, "big.pgn") }
+        ui.waitUntil(5000) { vm.importPreview.value?.totalGames == 52 }
+
+        ui.onNodeWithText("Проверены записи 1–50 из 52").assertIsDisplayed()
+        ui.onNodeWithText("Проверить следующие 2").performScrollTo().performClick()
+
+        ui.waitUntil(5000) { vm.importPreview.value?.batchOffset == 50 }
+        ui.onNodeWithText("Проверены записи 51–52 из 52").assertIsDisplayed()
+        ui.onNodeWithText("Посмотреть ошибки (1)").performScrollTo().performClick()
+        ui.onNodeWithText("Запись #52", substring = true).assertIsDisplayed()
+        ui.onNodeWithText("К записям 1–50").performScrollTo().performClick()
+
+        ui.waitUntil(5000) { vm.importPreview.value?.batchOffset == 0 }
+        ui.onNodeWithText("Проверены записи 1–50 из 52").assertIsDisplayed()
+    }
 }

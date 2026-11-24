@@ -178,23 +178,37 @@ fun GamesListScreen(
         }
 
         when (activeSort) {
-            LibrarySort.NEWEST -> filtered.sortedByDescending { it.game.playedAt }
-            LibrarySort.OLDEST -> filtered.sortedBy { it.game.playedAt }
+            LibrarySort.NEWEST -> filtered.sortedWith(
+                compareByDescending<IndexedGame> { it.game.playedAt > 0L }
+                    .thenByDescending { it.game.playedAt }
+                    .thenByDescending { it.game.id ?: 0L }
+            )
+            LibrarySort.OLDEST -> filtered.sortedWith(
+                compareByDescending<IndexedGame> { it.game.playedAt > 0L }
+                    .thenBy { it.game.playedAt }
+                    .thenBy { it.game.id ?: 0L }
+            )
             LibrarySort.ACCURACY_DESC -> filtered.sortedWith(
                 compareByDescending<IndexedGame> { it.game.isAnalyzed() }
                     .thenByDescending { it.game.accuracy ?: -1.0 }
+                    .thenByDescending { it.game.playedAt > 0L }
                     .thenByDescending { it.game.playedAt }
+                    .thenByDescending { it.game.id ?: 0L }
             )
             LibrarySort.ACCURACY_ASC -> filtered.sortedWith(
                 compareByDescending<IndexedGame> { it.game.isAnalyzed() }
                     .thenBy { it.game.accuracy ?: 101.0 }
+                    .thenByDescending { it.game.playedAt > 0L }
                     .thenByDescending { it.game.playedAt }
+                    .thenByDescending { it.game.id ?: 0L }
             )
             LibrarySort.MOST_BLUNDERS -> filtered.sortedWith(
                 compareByDescending<IndexedGame> { it.game.isAnalyzed() }
                     .thenByDescending { it.game.blundersCount }
                     .thenByDescending { it.game.totalMistakes }
+                    .thenByDescending { it.game.playedAt > 0L }
                     .thenByDescending { it.game.playedAt }
+                    .thenByDescending { it.game.id ?: 0L }
             )
         }
     }

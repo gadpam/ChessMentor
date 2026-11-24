@@ -711,7 +711,8 @@ object PgnParser {
 
         val clockSummary = buildClockSummary(extracted.clocksSecondsByPly, startSideIsWhite)
 
-        val dateLabel = metadata.dateLabel ?: formatEpochMillisDate(game.playedAt)
+        val dateLabel = metadata.dateLabel
+            ?: if (game.playedAt <= 0L) "Дата игры неизвестна" else formatEpochMillisDate(game.playedAt)
 
         return GameCardInfo(
             title = title,

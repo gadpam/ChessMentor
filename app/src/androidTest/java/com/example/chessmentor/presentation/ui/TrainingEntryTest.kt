@@ -47,6 +47,7 @@ class TrainingEntryTest {
             ModePicker(mode, dueReviewCount = 0, enabled = true, onSelectMode = { mode = it })
         }
         compose.onNodeWithContentDescription("Сменить режим").performClick()
+        compose.onNodeWithContentDescription("По тактической теме — открыть список тем").assertIsDisplayed()
         compose.onNodeWithText("По тактической теме").performScrollTo().performClick()
         compose.onNodeWithText(expected.displayName).performClick()
         compose.onNodeWithText(expected.displayName).assertIsDisplayed()
