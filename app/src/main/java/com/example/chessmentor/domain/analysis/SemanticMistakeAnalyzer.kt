@@ -279,29 +279,26 @@ class SemanticMistakeAnalyzer(
             return TacticalMotif.FORK
         }
 
-        // 3. Связка / сквозной удар для дальнобойных фигур
+        // 3. Перегрузка / Отвлечение защитника (проверяем до линейного рентгена, чтобы жертва на линии вроде Qa8 под Rxa8/Re8# не принималась за связку)
+        detectOverloadingOrDeflection(board, boardAfter, move, moverSide, targetSide)?.let {
+            return it
+        }
+
+        // 4. Связка / сквозной удар для дальнобойных фигур
         if (movedPieceAfter.pieceType in SLIDING_TYPES) {
             val rayMotif = detectPinOrSkewer(boardAfter, move.to, moverSide, targetSide)
             if (rayMotif != null) return rayMotif
         }
 
-        // 4. Взятие незащищённой фигуры или отвлечение / перегрузка защитника
+        // 5. Взятие незащищённой фигуры
         if (targetBefore != Piece.NONE && targetBefore.pieceSide == targetSide) {
             val defendersAfter = bitCount(boardAfter.squareAttackedBy(move.to, targetSide))
             if (defendersAfter == 0 && ChessMoveUtils.pieceValue(targetBefore.pieceType) >= 300) {
                 return TacticalMotif.HANGING_PIECE
             }
-        }
-
-        // 5. Перегрузка / Отвлечение защитника (при взятии или жертве/нападении под взятие защитника)
-        detectOverloadingOrDeflection(board, boardAfter, move, moverSide, targetSide)?.let {
-            return it
-        }
-
-        if (targetBefore != Piece.NONE && targetBefore.pieceSide == targetSide &&
-            givesCheck && ChessMoveUtils.pieceValue(targetBefore.pieceType) >= 100
-        ) {
-            return TacticalMotif.REMOVING_DEFENDER
+            if (givesCheck && ChessMoveUtils.pieceValue(targetBefore.pieceType) >= 100) {
+                return TacticalMotif.REMOVING_DEFENDER
+            }
         }
 
         // 6. Ловля фигуры
