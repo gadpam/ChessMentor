@@ -41,6 +41,13 @@ def check_workflows(root: Path) -> list[str]:
         if "chmod +x ./gradlew" in text:
             errors.append(f"{rel}: redundant 'chmod +x ./gradlew' step (gradlew should be 100755 in Git)")
 
+        if "android-emulator-runner" in text and re.search(r"^\s*script:\s*\|\s*$", text, re.M):
+            for idx, line in enumerate(lines, start=1):
+                if "set -o pipefail" in line and "android-emulator-runner" in "\n".join(lines[max(0, idx - 12):idx]):
+                    errors.append(
+                        f"{rel}:{idx}: android-emulator-runner runs script via POSIX /bin/sh; move bash scripts to .github/scripts/*.sh"
+                    )
+
         for lineno, line in enumerate(lines, start=1):
             m = re.match(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)", line)
             if not m:

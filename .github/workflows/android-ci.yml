@@ -475,19 +475,7 @@ jobs:
           api-level: ${{ inputs.emulator_api_level || 29 }}
           arch: x86_64
           disable-animations: true
-          script: |
-            set -o pipefail
-            mkdir -p app/build/outputs/androidTest-results
-            adb install -r -t app/build/outputs/apk/debug/app-debug.apk || true
-            if [ -f "/tmp/nnue-cache/${NNUE_NET_NAME}" ]; then
-              adb push "/tmp/nnue-cache/${NNUE_NET_NAME}" "/data/local/tmp/${NNUE_NET_NAME}" || true
-              adb shell run-as com.example.chessmentor sh -c "mkdir -p files/nnue && cp /data/local/tmp/${NNUE_NET_NAME} files/nnue/${NNUE_NET_NAME}" || true
-            fi
-            ./gradlew :app:connectedDebugAndroidTest -Pandroid.injected.build.abi=x86_64 --no-daemon --stacktrace -Dorg.gradle.jvmargs="-Xmx3072m -Dfile.encoding=UTF-8" || {
-              STATUS=$?
-              adb logcat -d -t 1000 > app/build/outputs/androidTest-results/emulator-logcat.txt || true
-              exit $STATUS
-            }
+          script: bash .github/scripts/run-device-tests.sh
       - name: Identify failing device tests
         if: failure()
         run: |
