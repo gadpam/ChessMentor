@@ -1,98 +1,47 @@
-# Целостность данных и жизненный цикл разбора: изменения уровня 1
+# Целостность данных и жизненный цикл разбора: изменения уровня 1 и 2
 
 [К документации проекта](../README.md) · [Карта кода, данных и сборки](development.md) · [Проверки на GitHub и телефоне](testing.md)
 
-Пять исправлений первого уровня: потерянная загрузка нейросети, «занятый навсегда» движок, выдуманные оценки движка в сохранённом разборе, нетранзакционное восстановление копии и заглушки репозиториев. Схема Room не менялась, миграция не нужна. Ниже — что было не так, что изменено, где это смотреть в коде и как проверить результат.
+Пять исправлений первого уровня заложили фундамент (живучесть загрузки нейросети, «занятый навсегда» движок, запрет выдуманных оценок движка в разборе, транзакционное восстановление JSON-копии и удаление заглушек репозиториев). Последующие доработки второго уровня на текущей ветке закрыли оставшиеся гонки, транзакционность удаления и повторного разбора, обрыв нативного поиска и лимит SQLite-параметров. Схема Room v5 при этом не менялась, миграция не требуется.
 
-## Сводка
+## Сводка: Уровень 1 (фундамент целостности)
 
 | Проблема | Наблюдаемый эффект до исправления | Изменение | Ключевые файлы |
 |---|---|---|---|
-| Прогрев NNUE в `lifecycleScope` и только при `savedInstanceState == null` | Загрузка ~100 МБ обрывалась поворотом экрана; `NnueDownloader` удалял `.part`, и скачивание начиналось с нуля | Прогрев идёт в scope приложения, идемпотентно, на каждом `onCreate` | [MainActivity](../app/src/main/java/com/example/chessmentor/MainActivity.kt), [AppContainer](../app/src/main/java/com/example/chessmentor/di/AppContainer.kt), [ChessEngine](../app/src/main/java/com/example/chessmentor/data/engine/ChessEngine.kt), [StockfishEngine](../app/src/main/java/com/example/chessmentor/data/engine/StockfishEngine.kt) |
+| Прогрев NNUE в `lifecycleScope` и только при `savedInstanceState == null` | Загрузка ~67–100 МБ обрывалась поворотом экрана; `NnueDownloader` удалял `.part`, и скачивание начиналось с нуля | Прогрев идёт в `AppContainer.appScope`, идемпотентно, на каждом `onCreate` | [MainActivity](../app/src/main/java/com/example/chessmentor/MainActivity.kt), [AppContainer](../app/src/main/java/com/example/chessmentor/di/AppContainer.kt), [ChessEngine](../app/src/main/java/com/example/chessmentor/data/engine/ChessEngine.kt), [StockfishEngine](../app/src/main/java/com/example/chessmentor/data/engine/StockfishEngine.kt) |
 | Завершённый разбор оставался в `analysisProgress` | Экран партии считал движок занятым: live-анализ и проверка альтернативного хода блокировались до перезапуска | Терминальные фазы больше не считаются занятостью, диалог гасится после перехода в сводку | [AnalyzeGameUseCase](../app/src/main/java/com/example/chessmentor/domain/usecase/AnalyzeGameUseCase.kt), [GameViewScreen](../app/src/main/java/com/example/chessmentor/presentation/ui/components/screen/GameViewScreen.kt), [GamesListScreen](../app/src/main/java/com/example/chessmentor/presentation/ui/components/screen/GamesListScreen.kt) |
-| Сбой движка подменялся «предыдущей» оценкой | В БД сохранялся разбор со статусом `COMPLETED`, точность и число ошибок считались по выдуманным числам | Отсутствие оценки прерывает разбор; результат не сохраняется | [AnalyzeGameUseCase](../app/src/main/java/com/example/chessmentor/domain/usecase/AnalyzeGameUseCase.kt) |
-| Восстановление копии писалось по одной записи | Обрыв посреди импорта оставлял профиль обновлённым, а партии и попытки — нет | Все записи БД применяются одной транзакцией, при сбое откат целиком; настройки — только после фиксации | [TransactionRunner](../app/src/main/java/com/example/chessmentor/domain/repository/TransactionRunner.kt), [RoomTransactionRunner](../app/src/main/java/com/example/chessmentor/data/local/RoomTransactionRunner.kt), [ImportUserBackupUseCase](../app/src/main/java/com/example/chessmentor/domain/usecase/ImportUserBackupUseCase.kt) |
-| Заглушки репозиториев | `findPendingGames` возвращал пустой список, «удаление по пользователю» молча ничего не делало | Реальные запросы там, где они нужны; в остальных местах — явный отказ вместо ложного ответа | [UserDao](../app/src/main/java/com/example/chessmentor/data/local/dao/UserDao.kt), [RoomUserRepository](../app/src/main/java/com/example/chessmentor/data/repository/room/RoomUserRepository.kt), [RoomGameRepository](../app/src/main/java/com/example/chessmentor/data/repository/room/RoomGameRepository.kt) |
+| Сбой движка подменялся «предыдущей» оценкой | В БД сохранялся разбор со статусом `COMPLETED`, точность и число ошибок считались по выдуманным числам | Отсутствие оценки прерывает разбор (`EngineAnalysisException`); частичный результат не сохраняется | [AnalyzeGameUseCase](../app/src/main/java/com/example/chessmentor/domain/usecase/AnalyzeGameUseCase.kt) |
+| Восстановление копии писалось по одной записи | Обрыв посреди импорта оставлял профиль обновлённым, а партии и попытки — нет | Все записи БД применяются одной транзакцией (`RoomTransactionRunner`), при сбое откат целиком; настройки — только после фиксации | [TransactionRunner](../app/src/main/java/com/example/chessmentor/domain/repository/TransactionRunner.kt), [RoomTransactionRunner](../app/src/main/java/com/example/chessmentor/data/local/RoomTransactionRunner.kt), [ImportUserBackupUseCase](../app/src/main/java/com/example/chessmentor/domain/usecase/ImportUserBackupUseCase.kt) |
+| Заглушки репозиториев | `findPendingGames` возвращал пустой список, «удаление по пользователю» молча ничего не делало | Реальные запросы в `RoomUserRepository`; в неиспользуемых методах `RoomGameRepository` — явный отказ `NotImplementedError` вместо ложного ответа | [UserDao](../app/src/main/java/com/example/chessmentor/data/local/dao/UserDao.kt), [RoomUserRepository](../app/src/main/java/com/example/chessmentor/data/repository/room/RoomUserRepository.kt), [RoomGameRepository](../app/src/main/java/com/example/chessmentor/data/repository/room/RoomGameRepository.kt) |
 
-## 1. Прогрев движка переживает пересоздание Activity
+## Сводка: Уровень 2 (доработки на ветке `arena/f0fd23c6-chessmentor`)
 
-**Было.** `MainActivity.onCreate` запускал `chessEngine.init()` в `lifecycleScope` и только при `savedInstanceState == null`. Поворот экрана отменял корутину; отмена в `NnueDownloader` удаляет недокачанный `.part`, поэтому следующая попытка стартовала с нуля. Отдельно отмена инициализации записывала статус `Error(CANCELLED)`, то есть «пауза пользователя», даже когда паузы не было.
+| Область | Проблема до исправления | Изменение и покрытие тестами | Ключевые файлы |
+|---|---|---|---|
+| **Удаление и повторный разбор (`TransactionRunner`)** | `deleteGame` удалял упражнения, ходы, ошибки и партию отдельными запросами; `forceReanalyze = true` при сбое записи/отмене мог оставить партию в `PENDING` с удалёнными ходами или битым статусом | `GameViewModel.deleteGame` и запись в `AnalyzeGameUseCase` обёрнуты в `transactionRunner` (с расчётом сводки/ошибок до открытия транзакции). Ранняя отмена до очистки сохраняет прежний статус `COMPLETED`. Покрыто `EngineFailureMidGameTest`. | [GameViewModel](../app/src/main/java/com/example/chessmentor/presentation/viewmodel/GameViewModel.kt), [AnalyzeGameUseCase](../app/src/main/java/com/example/chessmentor/domain/usecase/AnalyzeGameUseCase.kt), [AppContainer](../app/src/main/java/com/example/chessmentor/di/AppContainer.kt) |
+| **Нативный поиск после `stop()` и жизненный цикл движка** | `StockfishBridge::search` возвращал обрезанный результат глубины 1 при прерывании через `stop()`; параллельный `destroy()`/`init()` мог гоняться со старым поиском | В `StockfishBridge::search` возвращается `false`, если выставлен `stopRequested_`; в `StockfishEngine` добавлен `lifecycleEpoch`. Покрыто `StockfishSearchTest.stopDuringSearchDoesNotReturnTruncatedResult`. | [stockfish_bridge.cpp](../app/src/main/cpp/stockfish_bridge.cpp), [StockfishEngine](../app/src/main/java/com/example/chessmentor/data/engine/StockfishEngine.kt) |
+| **SQLite 999 bind-лимит и диспетчер DAO** | Выборка ошибок > 999 партий в `RoomMistakeRepository.findByGameIds` падала с исключением SQLite; `RoomAnalyzedMoveRepository` не оборачивал DAO в `Dispatchers.IO` | `findByGameIds` разбит на пакеты по `500` ID (покрыто `BackupRestorePersistenceTest`); все методы `RoomAnalyzedMoveRepository` вынесены на `Dispatchers.IO`. | [RoomMistakeRepository](../app/src/main/java/com/example/chessmentor/data/repository/room/RoomMistakeRepository.kt), [RoomAnalyzedMoveRepository](../app/src/main/java/com/example/chessmentor/data/repository/room/RoomAnalyzedMoveRepository.kt) |
+| **Гонки и сбросы состояния во ViewModel** | Параллельные вызовы `selectGame()` могли перезаписать свежую партию устаревшей; сбой `analyzeGameWithProgress` при импорте не всегда сбрасывал `isLoading`; удаление партии не очищало `libraryAnalysisRequestedGameId`; нажатие «Решение» при `checkUnavailable` не сбрасывало состояние сбоя; `BoardViewModel.requestRetryHint` мог запуститься поверх активной проверки | Добавлен `selectGameJob` с отменой и проверками `selectedGame.value?.id` / `currentUser.value?.id`; сбросы `isLoading` и `libraryAnalysisRequestedGameId` в `GameViewModel`; сброс `pendingCheck` / `checkUnavailable` в `TrainingViewModel.onRevealSolution()` (`TrainingRetryTest`); защита от `isCheckingEngine` в `BoardViewModel.requestRetryHint()`. | [GameViewModel](../app/src/main/java/com/example/chessmentor/presentation/viewmodel/GameViewModel.kt), [TrainingViewModel](../app/src/main/java/com/example/chessmentor/presentation/viewmodel/TrainingViewModel.kt), [BoardViewModel](../app/src/main/java/com/example/chessmentor/presentation/viewmodel/BoardViewModel.kt) |
+| **PGN, экспорт, JSON SHA-256 и анимация доски** | Парсер не пропускал отдельный токен `e.p.`; экспорт дублировал теги с `\"`, терял результат за `;`-комментариями и не распознавал `½-½`; SHA-256 бэкапа сравнивался обычным `!=`; анимация на `ChessBoard` могла залипать на `1f` | Игнорирование `e.p.` в `PgnParser` (`PgnParserAndUploadTest`); фиксы экранирования, `;` и `½-½` в `PgnArchiveExporter` (`PgnArchiveExporterTest`) и `BoardViewModel`; `MessageDigest.isEqual` в `UserProgressBackupCodec`; перевод `ChessBoard` на `Animatable(1f)` в `LaunchedEffect`; замена `FEN_HEADER_REGEX` в `GenerateExercisesFromMistakesUseCase` на `ChessMoveUtils.normalizePgn`. | [PgnParser](../app/src/main/java/com/example/chessmentor/domain/pgn/PgnParser.kt), [PgnArchiveExporter](../app/src/main/java/com/example/chessmentor/domain/pgn/PgnArchiveExporter.kt), [UserProgressBackupCodec](../app/src/main/java/com/example/chessmentor/domain/backup/UserProgressBackupCodec.kt), [ChessBoard](../app/src/main/java/com/example/chessmentor/presentation/ui/components/ChessBoard.kt), [GenerateExercisesFromMistakesUseCase](../app/src/main/java/com/example/chessmentor/domain/usecase/GenerateExercisesFromMistakesUseCase.kt) |
 
-**Стало.**
+## Ключевые архитектурные правила
 
-- `ChessEngine.ensureReadyOnStartup()` — новый метод контракта, по умолчанию `= init()`, поэтому другие реализации и тестовые обёртки остаются рабочими.
-- `StockfishEngine.ensureReadyOnStartup()` идемпотентен: готовый движок возвращает `true`, уже идущая загрузка не перезапускается, явная пауза пользователя (`Error(CANCELLED)`) не перетирается автостартом, аварийно оборванная инициализация повторяется на следующем `onCreate`. Признаком «занято» считается только живая корутина инициализации, иначе после аварийной отмены интерфейс замер бы на вечном прогрессе.
-- Отмена корутины больше не выдаётся за ошибку загрузки: `init` и `verifyNetwork` не пишут `Error(CANCELLED)`, а `cancelInit()` выставляет статус **до** отмены — иначе отменённая корутина уже не успевает сообщить о паузе.
-- `AppContainer.appScope` (`SupervisorJob` + `Dispatchers.IO`) живёт столько же, сколько процесс: завершение Activity не отменяет прогрев и не уничтожает общий движок.
-
-**Связанное поведение разбора.** При повороте сохраняется `GameViewModel`, а с ней и текущий поиск. При уничтожении самой ViewModel её корутина отменяется. `AnalyzeGameUseCase` возвращает незавершённую партию в `PENDING`; новая библиотека наблюдает за изменениями в Room, даже если открылась до окончания отмены. Кнопка «Разобрать» запускает новый разбор с начала. Нет фонового перезапуска и обещания продолжить с прерванного полухода.
-
-**Границы.** После смерти процесса действует отдельное восстановление `DatabaseMaintenance`: при наличии сохранённых результатов возвращается `COMPLETED`, иначе `PENDING`. Пауза загрузки NNUE также хранится в памяти, а не между процессами.
-
-## 2. «Движок занят» больше не залипает
-
-**Было.** Экран партии считал движок занятым при любом непустом `analysisProgress`. После `Completed` поток никто не очищал, если разбор запускали не из библиотеки (из сводки, из «Повторить» на экране партии), и live-анализ блокировался навсегда.
-
-**Стало.**
-
-- `AnalysisProgress.Companion.isEngineBusy(progress)`: `Starting` и `InProgress` — занято, `Completed`, `Failed` и `null` — свободно. Это единственное место, где закодировано правило; `GameViewScreen` использует его вместо проверки на `null`.
-- `LibraryAnalysisFeedback` гасит терминальное состояние после перехода в сводку — иначе прогресс оставался бы в потоке, хотя движок уже свободен.
-- Запрос «разбор запущен из библиотеки» (`libraryAnalysisRequestedGameId`) переехал из `rememberSaveable` экрана во ViewModel: после пересоздания Activity диалог по-прежнему привязан к нужной карточке.
-- Повторный вызов `analyzeGameWithProgress` для уже идущей партии не выдаёт «Дождитесь завершения текущего анализа», а переиспользует текущий разбор — сценарий возникает ровно после пересоздания Activity.
-
-## 3. Сбой движка не превращается в правдоподобный разбор
-
-**Было.** Три различных места подставляли число вместо ответа движка. Стартовая позиция брала `pendingLine?.score ?: 0` — при молчании движка ноль выдавался за оценку. При отсутствии линии на полуходе делался дополнительный вызов `chessEngine.evaluate(…)`, а в `catch` ошибка поиска «компенсировалась» предыдущей оценкой (`evaluations.add(evaluations.lastOrNull() ?: 0)`) — то есть упавший поиск выглядел как спокойная позиция. Партия при этом сохранялась как `COMPLETED` с точностью, ACPL и числом ошибок, посчитанными по этим числам.
-
-**Стало.** Введено `AnalyzeGameUseCase.EngineAnalysisException`. Стартовая позиция, позиция после хода и оценка на каждом полуходе обязательны (`?: throw`); сбой одного поиска прерывает разбор, а не подменяется нулём. Отмена корутины по-прежнему пробрасывается как `CancellationException` и не считается сбоем движка. Пользователь видит сообщение об ошибке, разбор не сохраняется.
-
-**Почему целиком, а не «частично».** Точность, ACPL и классификация ходов считаются по всей линии оценок; одна подставленная оценка искажает агрегат по партии и попадает в статистику навсегда. Частичный разбор под видом полного хуже явной ошибки.
-
-## 4. Восстановление копии атомарно
-
-**Было.** `ImportUserBackupUseCase` писал профиль, партии, разбор, задачи и попытки отдельными вызовами. Обрыв посередине (нехватка места, закрытие приложения, сбой записи) оставлял состояние «профиль обновлён, данных нет», а повторный импорт полагался на идемпотентность по каждой сущности.
-
-**Стало.**
-
-- `TransactionRunner` — контракт в домене, без зависимости от Room; `RoomTransactionRunner` — реализация поверх `AppDatabase.withTransaction`.
-- Use case принимает необязательный `transactionRunner`. `null` сохраняет прежнее поведение, поэтому существующие тесты с in-memory фейками не менялись; в приложении параметр всегда передаётся из `AppContainer`.
-- Декодирование и проверка SHA-256 выполняются **до** открытия транзакции: большой JSON не держит блокировку БД.
-- Исключение внутри транзакции откатывает изменения целиком и возвращается как `Result.Error("Восстановление прервано, изменения не применены: …")`.
-- Настройки вне Room (тема оформления, ник источника Chess.com, параметры движка в `SharedPreferences`) перенесены **после** фиксации транзакции. Раньше они записывались в середине импорта и в откате не участвовали: при проваленном восстановлении тема и параметры движка всё равно менялись, а данные нет. Теперь порядок обратный — сначала БД, затем настройки.
-
-**Диспетчер зафиксирован намеренно.** Room 2.6 привязывает транзакцию к корутинному контексту и при обращении к БД из другого контекста бросает `IllegalStateException` про «different coroutine context». Репозитории проекта оборачивают вызовы DAO в `withContext(Dispatchers.IO)`, поэтому `RoomTransactionRunner` открывает транзакцию на том же `Dispatchers.IO`, а не наследует диспетчер вызывающего кода. Ломать это «упрощением» нельзя — сценарий покрыт `BackupRestorePersistenceTest`, куда транзакция теперь подключена так же, как в приложении.
-
-## 5. Заглушки репозиториев
-
-- `findAll`, `findBySkillLevel`, `findTopByRating` в `RoomUserRepository` читают БД через новые запросы `UserDao` (сортировка по `createdAt` и `rating`, `LIMIT` для топа). Раньше они всегда возвращали пустой список.
-- `RoomGameRepository.findPendingGames` и `deleteByUserId` бросают `NotImplementedError` с пояснением. Молчаливый пустой список означает «неразобранных партий нет», а молчаливое ничего — «партии пользователя удалены»; оба ответа ложные, и вызывающий код не может их отличить от правды.
-
-**Область влияния.** Сейчас эти два метода не вызываются из кода приложения, поэтому для пользователя поведение не меняется: исправление убирает ловушку для будущего кода. Удаление партии в интерфейсе идёт через `GameViewModel.deleteGame`, который последовательно удаляет задачи, разбор, ошибки и саму партию.
+1. **Единый диспетчер транзакций для Room 2.6.** Room привязывает транзакцию к текущему корутинному контексту и бросает `IllegalStateException` при обращении к БД из другого диспетчера. Репозитории оборачивают DAO в `withContext(Dispatchers.IO)`, поэтому `RoomTransactionRunner` намеренно открывает транзакцию на `Dispatchers.IO`. Ломать это «упрощением» нельзя — сценарий покрыт `BackupRestorePersistenceTest`.
+2. **Целостность разбора и откат.** Точность, ACPL и классификация ходов рассчитываются по всей линии оценок; провал движка на любом полуходе (`EngineAnalysisException`) отменяет сохранение. При `forceReanalyze = true` удаление прежних строк происходит только внутри `transactionRunner` после завершения вычислений движка: при сбое или отмене сохраняется прежний статус `COMPLETED` и все прежние данные.
+3. **Идемпотентность прогрева движка.** `AppContainer.appScope` переносит прогрев NNUE через поворот экрана. `init` и `verifyNetwork` не подменяют сетевые ошибки кодом `Error(CANCELLED)` — его выставляет только явный `cancelInit()` до отмены `activeInitJob`. По смерти процесса за восстановление статусов отвечает `DatabaseMaintenance`.
+4. **Неизменяемость схемы без миграции.** Любая правка сущностей Room требует инкремента `DatabaseMigrations.CURRENT_VERSION`, миграции в `DatabaseMigrations` и обновления экспорта схемы `app/schemas/...`, что проверяется CI (`Verify exported Room v5 schema`).
 
 ## Как проверить
 
-Автоматически в [Android CI](https://github.com/gadpam/ChessMentor/actions/workflows/android-ci.yml); ветка `arena/**` собирается на push:
+Автоматически в [Android CI](../.github/workflows/android-ci.yml); подробный перечень классов приведён в [testing.md](testing.md):
 
 | Задание | Что подтверждает | Когда запускается |
 |---|---|---|
-| `test-lint-and-room-schema` | Компиляция, JVM-тесты (включая [`AnalysisProgressBusyStateTest`](../app/src/test/java/com/example/chessmentor/domain/usecase/AnalysisProgressBusyStateTest.kt) и [`EngineFailureMidGameTest`](../app/src/test/java/com/example/chessmentor/domain/usecase/EngineFailureMidGameTest.kt)), экспорт схемы, lint | Постоянно: push, PR, ручной запуск |
-| `android-device-test-results` | `BackupRestorePersistenceTest` на реальной Room с транзакцией, включая сценарии отказа восстановления | Только ручной запуск (**Run workflow**) или тег `v*`; на обычном push/PR задание пропускается |
+| `Unit Tests, Room Schema & Android Lint` | Компиляция, 143+ JVM-теста (включая `AnalysisProgressBusyStateTest`, `EngineFailureMidGameTest`, `PgnArchiveExporterTest`, `PgnParserAndUploadTest`), экспорт схемы v5, `lintDebug` | Постоянно: push, PR, ручной запуск |
+| `Instrumentation & Room Device Tests` | Полный `connectedDebugAndroidTest` на API 29: `BackupRestorePersistenceTest` (Room с транзакциями и > 999 ID), `StockfishSearchTest` (поиск и обрыв через `stop()`), `TrainingRetryTest`, `InterruptedGameAnalysisTest` и все UI-тесты | Ручной запуск (**Run workflow**) или тег `v*`; на обычном push/PR задание пропускается |
 
-Транзакционный путь восстановления стоит прогнать вручную: именно это задание ловит ошибку Room про «different coroutine context», которую не видит JVM-набор.
+## Что остаётся открытым за рамками данных уровней
 
-На телефоне:
-
-| Где | Что сделать | Ожидаемый результат |
-|---|---|---|
-| Первый запуск | Начать загрузку NNUE, повернуть экран | Загрузка продолжается с того же места, `.part` не удаляется |
-| Настройки движка | Поставить загрузку на паузу, повернуть экран в том же процессе | Загрузка не возобновляется сама: нужна кнопка «Повторить» |
-| Партия | Запустить разбор, дождаться завершения, открыть «К моменту» / live-анализ | Движок считается свободным, разбор и проверка хода работают |
-| Партия | Запустить разбор, завершить Activity, открыть новую Activity в том же процессе | У незавершённой партии вместо «Идёт анализ» появляется «Разобрать»; без нажатия новый поиск не начинается |
-| Настройки → Данные | Восстановить копию, прервать приложение во время импорта, открыть библиотеку | Изменения БД либо применены полностью, либо не применены вовсе; повторный импорт даёт 0 изменений |
-| Настройки → Данные | Восстановить копию с другой темой оформления в повреждённом файле | Файл отклоняется, тема **не** меняется: настройки применяются только после успешной записи БД |
-
-## Что осталось за рамками
-
-- Компиляция и тесты в песочнице не запускались (нет JDK/Android SDK): результат подтверждается только CI.
-- `GameViewModel.deleteGame` по-прежнему выполняет несколько удалений без общей транзакции — кандидат на следующий уровень вместе с индексами и миграциями.
-- Заглушки `RoomGameRepository` не реализованы, а помечены явным отказом; их реализации нужны вместе с вызывающим кодом, а не заранее.
+- Заглушки `RoomGameRepository.findPendingGames` и `deleteByUserId` намеренно не реализованы и бросают `NotImplementedError`; их реализация понадобится только вместе с вызывающим кодом.
+- В песочнице без установленного локального Android SDK сборка и тесты подтверждаются прогонами GitHub Actions CI.
+- Продуктовые и доступностные доработки (отметка «Текущий ход» в `GraphMovePicker`, единый скроллируемый диалог превращения, разделение `playedAt` и даты импорта для PGN без даты, доступность `ChessBoard` в TalkBack и др.) отслежены в [ui-review-next.md](ui-review-next.md), [android-ui-audit.md](android-ui-audit.md) и [learning-scenario-audit.md](learning-scenario-audit.md).
