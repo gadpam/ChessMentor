@@ -15,6 +15,7 @@ import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.training.AttemptMetadata
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.TrainingMode
+import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Square
 import com.github.bhlangonijr.chesslib.move.Move
@@ -240,18 +241,22 @@ class TrainingRetryTest {
         val container = AppContainer.getInstance(InstrumentationRegistry.getInstrumentation().targetContext)
         val user = container.userRepository.save(User(nickname = "VerifyEngine", email = "vengine${System.nanoTime()}@test.local", passwordHash = "test"))
         val uid = requireNotNull(user.id)
-        val game = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.BLACK, playedAt = 1L, pgnData = "1. a3 *"))
+        val game = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.WHITE, playedAt = 1L, pgnData = "1. e4 *"))
         val gid = requireNotNull(game.id)
-        val puzzle = CuratedExerciseBank.puzzles.single { it.id == "back_rank_black_2" }
+        val startFen = "4r1k1/5pp1/7p/8/Q7/8/4RPPP/4R1K1 w - - 0 1"
         val repo = container.exerciseRepository
 
+        val badMove = Move(Square.H2, Square.H3)
         val badFen = Board().apply {
-            loadFromFen(puzzle.fen)
-            assertTrue(doMove(Move(Square.H7, Square.H6)))
+            loadFromFen(startFen)
+            assertTrue(ChessMoveUtils.isStrictlyLegal(this, badMove))
+            assertTrue(doMove(badMove))
         }.fen
+        val altMove = Move(Square.A4, Square.E8)
         val altFen = Board().apply {
-            loadFromFen(puzzle.fen)
-            assertTrue(doMove(Move(Square.D8, Square.D1)))
+            loadFromFen(startFen)
+            assertTrue(ChessMoveUtils.isStrictlyLegal(this, altMove))
+            assertTrue(doMove(altMove))
         }.fen
 
         var badFenLineCalls = 0
@@ -262,18 +267,18 @@ class TrainingRetryTest {
         val fakeEngine = object : ChessEngine {
             override suspend fun init() = true
             override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int): AnalysisLine? = when (fen) {
-                puzzle.fen -> {
+                startFen -> {
                     freeAnalysisCalls++
-                    AnalysisLine("d7d1", ChessEngine.MATE_VALUE, 2, listOf("d7d1", "c1d1", "d8d1"))
+                    AnalysisLine("e2e8", 900, null, listOf("e2e8", "g8h7", "a4c2"))
                 }
                 badFen -> {
                     badFenLineCalls++
                     // First call verifies the mistake; returning null on the second routes into fallbackMistakeHandling.
-                    if (badFenLineCalls == 1) AnalysisLine("c1c8", 500, null, listOf("c1c8")) else null
+                    if (badFenLineCalls == 1) AnalysisLine("e8e2", 500, null, listOf("e8e2")) else null
                 }
                 altFen -> {
                     altContinuationCalls++
-                    AnalysisLine("c1d1", -ChessEngine.MATE_VALUE + 2, 1, listOf("c1d1", "d7d1"))
+                    AnalysisLine("g8h7", -880, null, listOf("g8h7", "e8e4"))
                 }
                 else -> null
             }
@@ -281,7 +286,7 @@ class TrainingRetryTest {
             override suspend fun getBestMove(fen: String, depthLimit: Int): String? {
                 if (fen == badFen) {
                     fallbackGetBestMoveCalls++
-                    return "c1c8"
+                    return "e8e2"
                 }
                 return null
             }
@@ -294,31 +299,43 @@ class TrainingRetryTest {
             while (!withContext(Dispatchers.Main) { predicate(vm.uiState.value) }) delay(20)
         }
         try {
-            repo.saveExercise(puzzle.toExercise().copy(createdFrom = ExerciseSource.MISTAKE, sourceGameId = gid, sourceMoveNumber = 1))
+            repo.saveExercise(
+                Exercise(
+                    fenPosition = startFen,
+                    solutionMoves = listOf("e2e8", "g8h7", "a4c2"),
+                    tacticalPattern = TacticalPattern.BACK_RANK_MATE,
+                    patternClusterId = "BACK_RANK_MATE_MEDIUM",
+                    difficultyRating = 45,
+                    theme = TacticalTheme.TACTIC,
+                    createdFrom = ExerciseSource.MISTAKE,
+                    sourceGameId = gid,
+                    sourceMoveNumber = 1
+                )
+            )
             withContext(Dispatchers.Main) { vm.init(user, TrainingMode.FromGame(gid, 1)) }
-            awaitState { it.hasActiveExercise && !it.isAnimatingIntro && !it.isInputLocked }
+            awaitState { it.hasActiveExercise && !it.isInputLocked }
 
             // 1. Mistake -> handleMistakeComprehensive -> fallbackMistakeHandling via verificationEngine
-            withContext(Dispatchers.Main) { vm.onMoveMade(Move(Square.H7, Square.H6)) }
+            withContext(Dispatchers.Main) { vm.onMoveMade(badMove) }
             awaitState { it.isAnimatingPunishment }
-            awaitState { !it.isAnimatingPunishment && !it.isInputLocked && it.board.fen == puzzle.fen }
+            awaitState { !it.isAnimatingPunishment && !it.isInputLocked && it.board.fen == startFen }
             assertEquals(2, badFenLineCalls)
             assertEquals(1, fallbackGetBestMoveCalls)
 
-            // 2. Alternative move d8d1 -> verifyTrainingMove + fetchEvenContinuationForOpponent via verificationEngine
-            withContext(Dispatchers.Main) { vm.onMoveMade(Move(Square.D8, Square.D1)) }
-            awaitState { !it.isInputLocked && it.lastMove == (Square.C1 to Square.D1) }
+            // 2. Alternative move a4e8 -> verifyTrainingMove + fetchEvenContinuationForOpponent via verificationEngine
+            withContext(Dispatchers.Main) { vm.onMoveMade(altMove) }
+            awaitState { !it.isInputLocked && it.lastMove == (Square.G8 to Square.H7) }
             assertTrue(altContinuationCalls >= 2)
 
-            // 3. Finish mate & trigger free analysis on starting position via verificationEngine
-            withContext(Dispatchers.Main) { vm.onMoveMade(Move(Square.D7, Square.D1)) }
+            // 3. Finish line & trigger free analysis on starting position via verificationEngine
+            withContext(Dispatchers.Main) { vm.onMoveMade(Move(Square.E8, Square.E4)) }
             awaitState { it.isSolved }
             val callsBeforeFreeAnalysis = freeAnalysisCalls
             withContext(Dispatchers.Main) {
                 vm.onReviewFirst()
                 vm.onToggleFreeAnalysis()
             }
-            awaitState { it.isFreeAnalysisMode && !it.isAnalyzingPosition && it.analysisBestMoveUci == "d7d1" }
+            awaitState { it.isFreeAnalysisMode && !it.isAnalyzingPosition && it.analysisBestMoveUci == "e2e8" }
             assertTrue(freeAnalysisCalls > callsBeforeFreeAnalysis)
         } finally {
             vm.viewModelScope.cancel()
@@ -335,18 +352,14 @@ class TrainingRetryTest {
         val game = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.WHITE, playedAt = 1L, pgnData = "1. e4 *"))
         val gid = requireNotNull(game.id)
         val startFen = "r5k1/5ppp/8/8/8/8/5PPP/R2R2K1 w - - 0 1"
-        val afterFirstFen = Board().apply {
-            loadFromFen(startFen)
-            assertTrue(doMove(Move(Square.D1, Square.D8)))
-        }.fen
         val repo = container.exerciseRepository
         var extensionCalls = 0
         val fakeEngine = object : ChessEngine {
             override suspend fun init() = true
             override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int): AnalysisLine? {
-                if (fen == afterFirstFen) {
+                if (fen == startFen) {
                     extensionCalls++
-                    return AnalysisLine("a8d8", -ChessEngine.MATE_VALUE + 2, 1, listOf("a8d8", "a1d8"))
+                    return AnalysisLine("d1d8", ChessEngine.MATE_VALUE, 2, listOf("d1d8", "a8d8", "a1d8"))
                 }
                 return null
             }
