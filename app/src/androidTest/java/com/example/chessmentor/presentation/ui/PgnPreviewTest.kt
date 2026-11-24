@@ -209,4 +209,41 @@ class PgnPreviewTest {
         ui.onNodeWithText("Добавить как другую партию").performScrollTo().performClick()
         ui.runOnIdle { assertEquals(1, addedDifferentGame) }
     }
+
+    @Test fun batchErrorRecoveryLoadsFailedPgnBlockIntoSingleEditor() {
+        val archive = listOf(
+            "[White \"Hero\"]\n[Black \"Rival1\"]\n\n1. e4 e5 2. Nf3 Nc6 1-0",
+            "[White \"Hero\"]\n[Black \"BrokenRival2\"]\n\n1. e4 e5 2. Bh6 1-0",
+            "[White \"Hero\"]\n[Black \"Rival3\"]\n\n1. d4 d5 2. c4 e6 1-0"
+        ).joinToString("\n\n")
+
+        ui.setContent {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                vm.importPreview.value?.let {
+                    PgnLivePreviewCard(
+                        preview = it,
+                        selectedColor = vm.selectedColor.value,
+                        colorAutoDetected = false,
+                        isLoading = false,
+                        onCopy = {},
+                        onOpenExistingGame = {},
+                        onFixFailedRecord = { block -> vm.loadFailedBatchRecordForEdit(block) }
+                    )
+                }
+            }
+        }
+        ui.runOnIdle { vm.onPgnInputChanged(archive, "three.pgn") }
+        ui.waitUntil(5000) { vm.importPreview.value?.batchFailedRecords?.size == 1 }
+
+        ui.onNodeWithText("Посмотреть ошибки (1)").performScrollTo().performClick()
+        ui.onNodeWithText("Исправить запись #2").performScrollTo().performClick()
+
+        ui.waitUntil(5000) { vm.importPreview.value?.totalGames == 1 }
+        ui.runOnIdle {
+            assertTrue(vm.pgnInput.value.contains("BrokenRival2"))
+            assertFalse(vm.pgnInput.value.contains("Rival1"))
+            assertNotNull(vm.importPreview.value?.singleError)
+        }
+        ui.onNodeWithText("Проверьте запись PGN").assertIsDisplayed()
+    }
 }

@@ -507,6 +507,68 @@ class PlayerAnalyticsCalculatorTest {
         assertEquals(1, streak)
     }
 
+    @Test
+    fun `equal phase accuracy hides strongest weakest and endgame coaching names calculation mode`() {
+        val equalGame = sampleGame(1L, ChessColor.WHITE, "1/2-1/2", "C50", "Итальянская партия", 1500, "300+0", fixedNow - dayMs, 95.0, 10, 0)
+        val equalMoves = buildList {
+            for (m in 1..4) add(playerMove(1L, m * 2 - 2, m, ChessColor.WHITE, "e4", MoveQuality.BEST, 20, 20))
+            for (m in 13..16) add(playerMove(1L, m * 2 - 2, m, ChessColor.WHITE, "Nc3", MoveQuality.BEST, 20, 20))
+            for (m in 31..34) add(playerMove(1L, m * 2 - 2, m, ChessColor.WHITE, "Kf2", MoveQuality.BEST, 20, 20))
+        }
+        val equalReport = PlayerAnalyticsCalculator.computeGameAnalytics(
+            listOf(equalGame),
+            mapOf(1L to equalMoves),
+            emptyMap(),
+            StatsPeriod.ALL,
+            fixedNow
+        )
+        assertNull(equalReport.phases.strongest)
+        assertNull(equalReport.phases.weakest)
+
+        val endgameWeakGame = sampleGame(2L, ChessColor.WHITE, "0-1", "D35", "Ферзевый гамбит", 1500, "300+0", fixedNow - dayMs, 74.0, 40, 2)
+        val endgameWeakMoves = buildList {
+            for (m in 1..4) add(playerMove(2L, m * 2 - 2, m, ChessColor.WHITE, "d4", MoveQuality.BEST, 20, 20))
+            for (m in 13..16) add(playerMove(2L, m * 2 - 2, m, ChessColor.WHITE, "Nf3", MoveQuality.BEST, 20, 20))
+            for (m in 31..34) add(playerMove(2L, m * 2 - 2, m, ChessColor.WHITE, "Ke2", MoveQuality.BLUNDER, 50, -320))
+        }
+        val weakEndgameReport = PlayerAnalyticsCalculator.computeGameAnalytics(
+            listOf(endgameWeakGame),
+            mapOf(2L to endgameWeakMoves),
+            emptyMap(),
+            StatsPeriod.ALL,
+            fixedNow
+        )
+        val endgameActions = PlayerAnalyticsCalculator.buildCoachingActions(
+            report = weakEndgameReport,
+            dueForReviewCount = 0,
+            personalMistakeExercises = 0,
+            impulsiveMistakeCount = 0,
+            impulsiveMistakeRatePercent = 0,
+            weakPatterns = listOf(
+                com.example.chessmentor.domain.training.PatternMastery(
+                    pattern = TacticalPattern.SKEWER,
+                    totalAttempts = 6,
+                    solvedCount = 2,
+                    firstTrySolvedCount = 1,
+                    accuracyPercent = 33,
+                    firstTryAccuracyPercent = 17,
+                    averageTimeSeconds = 18.0,
+                    masteryPercent = 28,
+                    level = com.example.chessmentor.domain.training.MasteryLevel.WEAK,
+                    unresolvedCount = 2
+                )
+            ),
+            problemThemes = emptyList()
+        )
+        val phaseAction = endgameActions.first { it.trainingMode == TrainingMode.DeepCalculation }
+        assertEquals("Режим «Расчёт»", phaseAction.actionLabel)
+        assertTrue(phaseAction.title.contains("ходы 31+"))
+
+        val skewerAction = endgameActions.first { it.trainingMode == TrainingMode.ByTheme(TacticalTheme.PIN) }
+        assertEquals("Открыть «Связка и рентген»", skewerAction.actionLabel)
+        assertTrue(skewerAction.description.contains("Связка и рентген"))
+    }
+
     // ==================== ТЕСТОВЫЕ ХЕЛПЕРЫ ====================
 
     private fun sampleGame(

@@ -658,7 +658,13 @@ internal fun ModePicker(
             }
             Icon(Icons.Default.ArrowDropDown, contentDescription = "Сменить режим")
         }
-        DropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
+        DropdownMenu(
+            expanded = expanded && enabled,
+            onDismissRequest = {
+                expanded = false
+                choosingTheme = false
+            }
+        ) {
             if (choosingTheme) {
                 DropdownMenuItem(text = { Text("Назад к режимам") }, onClick = { choosingTheme = false },
                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) })

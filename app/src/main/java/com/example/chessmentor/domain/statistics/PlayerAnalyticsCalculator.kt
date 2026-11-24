@@ -842,22 +842,23 @@ object PlayerAnalyticsCalculator {
         val comparable = listOf(opening, middlegame, endgame)
             .filter { it.accuracy != null && it.movesCount >= 4 }
 
-        val strongest = comparable.maxByOrNull { it.accuracy ?: 0.0 }
-        val weakest = comparable
-            .filter { it.phase != strongest?.phase }
+        val rawStrongest = comparable.maxByOrNull { it.accuracy ?: 0.0 }
+        val rawWeakest = comparable
+            .filter { it.phase != rawStrongest?.phase }
             .minByOrNull { it.accuracy ?: 100.0 }
-        val gap = if (strongest?.accuracy != null && weakest?.accuracy != null) {
-            roundOne((strongest.accuracy - weakest.accuracy).coerceAtLeast(0.0))
+        val gap = if (rawStrongest?.accuracy != null && rawWeakest?.accuracy != null) {
+            roundOne((rawStrongest.accuracy - rawWeakest.accuracy).coerceAtLeast(0.0))
         } else {
             null
         }
+        val hasSignificantGap = (gap ?: 0.0) >= 1.0
 
         return PhaseOverview(
             opening = opening,
             middlegame = middlegame,
             endgame = endgame,
-            strongest = strongest,
-            weakest = weakest,
+            strongest = if (hasSignificantGap) rawStrongest else null,
+            weakest = if (hasSignificantGap) rawWeakest else null,
             gapPercent = gap
         )
     }
@@ -1336,7 +1337,7 @@ object PlayerAnalyticsCalculator {
             )
         }
 
-        // 2. Просадка в конкретной фазе партии (разрыв >= 6%)
+        // 2. Просадка в конкретном отрезке партии (разрыв >= 6 п.п.)
         val weakestPhase = report.phases.weakest
         val gap = report.phases.gapPercent
         if (weakestPhase?.accuracy != null && gap != null && gap >= 6.0) {
@@ -1345,13 +1346,22 @@ object PlayerAnalyticsCalculator {
                 GamePhaseKind.MIDDLEGAME -> if (personalMistakeExercises > 0) TrainingMode.MyMistakes else TrainingMode.SmartSession
                 GamePhaseKind.ENDGAME -> TrainingMode.DeepCalculation
             }
+            val phaseActionLabel = when (weakestPhase.phase) {
+                GamePhaseKind.ENDGAME -> "Режим «Расчёт»"
+                else -> "Режим «${phaseMode.displayName}»"
+            }
+            val phaseAdviceSuffix = if (weakestPhase.phase == GamePhaseKind.ENDGAME) {
+                " Для концовок без ферзей и точных окончаний откроется общий режим «Расчёт»."
+            } else {
+                ""
+            }
             actions.add(
                 CoachingAction(
-                    title = "Зона роста: ${weakestPhase.phase.displayName} (${weakestPhase.accuracy.roundToInt()}%)",
-                    description = "Точность на ${formatOne(gap)} п.п. ниже вашей лучшей фазы " +
+                    title = "Зона роста: ${weakestPhase.phase.displayName} (${weakestPhase.phase.moveRangeHint}, ${weakestPhase.accuracy.roundToInt()}%)",
+                    description = "Точность на ${formatOne(gap)} п.п. ниже вашего лучшего отрезка " +
                         "(${report.phases.strongest?.phase?.displayName} ${report.phases.strongest?.accuracy?.roundToInt()}%), " +
-                        "ошибок: ${weakestPhase.totalErrors} за ${weakestPhase.movesCount} ходов.",
-                    actionLabel = "Тренировать",
+                        "ошибок: ${weakestPhase.totalErrors} за ${weakestPhase.movesCount} ходов.$phaseAdviceSuffix",
+                    actionLabel = phaseActionLabel,
                     trainingMode = phaseMode
                 )
             )
@@ -1400,12 +1410,13 @@ object PlayerAnalyticsCalculator {
             )
         } else if (weakPatterns.isNotEmpty()) {
             val w = weakPatterns.first()
+            val targetMode = mapPatternToTrainingMode(w)
             actions.add(
                 CoachingAction(
                     title = "Слабый мотив: «${w.pattern.displayName}» (${w.masteryPercent}%)",
-                    description = "Решения с 1-й попытки: ${w.firstTryAccuracyPercent}%. Прицельная серия быстро поднимет распознавание.",
-                    actionLabel = "Отработать тему",
-                    trainingMode = mapPatternToTrainingMode(w)
+                    description = "Решения с 1-й попытки: ${w.firstTryAccuracyPercent}%. Откроется тема «${targetMode.displayName}».",
+                    actionLabel = "Открыть «${targetMode.displayName}»",
+                    trainingMode = targetMode
                 )
             )
         }

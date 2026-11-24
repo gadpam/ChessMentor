@@ -1307,20 +1307,32 @@ private fun GamePhaseCard(phases: PhaseOverview) {
         ) {
             Column {
                 Text(
-                    text = "Точность по фазам партии",
+                    text = "Точность по отрезкам партии",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
                 val weak = phases.weakest
                 val strong = phases.strongest
+                val comparableCount = phases.all.count { it.accuracy != null && it.movesCount >= 4 }
                 if (weak?.accuracy != null && strong?.accuracy != null) {
                     Text(
-                        text = "Лучшая: ${strong.phase.displayName} (${strong.accuracy.roundToInt()}%) · " +
+                        text = "Лучший отрезок: ${strong.phase.displayName} (${strong.accuracy.roundToInt()}%) · " +
                             "Зона роста: ${weak.phase.displayName} (${weak.accuracy.roundToInt()}%)",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                } else if (comparableCount >= 2) {
+                    Text(
+                        text = "Показатели по отрезкам близкие — явного перекоса нет",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
+                Text(
+                    text = "Группировка по номеру хода (ориентировочно без учёта размена ферзей)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             phases.all.forEach { phase ->

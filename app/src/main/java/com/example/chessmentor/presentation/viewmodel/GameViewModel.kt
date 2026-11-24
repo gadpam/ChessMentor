@@ -31,6 +31,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
+ * Сбойная запись внутри мульти-PGN архива с исходным текстом для восстановления в редакторе.
+ */
+data class BatchFailedRecord(
+    val recordNumber: Int,
+    val summary: String,
+    val rawPgnBlock: String
+)
+
+/**
  * Живой предпросмотр вставленного PGN или выбранного `.pgn`-файла.
  */
 data class PgnImportPreview(
@@ -51,7 +60,8 @@ data class PgnImportPreview(
     val batchInvalidCount: Int = 0,
     val batchErrorDetails: List<String> = emptyList(),
     val batchHasDatedGames: Boolean = false,
-    val duplicateMatchInfo: PgnParser.DuplicateMatchInfo? = null
+    val duplicateMatchInfo: PgnParser.DuplicateMatchInfo? = null,
+    val batchFailedRecords: List<BatchFailedRecord> = emptyList()
 ) {
     val isBatch: Boolean get() = totalGames > 1
 }
@@ -101,6 +111,8 @@ class GameViewModel(
     var importPreview = mutableStateOf<PgnImportPreview?>(null)
     var batchOffset = mutableStateOf(0)
     val lastBatchErrors = mutableStateListOf<String>()
+    internal val pendingChessComRetry = mutableStateListOf<ArchiveGame>()
+    var chessComPartialSavedCount = mutableStateOf(0)
 
     var message = mutableStateOf("")
     var isLoading = mutableStateOf(false)
@@ -244,6 +256,7 @@ class GameViewModel(
         _mistakesByGameId.value = emptyMap()
         closeGameView()
         clearImportForm()
+        dismissPendingChessComRetry()
         chessUsernameHint.value = ""
         message.value = ""
         isLoading.value = false
@@ -277,49 +290,91 @@ class GameViewModel(
         if (isLoading.value || currentUser.value?.id != userId || selection.isEmpty()) return
         isLoading.value = true
         message.value = "Сохраняем выбранные партии…"
+        val priorPartialSaved = if (pendingChessComRetry.isNotEmpty() && selection == pendingChessComRetry.toList()) {
+            chessComPartialSavedCount.value
+        } else {
+            0
+        }
+        pendingChessComRetry.clear()
+        chessComPartialSavedCount.value = 0
+
         viewModelScope.launch {
             var saved = 0
             var duplicates = 0
             var invalid = 0
             var succeeded = false
+            val remaining = selection.toMutableList()
             try {
                 // Per-side batches use the archive identity, never the unrelated local nickname.
                 for ((side, games) in selection.groupBy { it.side }) {
-                    val result = withContext(Dispatchers.IO) {
-                        container.uploadGameUseCase.executeBatch(UploadGameUseCase.BatchInput(
-                            userId = userId, rawPgnArchive = games.joinToString("\n\n") { it.pgn },
-                            fallbackColor = side, autoDetectColor = false
-                        ))
-                    }
-                    when (result) {
-                        is UploadGameUseCase.BatchResult.Success -> {
-                            saved += result.importedGames.size
-                            duplicates += result.skippedDuplicates
-                            invalid += result.failedCount
+                    for (chunk in games.chunked(UploadGameUseCase.MAX_BATCH_GAMES)) {
+                        val result = withContext(Dispatchers.IO) {
+                            container.uploadGameUseCase.executeBatch(
+                                UploadGameUseCase.BatchInput(
+                                    userId = userId,
+                                    rawPgnArchive = chunk.joinToString("\n\n") { it.pgn },
+                                    fallbackColor = side,
+                                    autoDetectColor = false
+                                )
+                            )
                         }
-                        is UploadGameUseCase.BatchResult.Error -> error(result.message)
+                        when (result) {
+                            is UploadGameUseCase.BatchResult.Success -> {
+                                saved += result.importedGames.size
+                                duplicates += result.skippedDuplicates
+                                invalid += result.failedCount
+                                remaining.removeAll(chunk)
+                            }
+                            is UploadGameUseCase.BatchResult.Error -> error(result.message)
+                        }
                     }
                 }
-                message.value = "Chess.com → библиотека: добавлено $saved, повторов $duplicates, ошибок $invalid."
+                val totalSaved = priorPartialSaved + saved
+                message.value = "Chess.com → библиотека: добавлено $totalSaved, повторов $duplicates, ошибок $invalid."
                 succeeded = true
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                message.value = if (saved > 0) {
-                    "Ошибка: Частичный импорт с Chess.com — добавлено $saved из ${selection.size}, остальные не сохранены (${e.localizedMessage ?: "сбой записи"})."
+                val totalSaved = priorPartialSaved + saved
+                if (remaining.isNotEmpty()) {
+                    pendingChessComRetry.clear()
+                    pendingChessComRetry.addAll(remaining)
+                    chessComPartialSavedCount.value = totalSaved
+                }
+                message.value = if (totalSaved > 0) {
+                    "Ошибка: Частичный импорт с Chess.com — добавлено $totalSaved, осталось ${remaining.size} (${e.localizedMessage ?: "сбой записи"})."
                 } else {
-                    "Ошибка импорта Chess.com: ${e.localizedMessage}"
+                    "Ошибка импорта Chess.com: ${e.localizedMessage ?: "сбой записи"}"
                 }
             } finally {
                 isLoading.value = false
                 if (currentUser.value?.id == userId) {
                     loadUserData()
-                    if (succeeded && (saved > 0 || duplicates > 0)) {
+                    if (succeeded && (priorPartialSaved + saved > 0 || duplicates > 0)) {
                         onImportedToLibrary()
                     }
                 }
             }
         }
+    }
+
+    fun retryPendingChessComImport(onImportedToLibrary: () -> Unit = {}) {
+        val uid = currentUser.value?.id ?: return
+        val retryList = pendingChessComRetry.toList()
+        if (retryList.isEmpty()) return
+        importChessComGames(uid, retryList, onImportedToLibrary)
+    }
+
+    fun dismissPendingChessComRetry() {
+        pendingChessComRetry.clear()
+        chessComPartialSavedCount.value = 0
+    }
+
+    fun loadFailedBatchRecordForEdit(rawPgnBlock: String) {
+        val trimmed = rawPgnBlock.trim()
+        if (trimmed.isEmpty()) return
+        onPgnInputChanged(trimmed, sourceFileName = null, forceAutoApply = true)
+        message.value = "Загружена проблемная запись — исправьте текст PGN и сохраните её отдельно."
     }
 
     fun clearImportForm() {
@@ -510,6 +565,7 @@ class GameViewModel(
         var hasDatedGames = false
         val samples = mutableListOf<String>()
         val errorDetails = mutableListOf<String>()
+        val failedRecords = mutableListOf<BatchFailedRecord>()
 
         for ((idx, block) in limited.withIndex()) {
             val globalNumber = safeOffset + idx + 1
@@ -550,7 +606,15 @@ class GameViewModel(
                         } else {
                             ""
                         }
-                        errorDetails.add("Запись #$globalNumber$players: ${res.errorMessage}")
+                        val errText = "Запись #$globalNumber$players: ${res.errorMessage}"
+                        errorDetails.add(errText)
+                        failedRecords.add(
+                            BatchFailedRecord(
+                                recordNumber = globalNumber,
+                                summary = errText,
+                                rawPgnBlock = block
+                            )
+                        )
                     }
                 }
             }
@@ -569,7 +633,8 @@ class GameViewModel(
             batchRemainingCount = remainingAfter,
             batchInvalidCount = invalidCount,
             batchErrorDetails = errorDetails,
-            batchHasDatedGames = hasDatedGames
+            batchHasDatedGames = hasDatedGames,
+            batchFailedRecords = failedRecords
         )
     }
 
@@ -875,10 +940,18 @@ class GameViewModel(
                         if (importedCount == 0) {
                             isLoading.value = false
                             val rangeText = "${batchRes.startOffset + 1}–${batchRes.startOffset + batchRes.processedCount}"
-                            message.value = if (batchRes.remainingAfterWindow > 0) {
-                                "В записях $rangeText из ${batchRes.totalInArchive} новых партий нет (повторов: ${batchRes.skippedDuplicates}). Нажмите «Проверить следующие», чтобы перейти к остальным."
-                            } else {
-                                "Все партии из этого диапазона (${batchRes.skippedDuplicates}) уже есть в библиотеке"
+                            message.value = when {
+                                batchRes.failedCount > 0 && batchRes.skippedDuplicates == 0 && batchRes.remainingAfterWindow == 0 ->
+                                    "Не удалось загрузить партии в диапазоне $rangeText (с ошибками: ${batchRes.failedCount}). Откройте «Посмотреть ошибки» ниже, чтобы исправить нужную запись."
+                                batchRes.failedCount > 0 && batchRes.remainingAfterWindow == 0 ->
+                                    "Новых корректных партий в диапазоне $rangeText нет (повторов: ${batchRes.skippedDuplicates}, с ошибками: ${batchRes.failedCount}). Откройте «Посмотреть ошибки» ниже, чтобы исправить нужную запись."
+                                batchRes.remainingAfterWindow > 0 ->
+                                    "В записях $rangeText из ${batchRes.totalInArchive} новых партий нет (повторов: ${batchRes.skippedDuplicates}, с ошибками: ${batchRes.failedCount}). Нажмите «Проверить следующие», чтобы перейти к остальным."
+                                else ->
+                                    "Все партии из этого диапазона (${batchRes.skippedDuplicates}) уже есть в библиотеке"
+                            }
+                            if (batchRes.failedCount > 0) {
+                                schedulePgnPreview(rawArchive, lastSourceFileName, debounce = false)
                             }
                             return@launch
                         }

@@ -65,6 +65,8 @@ fun UploadGameScreen(
     val usernameHint by gameViewModel.chessUsernameHint
     val colorAutoDetected by gameViewModel.colorAutoDetected
     val importPreview by gameViewModel.importPreview
+    val pendingChessComRetry = gameViewModel.pendingChessComRetry
+    val chessComPartialSavedCount by gameViewModel.chessComPartialSavedCount
     val message by gameViewModel.message
     val isLoading by gameViewModel.isLoading
 
@@ -185,6 +187,67 @@ fun UploadGameScreen(
             }
         }
 
+        if (pendingChessComRetry.isNotEmpty()) {
+            item(key = "chesscom-retry") {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = if (chessComPartialSavedCount > 0) {
+                                "Сохранено $chessComPartialSavedCount · осталось несохранённых: ${pendingChessComRetry.size}"
+                            } else {
+                                "Осталось несохранённых партий Chess.com: ${pendingChessComRetry.size}"
+                            },
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        @OptIn(ExperimentalLayoutApi::class)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (chessComPartialSavedCount > 0) {
+                                OutlinedButton(
+                                    onClick = { currentOnNavigateToLibrary() },
+                                    enabled = !isLoading,
+                                    modifier = Modifier.heightIn(min = 48.dp)
+                                ) {
+                                    Text("Показать добавленные")
+                                }
+                            }
+                            FilledTonalButton(
+                                onClick = {
+                                    gameViewModel.retryPendingChessComImport {
+                                        currentOnNavigateToLibrary()
+                                    }
+                                },
+                                enabled = !isLoading,
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Text("Повторить оставшиеся (${pendingChessComRetry.size})")
+                            }
+                            TextButton(
+                                onClick = { gameViewModel.dismissPendingChessComRetry() },
+                                enabled = !isLoading,
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Text("Скрыть")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Живой предпросмотр распознанной партии или мульти-PGN пакета
         val preview = importPreview
         if (preview != null) {
@@ -208,6 +271,9 @@ fun UploadGameScreen(
                             allowDuplicate = true,
                             onSavedToLibrary = { currentOnNavigateToLibrary() }
                         )
+                    },
+                    onFixFailedRecord = { block ->
+                        gameViewModel.loadFailedBatchRecordForEdit(block)
                     }
                 )
             }
@@ -354,7 +420,8 @@ internal fun PgnLivePreviewCard(
     onNextBatchWindow: () -> Unit = {},
     onResetBatchWindow: () -> Unit = {},
     onUpdateNotes: (Long) -> Unit = {},
-    onAddDifferentGame: () -> Unit = {}
+    onAddDifferentGame: () -> Unit = {},
+    onFixFailedRecord: (String) -> Unit = {}
 ) {
     // 1. Ошибка разбора одиночного PGN
     if (!preview.isBatch && preview.singleError != null) {
@@ -499,13 +566,31 @@ internal fun PgnLivePreviewCard(
                         ) {
                             Column(
                                 modifier = Modifier.padding(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                preview.batchErrorDetails.forEach { errLine ->
-                                    Text(
-                                        text = "• $errLine",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
+                                if (preview.batchFailedRecords.isNotEmpty()) {
+                                    preview.batchFailedRecords.forEach { record ->
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(
+                                                text = "• ${record.summary}",
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                            TextButton(
+                                                onClick = { onFixFailedRecord(record.rawPgnBlock) },
+                                                enabled = !isLoading,
+                                                modifier = Modifier.heightIn(min = 48.dp)
+                                            ) {
+                                                Text("Исправить запись #${record.recordNumber}")
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    preview.batchErrorDetails.forEach { errLine ->
+                                        Text(
+                                            text = "• $errLine",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
                                 }
                             }
                         }
