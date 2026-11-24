@@ -1061,7 +1061,7 @@ object PlayerAnalyticsCalculator {
                                     san = move.san,
                                     clockSeconds = sec,
                                     evalLoss = move.evalLoss,
-                                    opponentLabel = item.card.opponentName
+                                    opponentLabel = item.card.opponentName?.takeIf { it.isNotBlank() } ?: "соперника"
                                 )
                             }
                         }
