@@ -351,7 +351,7 @@ class TrainingRetryTest {
         val uid = requireNotNull(user.id)
         val game = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.WHITE, playedAt = 1L, pgnData = "1. e4 *"))
         val gid = requireNotNull(game.id)
-        val startFen = "r5k1/5ppp/8/8/8/8/5PPP/R2R2K1 w - - 0 1"
+        val startFen = "r5k1/5ppp/8/8/8/8/3R1PPP/3R2K1 w - - 0 1"
         val repo = container.exerciseRepository
         var extensionCalls = 0
         val fakeEngine = object : ChessEngine {
@@ -359,7 +359,7 @@ class TrainingRetryTest {
             override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int): AnalysisLine? {
                 if (fen == startFen) {
                     extensionCalls++
-                    return AnalysisLine("d1d8", ChessEngine.MATE_VALUE, 2, listOf("d1d8", "a8d8", "a1d8"))
+                    return AnalysisLine("d2d8", ChessEngine.MATE_VALUE, 2, listOf("d2d8", "a8d8", "d1d8"))
                 }
                 return null
             }
@@ -377,7 +377,7 @@ class TrainingRetryTest {
             repo.saveExercise(
                 Exercise(
                     fenPosition = startFen,
-                    solutionMoves = listOf("d1d8"),
+                    solutionMoves = listOf("d2d8"),
                     tacticalPattern = TacticalPattern.BACK_RANK_MATE,
                     patternClusterId = "BACK_RANK_MATE_EASY",
                     difficultyRating = 25,
