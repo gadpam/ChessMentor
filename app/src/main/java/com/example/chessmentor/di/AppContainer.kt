@@ -159,7 +159,8 @@ class AppContainer private constructor(private val context: Context) {
             analyzedMoveRepository = analyzedMoveRepository,
             userRepository = userRepository,
             chessEngine = chessEngine,
-            engineSettingsRepository = engineSettingsRepository
+            engineSettingsRepository = engineSettingsRepository,
+            transactionRunner = transactionRunner
         )
     }
 

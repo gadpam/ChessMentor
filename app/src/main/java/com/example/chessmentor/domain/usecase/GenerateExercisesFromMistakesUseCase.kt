@@ -63,8 +63,6 @@ class GenerateExercisesFromMistakesUseCase(
         const val ALREADY_CRUSHING_EVAL_CP = PuzzleQualityEvaluator.ALREADY_CRUSHING_EVAL_CP
         const val MIN_LOSS_IN_CRUSHING_POS_CP = PuzzleQualityEvaluator.MIN_LOSS_IN_CRUSHING_POS_CP
 
-        private val FEN_HEADER_REGEX = Regex("""\[FEN\s+"([^"]+)"\]""")
-
         /**
          * Чистая проверка пригодности ошибки для превращения в тренировочную задачу:
          * пропускает как чёткую выигрывающую тактику, так и задачи на единственную защиту/спасение,
@@ -319,7 +317,7 @@ class GenerateExercisesFromMistakesUseCase(
         runCatching {
             val board = Board()
             val customStartFen = game?.pgnData
-                ?.let { FEN_HEADER_REGEX.find(it)?.groupValues?.getOrNull(1) }
+                ?.let { runCatching { ChessMoveUtils.normalizePgn(it).startFen }.getOrNull() }
                 ?.takeIf { it.isNotBlank() }
             if (customStartFen != null) {
                 board.loadFromFen(customStartFen)

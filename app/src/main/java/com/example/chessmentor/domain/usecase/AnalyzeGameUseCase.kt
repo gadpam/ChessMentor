@@ -22,6 +22,7 @@ import com.example.chessmentor.domain.repository.AnalyzedMoveRepository
 import com.example.chessmentor.domain.repository.EngineSettingsRepository
 import com.example.chessmentor.domain.repository.GameRepository
 import com.example.chessmentor.domain.repository.MistakeRepository
+import com.example.chessmentor.domain.repository.TransactionRunner
 import com.example.chessmentor.domain.repository.UserRepository
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.github.bhlangonijr.chesslib.Board
@@ -53,7 +54,8 @@ class AnalyzeGameUseCase(
     private val analyzedMoveRepository: AnalyzedMoveRepository,
     private val userRepository: UserRepository,
     private val chessEngine: ChessEngine,
-    private val engineSettingsRepository: EngineSettingsRepository
+    private val engineSettingsRepository: EngineSettingsRepository,
+    private val transactionRunner: TransactionRunner? = null
 ) {
     companion object {
         private const val TAG = "AnalyzeGameUseCase"
@@ -224,30 +226,8 @@ class AnalyzeGameUseCase(
 
             val data = analysisResult ?: throw IllegalStateException("Анализ не вернул результат")
 
-            // Очищаем возможные старые записи при повторном анализе
-            clearedOldArtifacts = true
-            analyzedMoveRepository.deleteByGameId(gameId)
-            mistakeRepository.deleteByGameId(gameId)
-
-            val savedMoves = analyzedMoveRepository.saveAll(data.analyzedMoves)
-
-            // Ошибки и персональная статистика Game считаются СТРОГО по ходам игрока
-            val playerMistakes = savedMoves
-                .filter { it.color == game.playerColor && it.isMistake() }
-                .mapNotNull { move ->
-                    val fenBefore = data.fenPositions[move.moveIndex].orEmpty()
-                    val bestMoveUci = data.bestMovesUci[move.moveIndex].orEmpty()
-                    val semantic = data.semanticByMoveIndex[move.moveIndex]
-                    move.toMistake(
-                        themeId = detectThemeId(move, fenBefore, bestMoveUci, semantic),
-                        fenBefore = fenBefore
-                    )
-                }
-
-            val savedMistakes = mistakeRepository.saveAll(playerMistakes)
-
-            val playerSummary = GameMoveClassifier.summarizeSide(savedMoves, game.playerColor)
-            val opponentSummary = GameMoveClassifier.summarizeSide(savedMoves, game.playerColor.opposite())
+            val playerSummary = GameMoveClassifier.summarizeSide(data.analyzedMoves, game.playerColor)
+            val opponentSummary = GameMoveClassifier.summarizeSide(data.analyzedMoves, game.playerColor.opposite())
 
             val blunders = playerSummary.blunders
             val mistakesCount = playerSummary.mistakes + playerSummary.missedWins
@@ -264,7 +244,38 @@ class AnalyzeGameUseCase(
                 evaluations = data.evaluations
             )
 
-            val finalGame = gameRepository.update(analyzedGame)
+            // Ошибки и персональная статистика Game считаются СТРОГО по ходам игрока
+            val playerMistakes = data.analyzedMoves
+                .filter { it.color == game.playerColor && it.isMistake() }
+                .mapNotNull { move ->
+                    val fenBefore = data.fenPositions[move.moveIndex].orEmpty()
+                    val bestMoveUci = data.bestMovesUci[move.moveIndex].orEmpty()
+                    val semantic = data.semanticByMoveIndex[move.moveIndex]
+                    move.toMistake(
+                        themeId = detectThemeId(move, fenBefore, bestMoveUci, semantic),
+                        fenBefore = fenBefore
+                    )
+                }
+
+            val persistBlock: suspend () -> Triple<Game, List<AnalyzedMove>, List<Mistake>> = {
+                // При отсутствии transactionRunner старые записи удаляются неатомарно
+                if (transactionRunner == null) {
+                    clearedOldArtifacts = true
+                }
+                analyzedMoveRepository.deleteByGameId(gameId)
+                mistakeRepository.deleteByGameId(gameId)
+
+                val persistedMoves = analyzedMoveRepository.saveAll(data.analyzedMoves)
+                val persistedMistakes = mistakeRepository.saveAll(playerMistakes)
+                val updatedGame = gameRepository.update(analyzedGame)
+                Triple(updatedGame, persistedMoves, persistedMistakes)
+            }
+
+            val (finalGame, savedMoves, savedMistakes) = if (transactionRunner != null) {
+                transactionRunner.run { persistBlock() }
+            } else {
+                persistBlock()
+            }
             gameInProgress = null
 
             Log.i(

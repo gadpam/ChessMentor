@@ -2,8 +2,8 @@ package com.example.chessmentor.presentation.ui.components
 
 import android.graphics.Paint
 import android.graphics.Typeface
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -125,23 +125,25 @@ fun ChessBoard(
     }
 
     var animatingPieceState by remember { mutableStateOf<Pair<Piece, Pair<Square, Square>>?>(null) }
+    val animProgress = remember { Animatable(1f) }
+    val animationProgress = animProgress.value
 
-    val animationProgress by animateFloatAsState(
-        targetValue = if (animatingPieceState != null) 1f else 0f,
-        animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
-        finishedListener = { animatingPieceState = null },
-        label = "piece_move"
-    )
-
-    LaunchedEffect(lastMove, board.fen) {
+    LaunchedEffect(lastMove, board.fen, animateMove) {
         if (lastMove != null && animateMove) {
             val piece = board.getPiece(lastMove.second)
             if (piece != Piece.NONE) {
                 animatingPieceState = piece to lastMove
+                animProgress.snapTo(0f)
+                animProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
+                )
+                animatingPieceState = null
+                return@LaunchedEffect
             }
-        } else {
-            animatingPieceState = null
         }
+        animatingPieceState = null
+        animProgress.snapTo(1f)
     }
 
     val checkedKingPiece = remember(board.fen) {

@@ -11,6 +11,7 @@ import com.example.chessmentor.domain.repository.AnalyzedMoveRepository
 import com.example.chessmentor.domain.repository.EngineSettingsRepository
 import com.example.chessmentor.domain.repository.GameRepository
 import com.example.chessmentor.domain.repository.MistakeRepository
+import com.example.chessmentor.domain.repository.TransactionRunner
 import com.example.chessmentor.domain.repository.UserRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -237,5 +238,132 @@ class EngineFailureMidGameTest {
 
         assertTrue(caughtCancel)
         assertEquals(AnalysisStatus.COMPLETED, gameRepo.lastUpdated?.analysisStatus)
+    }
+
+    @Test
+    fun `transaction failure during forceReanalyze rolls back deletes and preserves previous analysis`() = runBlocking {
+        val initialMoves = mutableListOf(
+            com.example.chessmentor.domain.entity.AnalyzedMove(
+                gameId = 9L,
+                moveIndex = 0,
+                moveNumber = 1,
+                color = ChessColor.WHITE,
+                quality = com.example.chessmentor.domain.entity.MoveQuality.GOOD,
+                san = "e4",
+                evalBefore = 20,
+                evalAfter = 20,
+                evalLoss = 0
+            )
+        )
+        val initialMistakes = mutableListOf(
+            com.example.chessmentor.domain.entity.Mistake(
+                gameId = 9L,
+                themeId = 1L,
+                moveNumber = 1,
+                color = ChessColor.WHITE,
+                evaluationLoss = 150,
+                mistakeType = com.example.chessmentor.domain.entity.MistakeType.MISTAKE,
+                bestMove = "d4",
+                userMove = "e4",
+                fenBefore = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+            )
+        )
+        val storedGame = Game(
+            id = 9L,
+            userId = 1L,
+            pgnData = "1. e4 e5",
+            playerColor = ChessColor.WHITE,
+            playedAt = 1L,
+            analysisStatus = AnalysisStatus.COMPLETED,
+            accuracy = 88.0,
+            evaluationsJson = "[20, 15, 20]"
+        )
+
+        var currentGameState = storedGame
+        val transactionalGameRepo = object : GameRepository {
+            override suspend fun findById(id: Long): Game? = currentGameState.copy(id = id)
+            override suspend fun findByUserId(userId: Long): List<Game> = listOf(currentGameState)
+            override suspend fun findByUserIdAndStatus(userId: Long, status: AnalysisStatus): List<Game> = emptyList()
+            override suspend fun save(game: Game): Game = game
+            override suspend fun update(game: Game): Game {
+                currentGameState = game
+                return game
+            }
+            override suspend fun deleteById(id: Long) = Unit
+        }
+        val rollbackableMistakeRepo = object : MistakeRepository {
+            override suspend fun findById(id: Long) = null
+            override suspend fun findByGameId(gameId: Long) = initialMistakes.toList()
+            override suspend fun findByUserId(userId: Long) = initialMistakes.toList()
+            override suspend fun findByGameIds(gameIds: List<Long>) = initialMistakes.toList()
+            override suspend fun save(mistake: com.example.chessmentor.domain.entity.Mistake) = mistake
+            override suspend fun saveAll(mistakes: List<com.example.chessmentor.domain.entity.Mistake>) =
+                throw IllegalStateException("Simulated DB write failure")
+            override suspend fun update(mistake: com.example.chessmentor.domain.entity.Mistake) = mistake
+            override suspend fun deleteById(id: Long) = Unit
+            override suspend fun deleteByGameId(gameId: Long) { initialMistakes.clear() }
+            override suspend fun findByThemeId(themeId: Long) = emptyList<com.example.chessmentor.domain.entity.Mistake>()
+            override suspend fun findByGameIdAndType(gameId: Long, type: com.example.chessmentor.domain.entity.MistakeType) =
+                emptyList<com.example.chessmentor.domain.entity.Mistake>()
+            override suspend fun findByUserIdAndTheme(userId: Long, themeId: Long) =
+                emptyList<com.example.chessmentor.domain.entity.Mistake>()
+            override suspend fun countByGameId(gameId: Long) = initialMistakes.size
+            override suspend fun countByUserIdAndType(userId: Long, type: com.example.chessmentor.domain.entity.MistakeType) = 0
+            override suspend fun getMostFrequentThemesByUserId(userId: Long, limit: Int) = emptyMap<Long, Int>()
+            override suspend fun getAverageEvaluationLossByUserId(userId: Long): Double? = null
+        }
+        val rollbackableMovesRepo = object : AnalyzedMoveRepository {
+            override suspend fun saveAll(moves: List<com.example.chessmentor.domain.entity.AnalyzedMove>): List<com.example.chessmentor.domain.entity.AnalyzedMove> {
+                initialMoves.addAll(moves)
+                return moves
+            }
+            override suspend fun findByGameId(gameId: Long) = initialMoves.toList()
+            override suspend fun findByGameIds(gameIds: List<Long>) = initialMoves.toList()
+            override suspend fun findMistakesByGameId(gameId: Long) = emptyList<com.example.chessmentor.domain.entity.AnalyzedMove>()
+            override suspend fun findGoodMovesByGameId(gameId: Long) = emptyList<com.example.chessmentor.domain.entity.AnalyzedMove>()
+            override suspend fun findByMoveIndex(gameId: Long, moveIndex: Int) = null
+            override suspend fun deleteByGameId(gameId: Long) { initialMoves.clear() }
+        }
+        val rollbackRunner = TransactionRunner { block ->
+            val savedGame = currentGameState
+            val savedMoves = initialMoves.toList()
+            val savedMistakes = initialMistakes.toList()
+            try {
+                block()
+            } catch (t: Throwable) {
+                currentGameState = savedGame
+                initialMoves.clear(); initialMoves.addAll(savedMoves)
+                initialMistakes.clear(); initialMistakes.addAll(savedMistakes)
+                throw t
+            }
+        }
+        val readyEngine = object : ChessEngine {
+            override val status: StateFlow<EngineStatus> = MutableStateFlow(EngineStatus.Ready()).asStateFlow()
+            override suspend fun init(): Boolean = true
+            override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int) =
+                AnalysisLine(bestMove = "e2e4", score = 20, mateIn = null, principalVariation = emptyList())
+            override suspend fun evaluate(fen: String, depthLimit: Int) = 20
+            override suspend fun getBestMove(fen: String, depthLimit: Int) = "e2e4"
+            override suspend fun setOption(name: String, value: String) = Unit
+            override fun cancelInit() = Unit
+            override fun stop() = Unit
+            override fun destroy() = Unit
+        }
+
+        val useCase = AnalyzeGameUseCase(
+            gameRepository = transactionalGameRepo,
+            mistakeRepository = rollbackableMistakeRepo,
+            analyzedMoveRepository = rollbackableMovesRepo,
+            userRepository = FakeUserRepository(),
+            chessEngine = readyEngine,
+            engineSettingsRepository = FakeEngineSettingsRepository(),
+            transactionRunner = rollbackRunner
+        )
+
+        val result = useCase.execute(AnalyzeGameUseCase.Input(gameId = 9L, forceReanalyze = true))
+        assertTrue(result is AnalyzeGameUseCase.Result.Error)
+        // Транзакционный откат сохранил прежние 1 ход и 1 ошибку вместо пустой таблицы
+        assertEquals(1, initialMoves.size)
+        assertEquals(1, initialMistakes.size)
     }
 }

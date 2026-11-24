@@ -264,7 +264,7 @@ class BoardViewModel : ViewModel() {
                 val t = raw.trim()
                 if (t.isEmpty() || PURE_MOVE_NO.matches(t)) continue
                 val token = MOVE_NO_PREFIX.matchEntire(t)?.groupValues?.get(1)?.trim() ?: t
-                if (token.isEmpty() || token in setOf("1-0", "0-1", "1/2-1/2", "*")) continue
+                if (token.isEmpty() || token in setOf("1-0", "0-1", "1/2-1/2", "½-½", "*")) continue
                 val m = ChessMoveUtils.sanOrUciToMove(token, sim.fen) ?: break
                 if (!ChessMoveUtils.isStrictlyLegal(sim, m) || !sim.doMove(m)) break
                 result.add(m)
@@ -516,7 +516,7 @@ class BoardViewModel : ViewModel() {
 
     fun requestRetryHint() {
         val state = retryState.value ?: return
-        if (state.isSolved) return
+        if (state.isSolved || state.isCheckingEngine) return
         val nextLevel = (state.hintLevel + 1).coerceAtMost(2)
         val hint = GameReviewHelper.buildRetryHint(
             fenBefore = state.fenBefore,

@@ -168,6 +168,9 @@ bool StockfishBridge::search(const std::string& fen, int depth, SearchResult& ou
     }
 
     engine_->wait_for_search_finished();
+    if (stopRequested_.load(std::memory_order_acquire)) {
+        return false;
+    }
 
     out = last_;
     return true;

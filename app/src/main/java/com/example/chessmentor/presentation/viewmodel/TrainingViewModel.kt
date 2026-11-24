@@ -671,6 +671,7 @@ class TrainingViewModel(
         if (!state.hasActiveExercise || targetSequence.isEmpty()) return
 
         currentJob?.cancel()
+        pendingCheck = null
         maxHintUsed = HintUsage.FULL_SOLUTION
 
         val remainingMoves = targetSequence.drop(currentMoveIndex)
@@ -693,6 +694,8 @@ class TrainingViewModel(
             _uiState.value = _uiState.value.copy(
                 board = Board().apply { loadFromFen(startFen) },
                 isInputLocked = true,
+                checkUnavailable = false,
+                isErrorShake = false,
                 hintLevel = HintLevel.FULL_SOLUTION,
                 highlights = emptyList(),
                 currentMistakeAnalysis = null,
@@ -709,6 +712,9 @@ class TrainingViewModel(
                 runCatching {
                     saveAttempt(solved = false, solutionRevealed = true)
                     completedRatedSittings++
+                }.onFailure { e ->
+                    if (e is CancellationException) throw e
+                    Log.w(TAG, "Failed to save revealed attempt", e)
                 }
                 scheduleInterleavedReinforcement(null)
             }

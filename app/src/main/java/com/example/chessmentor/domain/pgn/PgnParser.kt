@@ -1044,7 +1044,7 @@ object PgnParser {
                 trailingResult = PgnResult.fromString(raw)
                 return
             }
-            if (PURE_MOVE_NUMBER_REGEX.matches(raw) || NAG_TOKEN_REGEX.matches(raw)) {
+            if (PURE_MOVE_NUMBER_REGEX.matches(raw) || NAG_TOKEN_REGEX.matches(raw) || raw == "e.p.") {
                 return
             }
             // Склеенная запись номера и хода: "1.e4", "12...Nxd5"

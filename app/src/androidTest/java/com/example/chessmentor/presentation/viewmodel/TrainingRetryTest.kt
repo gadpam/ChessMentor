@@ -191,4 +191,44 @@ class TrainingRetryTest {
             container.userRepository.deleteById(uid)
         }
     }
+
+    @Test fun revealSolutionClearsCheckUnavailableAndPendingRetry() = runBlocking {
+        val container = AppContainer.getInstance(InstrumentationRegistry.getInstrumentation().targetContext)
+        val user = container.userRepository.save(User(nickname = "RevealRetry", email = "revretry${System.nanoTime()}@test.local", passwordHash = "test"))
+        val uid = requireNotNull(user.id)
+        val game = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.WHITE, playedAt = 1L, pgnData = "1. e4 *"))
+        val gid = requireNotNull(game.id)
+        val puzzle = CuratedExerciseBank.puzzles.single { it.id == "back_rank_mate_1" }
+        val repo = container.exerciseRepository
+        val unavailableEngine = object : ChessEngine by container.chessEngine {
+            override suspend fun init() = true
+            override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int): AnalysisLine? = null
+        }
+        val vm = TrainingViewModel(container, unavailableEngine)
+        suspend fun awaitState(predicate: (TrainingUiState) -> Boolean) = withTimeout(15_000L) {
+            while (!withContext(Dispatchers.Main) { predicate(vm.uiState.value) }) delay(15)
+        }
+        try {
+            repo.saveExercise(puzzle.toExercise().copy(createdFrom = ExerciseSource.MISTAKE, sourceGameId = gid, sourceMoveNumber = 1))
+            withContext(Dispatchers.Main) { vm.init(user, TrainingMode.FromGame(gid, 1)) }
+            awaitState { it.hasActiveExercise && !it.isInputLocked }
+            withContext(Dispatchers.Main) { vm.onMoveMade(Move(Square.A2, Square.A3)) }
+            awaitState { it.checkUnavailable }
+
+            withContext(Dispatchers.Main) { vm.onRevealSolution() }
+            awaitState { it.isSolutionRevealed }
+            val revealed = withContext(Dispatchers.Main) { vm.uiState.value }
+            assertTrue(!revealed.checkUnavailable)
+            assertTrue(revealed.isSolutionRevealed)
+
+            // No-op because pendingCheck was cleared on reveal.
+            withContext(Dispatchers.Main) { vm.returnFromMoveCheck() }
+            assertTrue(withContext(Dispatchers.Main) { vm.uiState.value.isSolutionRevealed })
+        } finally {
+            vm.viewModelScope.cancel()
+            repo.deleteBySourceGameId(gid)
+            container.gameRepository.deleteById(gid)
+            container.userRepository.deleteById(uid)
+        }
+    }
 }

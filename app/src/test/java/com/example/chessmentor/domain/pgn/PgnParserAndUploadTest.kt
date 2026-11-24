@@ -322,4 +322,26 @@ class PgnParserAndUploadTest {
         assertEquals("Dave", g2.metadata.blackName)
         assertEquals(4, g2.plyCount)
     }
+
+    @Test
+    fun parseAndValidate_andExtractGameCardInfo_ignoreStandaloneEnPassantToken() {
+        val epPgn = """
+            [White "Alpha"]
+            [Black "Beta"]
+            [Result "*"]
+
+            1. e4 c5 2. e5 d5 3. exd6 e.p. Qxd6 *
+        """.trimIndent()
+
+        val res = PgnParser.parseAndValidate(epPgn)
+        assertTrue("Expected success, got $res", res is PgnParser.ParseResult.Success)
+        val parsed = (res as PgnParser.ParseResult.Success).game
+        assertEquals(6, parsed.plyCount)
+
+        val card = PgnParser.extractGameCardInfo(
+            Game(id = 1L, userId = 1L, pgnData = epPgn, playerColor = ChessColor.WHITE, playedAt = 1L)
+        )
+        assertEquals(6, card.plyCount)
+        assertEquals(3, card.fullMoveCount)
+    }
 }

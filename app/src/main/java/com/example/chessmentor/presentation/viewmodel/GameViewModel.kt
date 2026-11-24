@@ -110,6 +110,7 @@ class GameViewModel(
     private var activeAnalysisGameId: Long? = null
     private var libraryJob: Job? = null
     private var previewJob: Job? = null
+    private var selectGameJob: Job? = null
     private var manualTimeControl = false
     private var lastSourceFileName: String? = null
     private var sessionRestoreStarted = false
@@ -562,8 +563,14 @@ class GameViewModel(
                             return@launch
                         }
 
+                        if (currentUser.value?.id != userId) {
+                            isLoading.value = false
+                            return@launch
+                        }
                         clearImportForm()
-                        analyzeGameWithProgress(gameId)
+                        if (!analyzeGameWithProgress(gameId)) {
+                            isLoading.value = false
+                        }
                     }
 
                     is UploadGameUseCase.Result.Duplicate -> {
@@ -705,6 +712,10 @@ class GameViewModel(
                             return@launch
                         }
 
+                        if (currentUser.value?.id != userId) {
+                            isLoading.value = false
+                            return@launch
+                        }
                         clearImportForm()
                         loadUserData()
 
@@ -727,7 +738,9 @@ class GameViewModel(
 
                         if (analyzeNewest && newestId != null) {
                             message.value = "Пакет загружен ($details). Запускаем анализ последней партии..."
-                            analyzeGameWithProgress(newestId)
+                            if (!analyzeGameWithProgress(newestId)) {
+                                isLoading.value = false
+                            }
                         } else {
                             isLoading.value = false
                             message.value = "Готово — $details"
@@ -794,6 +807,7 @@ class GameViewModel(
                             isLoading.value = false
                             when (val result = progress.result) {
                                 is AnalyzeGameUseCase.Result.Success -> {
+                                    if (currentUser.value?.id != result.game.userId) return@collect
                                     loadUserData()
 
                                     selectGameWithData(
@@ -939,19 +953,22 @@ class GameViewModel(
      * Выбрать партию для просмотра (из списка игр)
      */
     fun selectGame(game: Game) {
-        viewModelScope.launch {
-            selectedGame.value = game
-            selectedGameMistakes.clear()
-            selectedGameAnalyzedMoves.clear()
-            selectedGameEvaluations.clear()
+        selectGameJob?.cancel()
+        selectedGame.value = game
+        selectedGameMistakes.clear()
+        selectedGameAnalyzedMoves.clear()
+        selectedGameEvaluations.clear()
 
-            val gameId = game.id ?: return@launch
+        val gameId = game.id ?: return
+        selectGameJob = viewModelScope.launch {
             try {
                 val mistakes = container.mistakeRepository.findByGameId(gameId)
+                if (selectedGame.value?.id != gameId) return@launch
                 selectedGameMistakes.clear()
                 selectedGameMistakes.addAll(mistakes.sortedBy { it.moveNumber })
 
                 val analyzedMoves = container.analyzedMoveRepository.findByGameId(gameId)
+                if (selectedGame.value?.id != gameId) return@launch
                 selectedGameAnalyzedMoves.clear()
                 selectedGameAnalyzedMoves.addAll(analyzedMoves.sortedBy { it.moveIndex })
 
@@ -978,6 +995,7 @@ class GameViewModel(
         analyzedMoves: List<AnalyzedMove>,
         evaluations: List<Int>
     ) {
+        selectGameJob?.cancel()
         selectedGame.value = game
 
         selectedGameMistakes.clear()
@@ -995,6 +1013,7 @@ class GameViewModel(
     fun hasEvaluations(): Boolean = selectedGameEvaluations.isNotEmpty()
 
     fun closeGameView() {
+        selectGameJob?.cancel()
         selectedGame.value = null
         selectedGameMistakes.clear()
         selectedGameAnalyzedMoves.clear()
@@ -1004,6 +1023,9 @@ class GameViewModel(
     fun deleteGame(gameId: Long) {
         if (activeAnalysisGameId == gameId) {
             cancelAnalysis()
+        }
+        if (libraryAnalysisRequestedGameId.value == gameId) {
+            libraryAnalysisRequestedGameId.value = null
         }
         viewModelScope.launch {
             try {
