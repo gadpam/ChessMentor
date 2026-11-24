@@ -108,10 +108,10 @@ class SemanticMistakeAnalyzerTest {
         }
         assertEquals(TacticalMotif.DEFLECTION, analyzer.detectMotif(deflectionBoard, "d4d5"))
 
-        // Перегрузка: чёрный ферзь b7 одновременно защищает ладью a8 и слона c6; 1. Rxc6!
+        // Перегрузка: чёрный ферзь b7 одновременно защищает ладью a8 и слона e7; 1. Rxe7!
         val overloadingBoard = Board().apply {
-            loadFromFen("r5k1/1q3ppp/2b5/8/8/8/8/R1R3K1 w - - 0 1")
+            loadFromFen("r5k1/1q2bppp/8/8/8/8/8/R3R1K1 w - - 0 1")
         }
-        assertEquals(TacticalMotif.OVERLOADING, analyzer.detectMotif(overloadingBoard, "c1c6"))
+        assertEquals(TacticalMotif.OVERLOADING, analyzer.detectMotif(overloadingBoard, "e1e7"))
     }
 }
