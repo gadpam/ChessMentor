@@ -174,7 +174,8 @@ object PgnParser {
         val playedAtMillis: Long?,
         val dateLabel: String?,
         val startFen: String?,
-        val variant: String?
+        val variant: String?,
+        val rawOpeningName: String? = null
     )
 
     data class ClockSummary(
@@ -252,7 +253,8 @@ object PgnParser {
         val fullMoveCount: Int,
         val hasClockData: Boolean,
         val playerTimeTroubleMoves: Int,
-        val hasResultConflict: Boolean = false
+        val hasResultConflict: Boolean = false,
+        val rawOpeningName: String? = null
     ) {
         /** Поисковая строка в нижнем регистре для мгновенной фильтрации библиотеки. */
         val searchBlob: String by lazy {
@@ -262,6 +264,7 @@ object PgnParser {
                 playerName,
                 eco,
                 openingName,
+                rawOpeningName,
                 event,
                 timeControlLabel,
                 speedCategory.displayName,
@@ -925,7 +928,8 @@ object PgnParser {
             fullMoveCount = fullMoveCount,
             hasClockData = clockSummary.hasData,
             playerTimeTroubleMoves = clockSummary.timeTroubleMovesFor(game.playerColor),
-            hasResultConflict = hasResultConflict
+            hasResultConflict = hasResultConflict,
+            rawOpeningName = metadata.rawOpeningName
         )
     }
 
@@ -1221,7 +1225,8 @@ object PgnParser {
             playedAtMillis = playedAtMillis,
             dateLabel = dateLabel,
             startFen = startFen,
-            variant = variant
+            variant = variant,
+            rawOpeningName = rawCombinedOpening
         )
 
         return metadata to movetext.toString()

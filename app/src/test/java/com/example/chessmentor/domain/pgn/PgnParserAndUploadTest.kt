@@ -628,4 +628,21 @@ class PgnParserAndUploadTest {
         assertEquals(2, batch.importedGames.size)
         assertEquals(0, batch.skippedDuplicates)
     }
+
+    @Test
+    fun extractGameCardInfo_retainsOriginalOpeningNameInSearchBlobWhenLocalized() {
+        val pgn = """
+            [White "RecentRival"]
+            [Black "Tester"]
+            [Opening "French Defense"]
+            [Result "0-1"]
+
+            1. e4 e6 0-1
+        """.trimIndent()
+        val card = PgnParser.extractGameCardInfo(
+            Game(id = 101L, userId = 1L, playedAt = 1L, playerColor = ChessColor.BLACK, pgnData = pgn)
+        )
+        assertTrue(card.openingName?.contains("Француз") == true)
+        assertTrue("french" in card.searchBlob)
+    }
 }
