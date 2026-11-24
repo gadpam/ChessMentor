@@ -258,6 +258,17 @@ object PlayerAnalyticsCalculator {
         val decidedGames: Int get() = wins + draws + losses
     }
 
+    /** Конкретный эпизод игры в жёстком цейтноте (< 20с), к которому можно перейти прямо на доску. */
+    data class TimeTroubleEpisode(
+        val gameId: Long,
+        val moveIndex: Int,
+        val moveNumber: Int,
+        val san: String,
+        val clockSeconds: Int,
+        val evalLoss: Int,
+        val opponentLabel: String
+    )
+
     /** Влияние цейтнота (`< 20 сек` по `{[%clk]}`) на точность и частоту зевков. */
     data class TimeTroubleReport(
         val gamesWithClocks: Int = 0,
@@ -267,7 +278,9 @@ object PlayerAnalyticsCalculator {
         val normalAccuracy: Double? = null,
         val timeTroubleAccuracy: Double? = null,
         val normalBlunderRatePercent: Double? = null,
-        val timeTroubleBlunderRatePercent: Double? = null
+        val timeTroubleBlunderRatePercent: Double? = null,
+        val worstEpisode: TimeTroubleEpisode? = null,
+        val fallbackTimeTroubleGameId: Long? = null
     ) {
         val hasComparison: Boolean
             get() = normalAccuracy != null && timeTroubleAccuracy != null && timeTroubleMovesCount >= 2
@@ -1015,13 +1028,19 @@ object PlayerAnalyticsCalculator {
         val normalMoves = mutableListOf<AnalyzedMove>()
         val ttMoves = mutableListOf<AnalyzedMove>()
         var rawTtCount = 0
+        var worstEpisode: TimeTroubleEpisode? = null
+        var fallbackTtGameId: Long? = null
 
         for (item in items) {
             if (!item.card.hasClockData) continue
             gamesWithClocks++
+            val gameId = item.game.id
             if (item.card.playerTimeTroubleMoves > 0) {
                 gamesWithTt++
                 rawTtCount += item.card.playerTimeTroubleMoves
+                if (gameId != null) {
+                    fallbackTtGameId = gameId
+                }
             }
             if (item.playerMoves.isNotEmpty()) {
                 val clocksByPly = PgnParser.extractClocksByPly(item.game.pgnData)
@@ -1029,6 +1048,23 @@ object PlayerAnalyticsCalculator {
                     val sec = clocksByPly[move.moveIndex] ?: continue
                     if (GameReviewHelper.isTimeTrouble(sec)) {
                         ttMoves.add(move)
+                        if (gameId != null) {
+                            val current = worstEpisode
+                            val isWorse = current == null ||
+                                move.evalLoss > current.evalLoss ||
+                                (move.evalLoss == current.evalLoss && sec < current.clockSeconds)
+                            if (isWorse) {
+                                worstEpisode = TimeTroubleEpisode(
+                                    gameId = gameId,
+                                    moveIndex = move.moveIndex,
+                                    moveNumber = move.moveNumber,
+                                    san = move.san,
+                                    clockSeconds = sec,
+                                    evalLoss = move.evalLoss,
+                                    opponentLabel = item.card.opponentName
+                                )
+                            }
+                        }
                     } else {
                         normalMoves.add(move)
                     }
@@ -1053,7 +1089,9 @@ object PlayerAnalyticsCalculator {
             normalAccuracy = computeMovesAccuracy(normalMoves),
             timeTroubleAccuracy = computeMovesAccuracy(ttMoves),
             normalBlunderRatePercent = normalBlunderRate,
-            timeTroubleBlunderRatePercent = ttBlunderRate
+            timeTroubleBlunderRatePercent = ttBlunderRate,
+            worstEpisode = worstEpisode,
+            fallbackTimeTroubleGameId = fallbackTtGameId
         )
     }
 

@@ -4,9 +4,12 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
+import com.example.chessmentor.presentation.ui.components.screen.BottomControlPanel
 import com.example.chessmentor.presentation.ui.components.screen.SolutionResultInlineCard
 import com.example.chessmentor.presentation.ui.components.screen.UnifiedFeedbackPanel
 import com.example.chessmentor.presentation.viewmodel.TrainingUiState
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -61,5 +64,40 @@ class TrainingFeedbackTest {
             )
         }
         ui.onNodeWithText(warning).assertIsDisplayed()
+    }
+
+    @Test fun pausedTrainingPanelShowsResumeAndHidesHints() {
+        var resumed = false
+        ui.setContent {
+            BottomControlPanel(
+                uiState = TrainingUiState(
+                    hasActiveExercise = true,
+                    isInputLocked = true,
+                    isPaused = true
+                ),
+                bottomInset = 0.dp,
+                startInset = 0.dp,
+                endInset = 0.dp,
+                onRetryCheck = {},
+                onReturnFromCheck = {},
+                onNextExercise = {},
+                onHint = {},
+                onShowBetterMove = {},
+                onRevealSolution = {},
+                onSkip = {},
+                onReviewFirst = {},
+                onReviewPrev = {},
+                onReviewNext = {},
+                onReviewLast = {},
+                onToggleFreeAnalysis = {},
+                onUndoAnalysis = {},
+                onPlayEngineBest = {},
+                onResumeTraining = { resumed = true }
+            )
+        }
+        ui.onNodeWithText("Помощь").assertDoesNotExist()
+        ui.onNodeWithText("Пропустить").assertDoesNotExist()
+        ui.onNodeWithText("Продолжить задачу").assertIsDisplayed().performClick()
+        assertTrue(resumed)
     }
 }

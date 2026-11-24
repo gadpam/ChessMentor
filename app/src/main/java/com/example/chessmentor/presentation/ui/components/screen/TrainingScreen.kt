@@ -49,8 +49,12 @@ import androidx.compose.material.icons.filled.FirstPage
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LastPage
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -152,6 +156,16 @@ fun TrainingScreen(
     }
 
     val uiState by viewModel.uiState
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                viewModel.onPauseTraining()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // Сообщаем навигации о количестве задач на повторение — для бейджа на вкладке «Задачи»
     LaunchedEffect(uiState.dueReviewCount) {
@@ -289,6 +303,32 @@ fun TrainingScreen(
                             }
                         )
                     }
+                    val canPauseOrResume = !uiState.isLoading &&
+                        uiState.hasActiveExercise &&
+                        !uiState.isSolved &&
+                        !uiState.isSolutionRevealed &&
+                        !uiState.isAnimatingIntro &&
+                        !uiState.isAnimatingPunishment &&
+                        !uiState.checkUnavailable
+                    if (canPauseOrResume) {
+                        IconButton(
+                            onClick = {
+                                selectedSquare = null
+                                pendingPromotion = null
+                                if (uiState.isPaused) {
+                                    viewModel.onResumeTraining()
+                                } else {
+                                    viewModel.onPauseTraining()
+                                }
+                            },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (uiState.isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                                contentDescription = if (uiState.isPaused) "Продолжить тренировку" else "Пауза"
+                            )
+                        }
+                    }
                 }
                 SessionHeader(
                     stats = uiState.sessionStats,
@@ -354,6 +394,11 @@ fun TrainingScreen(
                     onPlayEngineBest = {
                         selectedSquare = null
                         viewModel.onPlayEngineBestInAnalysis()
+                    },
+                    onResumeTraining = {
+                        selectedSquare = null
+                        pendingPromotion = null
+                        viewModel.onResumeTraining()
                     }
                 )
             }
@@ -1202,7 +1247,7 @@ private fun SessionHeader(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun BottomControlPanel(
+internal fun BottomControlPanel(
     uiState: TrainingUiState,
     bottomInset: Dp,
     startInset: Dp,
@@ -1220,7 +1265,8 @@ private fun BottomControlPanel(
     onReviewLast: () -> Unit,
     onToggleFreeAnalysis: () -> Unit,
     onUndoAnalysis: () -> Unit,
-    onPlayEngineBest: () -> Unit
+    onPlayEngineBest: () -> Unit,
+    onResumeTraining: () -> Unit = {}
 ) {
     val isFinished = uiState.isSolved || uiState.isSolutionRevealed
     val controlsEnabled = !uiState.isAnimatingIntro && !uiState.isAnimatingPunishment && !uiState.isInputLocked
@@ -1250,6 +1296,22 @@ private fun BottomControlPanel(
                         .fillMaxWidth()
                         .heightIn(min = 48.dp)
                 ) { Text("Вернуться к позиции") }
+            } else if (uiState.isPaused && !isFinished) {
+                Button(
+                    onClick = onResumeTraining,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Продолжить задачу",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             } else if (isFinished) {
                 if (uiState.isFreeAnalysisMode) {
                     FlowRow(

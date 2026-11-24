@@ -131,11 +131,24 @@ data class TrainingUiState(
     val punishmentAnimationStep: Int = 0,
     val isAnimatingPunishment: Boolean = false,
     val isErrorShake: Boolean = false,
+    val isPaused: Boolean = false,
 
     // Звуковые события (soundEventId монотонно растёт для надёжной обработки в LaunchedEffect)
     val soundEvent: TrainingSoundEvent? = null,
     val soundEventId: Long = 0L
 )
+
+internal object TrainingPauseClock {
+    fun adjustStartAfterResume(startTimeMs: Long, pauseStartedAtMs: Long?, nowMs: Long): Long {
+        val pausedAt = pauseStartedAtMs ?: return startTimeMs
+        return startTimeMs + (nowMs - pausedAt).coerceAtLeast(0L)
+    }
+
+    fun elapsedSeconds(startTimeMs: Long, pauseStartedAtMs: Long?, nowMs: Long): Int {
+        val effectiveNow = pauseStartedAtMs ?: nowMs
+        return ((effectiveNow - startTimeMs) / 1000).toInt().coerceAtLeast(0)
+    }
+}
 
 data class SessionStats(
     val solved: Int = 0,
@@ -196,6 +209,7 @@ class TrainingViewModel(
     private val recordedMoves = mutableListOf<String>()
     private var currentMoveIndex = 0
     private var startTime: Long = 0
+    private var pauseStartedAt: Long? = null
     private var firstMoveThinkTimeMs: Long? = null
     private var attemptMistakeCount: Int = 0
     private var attemptFailed = false
@@ -272,6 +286,7 @@ class TrainingViewModel(
         isDailyAlreadySolved = false,
         hintLevel = HintLevel.NONE,
         hasActiveExercise = false,
+        isPaused = false,
         arrows = emptyList(),
         highlights = emptyList(),
         lastRatingDelta = null
@@ -629,11 +644,58 @@ class TrainingViewModel(
         }
     }
 
+    private fun resumeClockAdjustment(nowMs: Long = System.currentTimeMillis()) {
+        val pausedAt = pauseStartedAt ?: return
+        pauseStartedAt = null
+        startTime = TrainingPauseClock.adjustStartAfterResume(startTime, pausedAt, nowMs)
+    }
+
+    private fun effectiveElapsedSeconds(nowMs: Long = System.currentTimeMillis()): Int {
+        return TrainingPauseClock.elapsedSeconds(startTime, pauseStartedAt, nowMs)
+    }
+
+    /**
+     * Ставит активную задачу на паузу без сброса позиции, серии или уже использованных подсказок,
+     * останавливая счётчик времени расчёта.
+     */
+    fun onPauseTraining(nowMs: Long = System.currentTimeMillis()) {
+        val state = _uiState.value
+        if (state.isLoading || !state.hasActiveExercise || state.isSolved || state.isSolutionRevealed ||
+            state.isAnimatingIntro || state.isAnimatingPunishment || state.checkUnavailable || state.isPaused
+        ) {
+            return
+        }
+        if (pauseStartedAt == null) {
+            pauseStartedAt = nowMs
+        }
+        _uiState.value = state.copy(
+            isPaused = true,
+            isInputLocked = true,
+            feedbackMessage = "Пауза — позиция и подсказки сохранены"
+        )
+    }
+
+    /**
+     * Снимает паузу и исключает время простоя из расчётного таймера задачи.
+     */
+    fun onResumeTraining(nowMs: Long = System.currentTimeMillis()) {
+        val state = _uiState.value
+        resumeClockAdjustment(nowMs)
+        if (!state.isPaused) return
+        val keepLocked = state.isLoading || state.isSolved || state.isSolutionRevealed ||
+            state.isAnimatingIntro || state.isAnimatingPunishment || state.checkUnavailable
+        _uiState.value = state.copy(
+            isPaused = false,
+            isInputLocked = keepLocked,
+            feedbackMessage = "Продолжайте — ваш ход"
+        )
+    }
+
     private fun finalizeCurrentSessionExerciseIfNeeded() {
         if (_uiState.value.mode !is TrainingMode.SmartSession || smartSessionOutcomeRecorded) return
         val ex = currentExercise ?: return
         smartSessionOutcomeRecorded = true
-        val elapsed = ((System.currentTimeMillis() - startTime) / 1000).toInt().coerceIn(1, 600)
+        val elapsed = effectiveElapsedSeconds().coerceIn(1, 600)
         smartSessionTotalSeconds += elapsed
         if (attemptFailed || _uiState.value.isSolutionRevealed) {
             smartSessionFailedCount++
@@ -647,6 +709,9 @@ class TrainingViewModel(
     fun onSkipExercise() {
         val state = _uiState.value
         if (state.isLoading || state.isAnimatingPunishment) return
+        if (state.isPaused) {
+            resumeClockAdjustment()
+        }
         if (state.isSolved || state.isSolutionRevealed) {
             loadNextExercise()
             return
@@ -681,6 +746,9 @@ class TrainingViewModel(
         val state = _uiState.value
         if (state.isLoading || state.isSolved || state.isSolutionRevealed || state.isAnimatingPunishment) return
         if (!state.hasActiveExercise || targetSequence.isEmpty()) return
+        if (state.isPaused) {
+            resumeClockAdjustment()
+        }
 
         currentJob?.cancel()
         pendingCheck = null
@@ -706,6 +774,7 @@ class TrainingViewModel(
             _uiState.value = _uiState.value.copy(
                 board = Board().apply { loadFromFen(startFen) },
                 isInputLocked = true,
+                isPaused = false,
                 checkUnavailable = false,
                 isErrorShake = false,
                 hintLevel = HintLevel.FULL_SOLUTION,
@@ -946,6 +1015,7 @@ class TrainingViewModel(
         maxHintUsed = HintUsage.NONE
         isCurrentDailyAlreadySolved = false
         startTime = System.currentTimeMillis()
+        pauseStartedAt = null
         firstMoveThinkTimeMs = null
         positionBeforePlayerMove = ""
         lastMoveBeforePlayerMove = null
@@ -1825,7 +1895,7 @@ class TrainingViewModel(
     private fun captureAttemptSnapshot(timeSpentSeconds: Int? = null): AttemptSnapshot? {
         val userId = currentUser?.id ?: return null
         val exerciseId = currentExercise?.id ?: return null
-        val elapsed = timeSpentSeconds ?: ((System.currentTimeMillis() - startTime) / 1000).toInt().coerceAtLeast(0)
+        val elapsed = timeSpentSeconds ?: effectiveElapsedSeconds()
         return AttemptSnapshot(
             userId = userId,
             exerciseId = exerciseId,
@@ -1908,6 +1978,7 @@ class TrainingViewModel(
 
     fun onShowBetterMoveClicked() {
         val state = _uiState.value
+        if (state.isPaused) return
         val analysis = state.currentMistakeAnalysis ?: return
         val betterMove = analysis.betterMoveInfo ?: return
         if (state.betterMoveShown) return
@@ -1990,7 +2061,7 @@ class TrainingViewModel(
             0
         }
 
-        val solveSeconds = ((System.currentTimeMillis() - startTime) / 1000).toInt().coerceIn(1, 600)
+        val solveSeconds = effectiveElapsedSeconds().coerceIn(1, 600)
         val activeMode = _uiState.value.mode
         val isCleanFirstTry = !attemptFailed && maxHintUsed == HintUsage.NONE && !isCurrentDailyAlreadySolved
 

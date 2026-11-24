@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.ChessColor
+import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.session.SessionState
 import com.example.chessmentor.domain.training.TrainingMode
@@ -278,6 +279,27 @@ fun ChessMentorApp(
                             summaryReturnScreen = fromScreen
                             gameViewModel.selectGame(loaded)
                             currentScreen = "summary"
+                        }
+                    }
+                }
+            },
+            onOpenGameAtMove = { fromScreen, gameId, moveIndex ->
+                val openLoaded: (Game) -> Unit = { game ->
+                    summaryReturnScreen = fromScreen
+                    if (moveIndex != null && moveIndex >= 0) {
+                        boardViewModel.scheduleJumpToMove(gameId, moveIndex)
+                    }
+                    gameViewModel.selectGame(game)
+                    currentScreen = if (moveIndex != null && moveIndex >= 0) "game_view" else "summary"
+                }
+                val cached = gameViewModel.userGames.firstOrNull { it.id == gameId }
+                if (cached != null) {
+                    openLoaded(cached)
+                } else {
+                    coroutineScope.launch {
+                        val loaded = runCatching { container.gameRepository.findById(gameId) }.getOrNull()
+                        if (loaded != null) {
+                            openLoaded(loaded)
                         }
                     }
                 }
@@ -577,6 +599,7 @@ private fun NavigationHost(
     onOpenGamesWithFilter: (query: String, color: ChessColor?) -> Unit,
     onGamesFilterConsumed: () -> Unit,
     onOpenGameSummaryById: (fromScreen: String, gameId: Long) -> Unit,
+    onOpenGameAtMove: (fromScreen: String, gameId: Long, moveIndex: Int?) -> Unit,
     onUserUpdated: (User) -> Unit,
     onLogout: () -> Unit,
     onMessageDismiss: () -> Unit,
@@ -816,6 +839,9 @@ private fun NavigationHost(
                     },
                     onOpenGameById = { gameId ->
                         onOpenGameSummaryById("stats", gameId)
+                    },
+                    onOpenTimeTroubleEpisode = { gameId, moveIndex ->
+                        onOpenGameAtMove("stats", gameId, moveIndex)
                     },
                     onNavigateToUpload = {
                         onScreenChange("upload")

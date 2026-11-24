@@ -117,6 +117,13 @@ class BoardViewModel : ViewModel() {
     private var engineJob: Job? = null
     private var retryCheckJob: Job? = null
     private var cachedEngine: ChessEngine? = null
+    private var pendingJumpGameId: Long? = null
+    private var pendingJumpMoveIndex: Int? = null
+
+    fun scheduleJumpToMove(gameId: Long, moveIndex: Int) {
+        pendingJumpGameId = gameId
+        pendingJumpMoveIndex = moveIndex
+    }
 
     var soundManager: SoundManager? = null
 
@@ -181,8 +188,17 @@ class BoardViewModel : ViewModel() {
 
             loadMoves(halfMoves)
             loadEvaluations(gameEvaluations, game)
-            if (previousIndex >= 0) {
-                goToMove(previousIndex)
+            val scheduledJump = if (pendingJumpGameId != null && pendingJumpGameId == game.id) {
+                pendingJumpMoveIndex?.also {
+                    pendingJumpGameId = null
+                    pendingJumpMoveIndex = null
+                }
+            } else {
+                null
+            }
+            val targetIndex = scheduledJump ?: previousIndex
+            if (targetIndex >= 0) {
+                goToMove(targetIndex)
             } else {
                 goToStart()
             }

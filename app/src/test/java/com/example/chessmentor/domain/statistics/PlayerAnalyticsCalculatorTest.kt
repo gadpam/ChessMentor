@@ -306,6 +306,49 @@ class PlayerAnalyticsCalculatorTest {
         assertEquals(2, report.timeTrouble.timeTroubleMovesCount)
         assertTrue(report.timeTrouble.hasComparison)
         assertTrue((report.timeTrouble.accuracyDropPercent ?: 0.0) > 40.0)
+        val worst = report.timeTrouble.worstEpisode
+        assertNotNull(worst)
+        assertEquals(10L, worst!!.gameId)
+        assertEquals(4, worst.moveIndex)
+        assertEquals(3, worst.moveNumber)
+        assertEquals("Bc4", worst.san)
+        assertEquals(15, worst.clockSeconds)
+        assertEquals(300, worst.evalLoss)
+    }
+
+    @Test
+    fun `timeTrouble fallback points to clocked game even before detailed moves exist`() {
+        val clockedPgn = """
+            [Event "Blitz"]
+            [White "Me"]
+            [Black "ClockRival"]
+            [Result "0-1"]
+            [TimeControl "180+0"]
+
+            1. e4 {[%clk 0:00:12]} e5 {[%clk 0:02:55]} 0-1
+        """.trimIndent()
+
+        val game = Game(
+            id = 42L,
+            userId = 1L,
+            pgnData = clockedPgn,
+            playerColor = ChessColor.WHITE,
+            timeControl = "180+0",
+            playedAt = fixedNow - dayMs,
+            analysisStatus = AnalysisStatus.PENDING
+        )
+
+        val report = PlayerAnalyticsCalculator.computeGameAnalytics(
+            games = listOf(game),
+            analyzedMovesByGameId = emptyMap(),
+            mistakesByGameId = emptyMap(),
+            nowMs = fixedNow
+        )
+
+        assertEquals(1, report.timeTrouble.gamesWithClocks)
+        assertEquals(1, report.timeTrouble.gamesWithTimeTrouble)
+        assertNull(report.timeTrouble.worstEpisode)
+        assertEquals(42L, report.timeTrouble.fallbackTimeTroubleGameId)
     }
 
     @Test

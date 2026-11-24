@@ -100,7 +100,8 @@ fun StatisticsScreen(
     onStartTraining: ((TrainingMode) -> Unit)? = null,
     onOpenGamesLibrary: ((query: String, color: ChessColor?) -> Unit)? = null,
     onOpenGameById: ((Long) -> Unit)? = null,
-    onNavigateToUpload: (() -> Unit)? = null
+    onNavigateToUpload: (() -> Unit)? = null,
+    onOpenTimeTroubleEpisode: ((gameId: Long, moveIndex: Int?) -> Unit)? = null
 ) {
     val factory = remember(container) { ChessMentorViewModelFactory(container) }
     val statisticsViewModel: StatisticsViewModel = viewModel(factory = factory)
@@ -229,7 +230,8 @@ fun StatisticsScreen(
                         TimeControlsAndClockCard(
                             timeControls = report.timeControls,
                             timeTrouble = report.timeTrouble,
-                            onTrainVision = launchTraining?.let { fn -> { fn(TrainingMode.PatternVision) } }
+                            onTrainVision = launchTraining?.let { fn -> { fn(TrainingMode.PatternVision) } },
+                            onOpenEpisode = onOpenTimeTroubleEpisode
                         )
                     }
                 }
@@ -1582,7 +1584,8 @@ private fun QualityBadgeChip(
 private fun TimeControlsAndClockCard(
     timeControls: List<TimeControlPerformance>,
     timeTrouble: TimeTroubleReport,
-    onTrainVision: (() -> Unit)?
+    onTrainVision: (() -> Unit)?,
+    onOpenEpisode: ((gameId: Long, moveIndex: Int?) -> Unit)? = null
 ) {
     Card(shape = RoundedCornerShape(16.dp)) {
         Column(
@@ -1697,6 +1700,38 @@ private fun TimeControlsAndClockCard(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+
+                        val worstEp = timeTrouble.worstEpisode
+                        val fallbackGameId = timeTrouble.fallbackTimeTroubleGameId
+                        if (onOpenEpisode != null && worstEp != null) {
+                            Text(
+                                text = buildString {
+                                    append("Острый эпизод: ${worstEp.moveNumber}. ${worstEp.san} ")
+                                    append("(${worstEp.clockSeconds}с на часах")
+                                    if (worstEp.evalLoss > 0) {
+                                        append(", потеря ${String.format(Locale.US, "%.1f", worstEp.evalLoss / 100.0)} п.")
+                                    }
+                                    append(" · против ${worstEp.opponentLabel})")
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            TextButton(
+                                onClick = { onOpenEpisode(worstEp.gameId, worstEp.moveIndex) },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Text("Разобрать ход ${worstEp.moveNumber}. ${worstEp.san} →", style = MaterialTheme.typography.labelMedium)
+                            }
+                        } else if (onOpenEpisode != null && fallbackGameId != null) {
+                            TextButton(
+                                onClick = { onOpenEpisode(fallbackGameId, null) },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Text("Открыть партию с цейтнотом →", style = MaterialTheme.typography.labelMedium)
+                            }
                         }
                     }
                 }
