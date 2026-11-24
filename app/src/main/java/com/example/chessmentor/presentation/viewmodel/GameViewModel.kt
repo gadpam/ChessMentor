@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.chessmentor.data.chesscom.ArchiveGame
+import com.example.chessmentor.data.chesscom.ChessComArchive
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
