@@ -366,6 +366,7 @@ class TrainingRetryTest {
                     fenPosition = startFen,
                     solutionMoves = listOf("d1d8"),
                     tacticalPattern = TacticalPattern.BACK_RANK_MATE,
+                    patternClusterId = "BACK_RANK_MATE_EASY",
                     difficultyRating = 25,
                     theme = TacticalTheme.MATE,
                     createdFrom = ExerciseSource.MISTAKE,
