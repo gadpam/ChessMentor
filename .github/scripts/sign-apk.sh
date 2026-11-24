@@ -6,11 +6,14 @@ input=${1:?missing unsigned APK}
 apk=${2:?missing output APK}
 : "${KEYSTORE_B64:?}" "${STORE_PASSWORD:?}" "${KEY_ALIAS:?}" "${KEY_PASSWORD:?}"
 : "${VERSION_NAME:?}" "${VERSION_CODE:?}"
-tools="$ANDROID_HOME/build-tools/35.0.0"
+
+bt_version=${SIGNING_BUILD_TOOLS_VERSION:-35.0.0}
+tools="$ANDROID_HOME/build-tools/$bt_version"
 if [[ ! -d "$tools" ]]; then
-  echo "Missing Android build-tools 35.0.0 at $tools (install build-tools;35.0.0 first)." >&2
+  echo "Missing Android build-tools $bt_version at $tools (install build-tools;$bt_version first)." >&2
   exit 1
 fi
+
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 printf '%s' "$KEYSTORE_B64" | base64 --decode > "$tmp/signing.jks"
@@ -25,7 +28,12 @@ cert=$(keytool -exportcert -keystore "$tmp/signing.jks" -storepass:env STORE_PAS
 "$tools/apksigner" verify --verbose --print-certs "$apk" | tee "$tmp/certificates"
 grep -Fx "Signer #1 certificate SHA-256 digest: ${cert%% *}" "$tmp/certificates"
 "$tools/zipalign" -c -P 16 4 "$apk"
-"$tools/aapt" dump badging "$apk" > "$tmp/badging"
+
+if [[ -x "$tools/aapt2" ]]; then
+  "$tools/aapt2" dump badging "$apk" > "$tmp/badging"
+else
+  "$tools/aapt" dump badging "$apk" > "$tmp/badging"
+fi
 grep -F "package: name='com.example.chessmentor' versionCode='$VERSION_CODE' versionName='$VERSION_NAME'" "$tmp/badging"
 sha256sum "$apk" > "$apk.sha256"
 sha256sum --check "$apk.sha256"

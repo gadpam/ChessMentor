@@ -30,7 +30,14 @@
 -keep class com.github.bhlangonijr.chesslib.** { *; }
 -dontwarn com.github.bhlangonijr.chesslib.**
 
-# 4. Readable stack traces & generic type metadata for Room/Kotlin
+# 4. Strip verbose/debug logging in Release builds
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+}
+
+# 5. Readable stack traces & generic type metadata for Room/Kotlin
 -keepattributes Signature,InnerClasses,EnclosingMethod,RuntimeVisibleAnnotations
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile

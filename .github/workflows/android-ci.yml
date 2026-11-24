@@ -9,6 +9,19 @@ on:
     branches:
       - master
   workflow_dispatch:
+    inputs:
+      emulator_api_level:
+        description: "Android Emulator API level for device tests"
+        type: choice
+        default: "29"
+        options:
+          - "29"
+          - "34"
+          - "35"
+      verbose_logs:
+        description: "Enable verbose Gradle --info logging"
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       version_name:
@@ -29,6 +42,9 @@ env:
   JAVA_VERSION: "17"
   NDK_VERSION: "26.1.10909125"
   CMAKE_VERSION: "3.22.1"
+  SIGNING_BUILD_TOOLS_VERSION: "35.0.0"
+  NNUE_NET_NAME: "nn-1a298aa575a0.nnue"
+  NNUE_SHA256_PREFIX: "1a298aa575a0"
 
 jobs:
   test-and-lint:
@@ -40,11 +56,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - name: Check release version rules
-        run: python3 -m unittest discover -s .github/scripts
+      - name: Run Python preflight & CI script tests
+        run: |
+          python3 -m unittest discover -s .github/scripts -p "test_*.py" -v
+          python3 .github/scripts/ci_preflight.py
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
@@ -58,27 +76,39 @@ jobs:
             "ndk;${NDK_VERSION}" \
             "cmake;${CMAKE_VERSION}"
 
+      - name: Cache Stockfish CMake/NDK build outputs
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: app/.cxx
+          key: ndk-lint-${{ runner.os }}-${{ env.NDK_VERSION }}-${{ env.CMAKE_VERSION }}-${{ hashFiles('app/src/main/cpp/**', 'app/build.gradle.kts') }}
+          restore-keys: |
+            ndk-lint-${{ runner.os }}-${{ env.NDK_VERSION }}-${{ env.CMAKE_VERSION }}-
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
-
-      - name: Ensure gradlew is executable
-        run: chmod +x ./gradlew
 
       - name: Diagnose build environment
         run: |
           echo "=== ANDROID_HOME=$ANDROID_HOME ==="
           ls -la "$ANDROID_HOME" || true
+          echo "=== Memory & CPU ==="
+          nproc && free -h
           echo "=== Installed SDK components ==="
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --list_installed || true
-          echo "=== Java version ==="
+          echo "=== Java & Gradle version ==="
           java -version || true
-          echo "=== Gradle version ==="
           ./gradlew --version || true
+          DIST_SHA=$(curl -sSfL https://services.gradle.org/distributions/gradle-8.5-bin.zip.sha256 || true)
+          if [ -n "$DIST_SHA" ]; then
+            echo "::notice title=Gradle85Sha256::$DIST_SHA"
+          fi
 
       - name: Run JVM unit tests
         run: |
           set -o pipefail
-          ./gradlew testDebugUnitTest --no-daemon --stacktrace --info 2>&1 | tee /tmp/gradle-test.log || {
+          EXTRA_FLAG=""
+          if [ "${{ inputs.verbose_logs }}" = "true" ]; then EXTRA_FLAG="--info"; fi
+          ./gradlew testDebugUnitTest --no-daemon --stacktrace --warning-mode=all ${EXTRA_FLAG} -Dorg.gradle.jvmargs="-Xmx3072m -Dfile.encoding=UTF-8" 2>&1 | tee /tmp/gradle-test.log || {
             STATUS=$?
             python3 - /tmp/gradle-test.log "$GITHUB_WORKSPACE" <<'PY'
           import glob, re, sys, xml.etree.ElementTree as ET
@@ -89,16 +119,11 @@ jobs:
               rel = m.group(1).replace(ws, "")
               print(f"::error file={rel},line={m.group(2)},col={m.group(3)},title=Kotlin::{m.group(4)}")
               emitted += 1
-              if emitted >= 50: break
+              if emitted >= 25: break
           for m in re.finditer(r"^e: \[ksp\]\s+(.+)$", log, re.M):
               print(f"::error title=KSP::{m.group(1)}")
               emitted += 1
-              if emitted >= 50: break
-          for m in re.finditer(r"(?i)(warning|error|exception|failed|fail):\s*(.+)", log, re.M):
-              msg = m.group(0)[:500]
-              print(f"::warning title=Gradle::{msg}")
-              emitted += 1
-              if emitted >= 50: break
+              if emitted >= 25: break
           for xml_path in sorted(glob.glob("app/build/test-results/testDebugUnitTest/*.xml")):
               root = ET.parse(xml_path).getroot()
               for tc in root.findall("testcase"):
@@ -106,10 +131,12 @@ jobs:
                       first_lines = " | ".join((fail.text or fail.attrib.get("message", "")).splitlines()[:4])
                       print(f"::error title=Test {tc.attrib.get('classname')}.{tc.attrib.get('name')}::{first_lines[:400]}")
                       emitted += 1
-          lines = log.splitlines()
-          for i in range(0, len(lines), 15):
-              chunk = " | ".join(lines[i:i+15])
-              print(f"::error title=GradleLog::{chunk[:1200]}")
+          failure_idx = log.rfind("FAILURE: Build failed with an exception.")
+          excerpt = log[failure_idx:].splitlines()[:45] if failure_idx != -1 else log.splitlines()[-60:]
+          for i in range(0, len(excerpt), 15):
+              chunk = " | ".join(l.strip() for l in excerpt[i:i+15] if l.strip())
+              if chunk:
+                  print(f"::error title=GradleTail::{chunk[:1200]}")
           PY
             exit $STATUS
           }
@@ -144,7 +171,7 @@ jobs:
       - name: Run Android Lint
         run: |
           set -o pipefail
-          ./gradlew lintDebug --no-daemon 2>&1 | tee /tmp/gradle-lint.log || {
+          ./gradlew lintDebug --no-daemon --stacktrace -Dorg.gradle.jvmargs="-Xmx3072m -Dfile.encoding=UTF-8" 2>&1 | tee /tmp/gradle-lint.log || {
             STATUS=$?
             python3 - "$GITHUB_WORKSPACE" /tmp/gradle-lint.log <<'PY'
           import os, sys, xml.etree.ElementTree as ET
@@ -175,7 +202,7 @@ jobs:
       - name: Compile Android instrumentation tests
         run: |
           set -o pipefail
-          ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-androidtest.log || {
+          ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace -Dorg.gradle.jvmargs="-Xmx3072m -Dfile.encoding=UTF-8" 2>&1 | tee /tmp/gradle-androidtest.log || {
             STATUS=$?
             python3 - /tmp/gradle-androidtest.log "$GITHUB_WORKSPACE" <<'PY'
           import re, sys
@@ -186,7 +213,7 @@ jobs:
               rel = m.group(1).replace(ws, "")
               print(f"::error file={rel},line={m.group(2)},col={m.group(3)},title=AndroidTestKotlin::{m.group(4)}")
               emitted += 1
-              if emitted >= 50: break
+              if emitted >= 30: break
           if emitted == 0:
               tail = " | ".join(l.strip() for l in log.splitlines()[-30:] if l.strip())
               print(f"::error title=AndroidTestKotlin::{tail[:1200]}")
@@ -217,7 +244,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
@@ -242,27 +269,15 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
 
-      - name: Ensure gradlew is executable
-        run: chmod +x ./gradlew
-
-      - name: Diagnose build environment
-        run: |
-          echo "=== ANDROID_HOME=$ANDROID_HOME ==="
-          ls -la "$ANDROID_HOME" || true
-          echo "=== Installed SDK components ==="
-          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --list_installed || true
-          echo "=== Java version ==="
-          java -version || true
-          echo "=== Gradle version ==="
-          ./gradlew --version || true
-
       - name: Assemble Debug & R8-minified Release APKs
         env:
           ORG_GRADLE_PROJECT_releaseVersionName: ${{ inputs.version_name || '1.0' }}
           ORG_GRADLE_PROJECT_releaseVersionCode: ${{ inputs.version_code || '1' }}
         run: |
           set -o pipefail
-          ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace --info 2>&1 | tee /tmp/gradle-apk.log || {
+          EXTRA_FLAG=""
+          if [ "${{ inputs.verbose_logs }}" = "true" ]; then EXTRA_FLAG="--info"; fi
+          ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace --warning-mode=all ${EXTRA_FLAG} -Dorg.gradle.jvmargs="-Xmx3072m -Dfile.encoding=UTF-8" 2>&1 | tee /tmp/gradle-apk.log || {
             STATUS=$?
             python3 - /tmp/gradle-apk.log "$GITHUB_WORKSPACE" <<'PY'
           import re, sys
@@ -273,25 +288,22 @@ jobs:
               rel = m.group(1).replace(ws, "")
               print(f"::error file={rel},line={m.group(2)},col={m.group(3)},title=Kotlin::{m.group(4)}")
               emitted += 1
-              if emitted >= 50: break
+              if emitted >= 25: break
           for m in re.finditer(r"^([^\s:]+):(\d+):(\d+):\s+error:\s+(.+)$", log, re.M):
               rel = m.group(1).replace(ws, "")
               print(f"::error file={rel},line={m.group(2)},title=NDK::{m.group(4)}")
               emitted += 1
-              if emitted >= 50: break
+              if emitted >= 25: break
           for m in re.finditer(r"(?:Missing class .+|ERROR:\s*R8:.+|e: \[ksp\] .+)", log):
               print(f"::error title=Build::{m.group(0)[:400]}")
               emitted += 1
-              if emitted >= 50: break
-          for m in re.finditer(r"(?i)(warning|error|exception|failed|fail):\s*(.+)", log, re.M):
-              msg = m.group(0)[:500]
-              print(f"::warning title=Gradle::{msg}")
-              emitted += 1
-              if emitted >= 50: break
-          lines = log.splitlines()
-          for i in range(0, len(lines), 15):
-              chunk = " | ".join(lines[i:i+15])
-              print(f"::error title=AssembleGradleLog::{chunk[:1200]}")
+              if emitted >= 25: break
+          failure_idx = log.rfind("FAILURE: Build failed with an exception.")
+          excerpt = log[failure_idx:].splitlines()[:45] if failure_idx != -1 else log.splitlines()[-60:]
+          for i in range(0, len(excerpt), 15):
+              chunk = " | ".join(l.strip() for l in excerpt[i:i+15] if l.strip())
+              if chunk:
+                  print(f"::error title=AssembleGradleTail::{chunk[:1200]}")
           PY
             exit $STATUS
           }
@@ -317,7 +329,8 @@ jobs:
           apks = sorted(glob.glob("app/build/outputs/apk/*/*.apk"))
           parts = [f"{os.path.basename(p)}={os.path.getsize(p)/1_048_576:.2f} MB" for p in apks]
           mapping_ok = os.path.isfile("app/build/outputs/mapping/release/mapping.txt")
-          print(f"::notice title=APKsAnd16KB::{', '.join(parts)} | R8 mapping={mapping_ok} | 16KB ELF verified (arm64-v8a, x86_64)")
+          sym_ok = os.path.isfile("app/build/outputs/native-debug-symbols/release/native-debug-symbols.zip")
+          print(f"::notice title=APKsAnd16KB::{', '.join(parts)} | R8 mapping={mapping_ok} | nativeSymbols={sym_ok} | 16KB ELF verified (arm64-v8a, x86_64)")
           PY
 
       - name: Upload Debug APK, Release APK & R8 mapping
@@ -325,10 +338,22 @@ jobs:
         with:
           name: chessmentor-apks
           retention-days: 14
+          if-no-files-found: warn
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/release/*.apk
             app/build/outputs/mapping/release/mapping.txt
+            app/build/outputs/native-debug-symbols/release/*.zip
+
+      - name: Archive Release R8 mapping & native debug symbols (90d retention)
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: chessmentor-release-symbols
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            app/build/outputs/mapping/release/mapping.txt
+            app/build/outputs/native-debug-symbols/release/*.zip
 
   signing-smoke:
     name: Verify release signing with a disposable key
@@ -346,7 +371,7 @@ jobs:
           name: chessmentor-apks
           path: artifacts
       - name: Prepare Android signing tools
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0"'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;${SIGNING_BUILD_TOOLS_VERSION}"'
       - name: Sign and verify a temporary copy (no release secrets)
         env:
           VERSION_NAME: ${{ inputs.version_name || '1.0' }}
@@ -366,12 +391,12 @@ jobs:
 
   room-device-test:
     name: Instrumentation & Room Device Tests
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
@@ -390,13 +415,43 @@ jobs:
           key: ndk-device-${{ runner.os }}-${{ env.NDK_VERSION }}-${{ env.CMAKE_VERSION }}-${{ hashFiles('app/src/main/cpp/**', 'app/build.gradle.kts') }}
           restore-keys: |
             ndk-device-${{ runner.os }}-${{ env.NDK_VERSION }}-${{ env.CMAKE_VERSION }}-
+      - name: Cache NNUE model for offline emulator tests
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: /tmp/nnue-cache
+          key: nnue-${{ env.NNUE_NET_NAME }}-${{ env.NNUE_SHA256_PREFIX }}
+      - name: Pre-fetch & verify NNUE model on runner
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nnue-cache
+          target="/tmp/nnue-cache/${NNUE_NET_NAME}"
+          if [[ ! -s "$target" ]]; then
+            for url in \
+              "https://tests.stockfishchess.org/api/nn/${NNUE_NET_NAME}" \
+              "https://github.com/official-stockfish/networks/raw/master/${NNUE_NET_NAME}"; do
+              if curl -fsSL --retry 2 --connect-timeout 15 --max-time 180 "$url" -o "$target.part"; then
+                actual_prefix=$(sha256sum "$target.part" | cut -c1-12)
+                if [[ "$actual_prefix" == "${NNUE_SHA256_PREFIX}" ]]; then
+                  mv "$target.part" "$target"
+                  break
+                fi
+                rm -f "$target.part"
+              fi
+            done
+          fi
+          if [[ -s "$target" ]]; then
+            echo "Cached NNUE verified: $target ($(stat -c%s "$target") bytes)"
+          else
+            echo "::warning::Could not pre-cache NNUE on runner; emulator test will fall back to in-app download."
+          fi
       - uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
-      - name: Ensure gradlew is executable
-        run: chmod +x ./gradlew
       - name: Build application and tests before booting the emulator
+        env:
+          ORG_GRADLE_PROJECT_releaseVersionName: ${{ inputs.version_name || '1.0' }}
+          ORG_GRADLE_PROJECT_releaseVersionCode: ${{ inputs.version_code || '1' }}
         run: |
           set -o pipefail
-          ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -Pandroid.injected.build.abi=x86_64 --no-daemon 2>&1 | tee /tmp/gradle-device-build.log || {
+          ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest -Pandroid.injected.build.abi=x86_64 --no-daemon --stacktrace -Dorg.gradle.jvmargs="-Xmx3072m -Dfile.encoding=UTF-8" 2>&1 | tee /tmp/gradle-device-build.log || {
             STATUS=$?
             python3 - /tmp/gradle-device-build.log "$GITHUB_WORKSPACE" <<'PY'
           import re, sys
@@ -407,7 +462,7 @@ jobs:
               rel = m.group(1).replace(ws, "")
               print(f"::error file={rel},line={m.group(2)},col={m.group(3)},title=DeviceBuildKotlin::{m.group(4)}")
               emitted += 1
-              if emitted >= 50: break
+              if emitted >= 30: break
           if emitted == 0:
               tail = " | ".join(l.strip() for l in log.splitlines()[-30:] if l.strip())
               print(f"::error title=DeviceBuild::{tail[:1200]}")
@@ -421,10 +476,22 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
-          api-level: 29
+          api-level: ${{ inputs.emulator_api_level || 29 }}
           arch: x86_64
           disable-animations: true
-          script: bash gradlew :app:connectedDebugAndroidTest -Pandroid.injected.build.abi=x86_64 --no-daemon
+          script: |
+            set -o pipefail
+            mkdir -p app/build/outputs/androidTest-results
+            adb install -r -t app/build/outputs/apk/debug/app-debug.apk || true
+            if [ -f "/tmp/nnue-cache/${NNUE_NET_NAME}" ]; then
+              adb push "/tmp/nnue-cache/${NNUE_NET_NAME}" "/data/local/tmp/${NNUE_NET_NAME}" || true
+              adb shell run-as com.example.chessmentor sh -c "mkdir -p files/nnue && cp /data/local/tmp/${NNUE_NET_NAME} files/nnue/${NNUE_NET_NAME}" || true
+            fi
+            ./gradlew :app:connectedDebugAndroidTest -Pandroid.injected.build.abi=x86_64 --no-daemon --stacktrace -Dorg.gradle.jvmargs="-Xmx3072m -Dfile.encoding=UTF-8" || {
+              STATUS=$?
+              adb logcat -d -t 1000 > app/build/outputs/androidTest-results/emulator-logcat.txt || true
+              exit $STATUS
+            }
       - name: Identify failing device tests
         if: failure()
         run: |
@@ -446,7 +513,8 @@ jobs:
         if: always()
         with:
           name: android-device-test-results
+          if-no-files-found: ignore
           path: |
             app/build/reports/androidTests/connected/
-            app/build/outputs/androidTest-results/connected/
+            app/build/outputs/androidTest-results/
           retention-days: 14
