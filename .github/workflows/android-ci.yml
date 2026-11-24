@@ -98,10 +98,6 @@ jobs:
           echo "=== Java & Gradle version ==="
           java -version || true
           ./gradlew --version || true
-          DIST_SHA=$(curl -sSfL https://services.gradle.org/distributions/gradle-8.5-bin.zip.sha256 || true)
-          if [ -n "$DIST_SHA" ]; then
-            echo "::notice title=Gradle85Sha256::$DIST_SHA"
-          fi
 
       - name: Run JVM unit tests
         run: |

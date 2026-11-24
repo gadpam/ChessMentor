@@ -151,6 +151,8 @@ def check_gradle_and_dependencies(root: Path) -> list[str]:
     wrapper_props = (root / "gradle" / "wrapper" / "gradle-wrapper.properties").read_text(encoding="utf-8")
     if "validateDistributionUrl=true" not in wrapper_props:
         errors.append("gradle/wrapper/gradle-wrapper.properties: missing validateDistributionUrl=true")
+    if not re.search(r"^distributionSha256Sum=[0-9a-f]{64}\s*$", wrapper_props, re.M):
+        errors.append("gradle/wrapper/gradle-wrapper.properties: missing 64-hex distributionSha256Sum")
 
     gradle_props = (root / "gradle.properties").read_text(encoding="utf-8")
     if not re.search(r"^org\.gradle\.caching=true\s*$", gradle_props, re.M):
