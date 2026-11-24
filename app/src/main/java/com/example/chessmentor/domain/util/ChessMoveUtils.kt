@@ -21,6 +21,9 @@ object ChessMoveUtils {
     private val MOVE_SUFFIX_NAG_REGEX = Regex("""(?<=[a-h1-8OQRBN+#])[!?]+""")
     private val RESULT_END_REGEX = Regex("""(1-0|0-1|1/2-1/2|½-½|\*)\s*$""")
     private val WHITESPACE_REGEX = Regex("""\s+""")
+    private val MOVE_NO_PREFIX_REGEX = Regex("""^\d+\.+(.*)$""")
+    private val PURE_MOVE_NO_REGEX = Regex("""^\d+\.+$""")
+    private val RESULT_TOKENS = setOf("1-0", "0-1", "1/2-1/2", "½-½", "*")
 
     data class NormalizedPgn(
         val document: String,
@@ -239,6 +242,49 @@ object ChessMoveUtils {
             movesText = movesOnly,
             startFen = startFen
         )
+    }
+
+    /**
+     * Полностью в памяти разбирает нормализованный PGN в список полуходов [Move]
+     * без создания временных файлов на диске.
+     */
+    fun parseMovesInMemory(normalized: NormalizedPgn): List<Move> {
+        if (normalized.movesText.isBlank()) return emptyList()
+
+        // 1. Быстрый путь через MoveList.loadFromSan
+        val fastParsed = runCatching {
+            val moveList = if (!normalized.startFen.isNullOrBlank()) {
+                MoveList(normalized.startFen)
+            } else {
+                MoveList()
+            }
+            moveList.loadFromSan(normalized.movesText)
+            moveList.toList()
+        }.getOrNull()
+
+        if (!fastParsed.isNullOrEmpty()) {
+            return fastParsed
+        }
+
+        // 2. Пошаговый резервный разбор каждого SAN/UCI-токена
+        return runCatching {
+            val sim = Board().apply {
+                if (!normalized.startFen.isNullOrBlank()) {
+                    loadFromFen(normalized.startFen)
+                }
+            }
+            val result = ArrayList<Move>()
+            for (raw in normalized.movesText.split(' ')) {
+                val t = raw.trim()
+                if (t.isEmpty() || PURE_MOVE_NO_REGEX.matches(t)) continue
+                val token = MOVE_NO_PREFIX_REGEX.matchEntire(t)?.groupValues?.get(1)?.trim() ?: t
+                if (token.isEmpty() || token in RESULT_TOKENS) continue
+                val move = sanOrUciToMove(token, sim.fen) ?: break
+                if (!isStrictlyLegal(sim, move) || !sim.doMove(move)) break
+                result.add(move)
+            }
+            result
+        }.getOrDefault(emptyList())
     }
 
     /**

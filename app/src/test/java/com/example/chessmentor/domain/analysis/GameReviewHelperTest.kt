@@ -264,4 +264,55 @@ class GameReviewHelperTest {
         assertEquals(singleMoveMode, TrainingMode.fromRouteKey("game_7_move_22"))
         assertEquals(TrainingMode.All, TrainingMode.fromRouteKey("game_0_move_5"))
     }
+
+    @Test
+    fun parseMoveComment_separatesReasonBetterLineAndRefutation_andCoachReportUsesReasonWithoutSpoiler() {
+        val structured = GameReviewHelper.parseMoveComment(
+            "Зевок вилки: теряется ладья. Сильнее: 14. Nxd5 exd5. Опровержение: 14... Nc2+ 15. Kd1 Nxa1."
+        )
+        assertTrue(structured.isStructured)
+        assertEquals("Зевок вилки: теряется ладья.", structured.reason)
+        assertEquals("14. Nxd5 exd5.", structured.betterLine)
+        assertEquals("14... Nc2+ 15. Kd1 Nxa1.", structured.refutationLine)
+
+        val unstructured = GameReviewHelper.parseMoveComment("Сыграйте Nf3 вместо хода в партии")
+        assertFalse(unstructured.isStructured)
+        assertEquals("Сыграйте Nf3 вместо хода в партии", unstructured.reason)
+        assertNull(unstructured.betterLine)
+        assertNull(unstructured.refutationLine)
+
+        val analyzed = listOf(
+            AnalyzedMove(
+                gameId = 9L, moveIndex = 26, moveNumber = 14, color = ChessColor.WHITE,
+                quality = MoveQuality.BLUNDER, san = "Qd2", bestMove = "Nxd5",
+                evalBefore = 60, evalAfter = -420, evalLoss = 480
+            )
+        )
+        val mistakes = listOf(
+            Mistake(
+                id = 10L, gameId = 9L, themeId = 1L, moveNumber = 14, color = ChessColor.WHITE,
+                evaluationLoss = 480, mistakeType = MistakeType.BLUNDER,
+                bestMove = "Nxd5", userMove = "Qd2",
+                fenBefore = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 4 5",
+                comment = "Зевок вилки: теряется ладья. Сильнее: 14. Nxd5. Опровержение: 14... Nc2+."
+            )
+        )
+        val report = GameReviewHelper.buildCoachReport(
+            playerColor = ChessColor.WHITE,
+            analyzedMoves = analyzed,
+            mistakes = mistakes
+        )
+        assertNotNull(report)
+        val tpBullet = report!!.bullets.first()
+        assertTrue(tpBullet.contains("Зевок вилки: теряется ладья"))
+        assertFalse("Summary bullet should not spoil bestMoveSan directly", tpBullet.contains("Nxd5"))
+        assertEquals(
+            com.example.chessmentor.domain.training.PuzzleQualityEvaluator.selectTrainableMistakes(
+                mistakes = mistakes,
+                analyzedByMoveAndColor = analyzed.associateBy { it.moveNumber to it.color },
+                playerColor = ChessColor.WHITE
+            ).size,
+            report.trainableMistakesCount
+        )
+    }
 }

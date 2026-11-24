@@ -1567,14 +1567,10 @@ internal fun AnalyzedMoveInfoCard(
                 }
             }
 
-            analyzedMove.comment?.takeIf { onRevealAnswer == null && it.isNotBlank() }?.let { comment ->
-                Text(
-                    text = comment,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f),
-                    lineHeight = 16.sp
-                )
-            }
+            com.example.chessmentor.presentation.ui.components.MistakeExplanationBlock(
+                comment = analyzedMove.comment,
+                answerConcealed = onRevealAnswer != null
+            )
 
             MistakeReviewActions(onRetryMove, onRevealAnswer, onShowEngineLine, onPracticeInTrainer)
         }

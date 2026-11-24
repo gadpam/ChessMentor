@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.domain.analysis.GameMoveClassifier
 import com.example.chessmentor.domain.analysis.GameReviewHelper
+import com.example.chessmentor.domain.engine.EngineAnalysisProfile
 import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
@@ -24,7 +25,6 @@ import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Side
 import com.github.bhlangonijr.chesslib.Square
 import com.github.bhlangonijr.chesslib.move.Move
-import com.github.bhlangonijr.chesslib.move.MoveList
 import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -71,11 +71,9 @@ data class EngineLineUiState(
 class BoardViewModel : ViewModel() {
     companion object {
         private const val TAG = "BoardViewModel"
-        private const val REVIEW_ENGINE_DEPTH = 13
-        private const val RETRY_EQUIV_CHECK_DEPTH = 10
-        private const val MAX_PV_PLIES = 7
-        private val MOVE_NO_PREFIX = Regex("""^\d+\.+(.*)$""")
-        private val PURE_MOVE_NO = Regex("""^\d+\.+$""")
+        private const val REVIEW_ENGINE_DEPTH = EngineAnalysisProfile.INTERACTIVE_ANALYSIS_DEPTH
+        private const val RETRY_EQUIV_CHECK_DEPTH = EngineAnalysisProfile.MOVE_VERIFICATION_DEPTH
+        private const val MAX_PV_PLIES = EngineAnalysisProfile.MAX_PV_PLIES
     }
 
     val board = mutableStateOf(Board())
@@ -170,7 +168,7 @@ class BoardViewModel : ViewModel() {
             firstMoveIsWhite = initialBoard.sideToMove == Side.WHITE
 
             val halfMoves = if (normalized != null) {
-                parsePgnInMemory(normalized)
+                ChessMoveUtils.parseMovesInMemory(normalized)
             } else {
                 emptyList()
             }
@@ -233,47 +231,6 @@ class BoardViewModel : ViewModel() {
         currentMoveIndex.intValue = -1
         lastMove.value = null
         highlightedSquares.value = emptySet()
-    }
-
-    /**
-     * Быстрый разбор ходов PGN полностью в памяти (без создания временных файлов на диске).
-     */
-    private fun parsePgnInMemory(normalized: ChessMoveUtils.NormalizedPgn): List<Move> {
-        if (normalized.movesText.isEmpty()) return emptyList()
-
-        // 1. Быстрый путь через MoveList.loadFromSan
-        val fastParsed = runCatching {
-            val moveList = if (normalized.startFen != null) {
-                MoveList(normalized.startFen)
-            } else {
-                MoveList()
-            }
-            moveList.loadFromSan(normalized.movesText)
-            moveList.toList()
-        }.getOrNull()
-
-        if (!fastParsed.isNullOrEmpty()) {
-            return fastParsed
-        }
-
-        // 2. Пошаговый резервный разбор каждого SAN/UCI-токена
-        return runCatching {
-            val sim = createInitialBoard()
-            val result = ArrayList<Move>()
-            for (raw in normalized.movesText.split(' ')) {
-                val t = raw.trim()
-                if (t.isEmpty() || PURE_MOVE_NO.matches(t)) continue
-                val token = MOVE_NO_PREFIX.matchEntire(t)?.groupValues?.get(1)?.trim() ?: t
-                if (token.isEmpty() || token in setOf("1-0", "0-1", "1/2-1/2", "½-½", "*")) continue
-                val m = ChessMoveUtils.sanOrUciToMove(token, sim.fen) ?: break
-                if (!ChessMoveUtils.isStrictlyLegal(sim, m) || !sim.doMove(m)) break
-                result.add(m)
-            }
-            result
-        }.getOrElse { e ->
-            Log.e(TAG, "Failed in-memory PGN parsing for review board", e)
-            emptyList()
-        }
     }
 
     private fun loadMoves(halfMoves: List<Move>) {
@@ -1206,6 +1163,18 @@ class BoardViewModel : ViewModel() {
     fun getPlayerColor(): ChessColor = playerColor
 
     fun getTotalMoves(): Int = moves.size
+
+    /**
+     * Возвращает чистый снимок доски и пары клеток последнего хода для индекса [moveIndex]
+     * без изменения текущего состояния просмотра в [BoardViewModel].
+     */
+    fun getBoardSnapshotAtMove(moveIndex: Int): Pair<Board, Pair<Square, Square>?> {
+        if (fensAfterPly.isEmpty() || moveIndex < 0) {
+            return boardFromFen(initialFen) to null
+        }
+        val clamped = moveIndex.coerceAtMost(fensAfterPly.lastIndex)
+        return boardFromFen(fensAfterPly[clamped]) to lastMovesByPly.getOrNull(clamped)
+    }
 
     fun isCurrentMovePlayerMove(): Boolean {
         val idx = currentMoveIndex.intValue

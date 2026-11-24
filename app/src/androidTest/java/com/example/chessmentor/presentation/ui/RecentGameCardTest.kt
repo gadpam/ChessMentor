@@ -11,6 +11,9 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.example.chessmentor.domain.entity.*
 import com.example.chessmentor.presentation.ui.components.screen.MiniGameCard
+import com.example.chessmentor.presentation.ui.components.screen.SummaryMiniBoardCard
+import com.github.bhlangonijr.chesslib.Board
+import com.github.bhlangonijr.chesslib.Square
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -57,6 +60,37 @@ class RecentGameCardTest {
             ui.runOnIdle { status = state }
             ui.onNode(hasText(label) or hasContentDescription(label)).assert(hasContentDescription("Победа")).assert(hasContentDescription("Вы белыми"))
             if (state != AnalysisStatus.COMPLETED) ui.onNodeWithContentDescription("Точность: 83%").assertDoesNotExist()
+        }
+    }
+
+    @Test fun miniGameCardCanTriggerAnalyzeWhenProvided_andSummaryMiniBoardOpensReview() {
+        val triggered = mutableListOf<Pair<Long, Boolean>>()
+        var summaryClicked = 0
+        ui.setContent {
+            Column(Modifier.width(320.dp)) {
+                MiniGameCard(
+                    game = game.copy(analysisStatus = AnalysisStatus.PENDING),
+                    onOpen = {},
+                    onAnalyze = { id, retry -> triggered.add(id to retry) }
+                )
+                SummaryMiniBoardCard(
+                    board = Board(),
+                    lastMove = Square.E2 to Square.E4,
+                    flipped = false,
+                    title = "Переломный ход 14. Qd2",
+                    subtitle = "Шансы: 58% → 12%",
+                    evalCp = -240,
+                    onClick = { summaryClicked++ }
+                )
+            }
+        }
+        ui.onNodeWithText("Разобрать").assertHeightIsAtLeast(48.dp).performClick()
+        ui.onNodeWithText("Переломный ход 14. Qd2").assertIsDisplayed()
+        ui.onNodeWithText("-2.4").assertIsDisplayed()
+        ui.onNodeWithText("Разобрать позицию на доске").performClick()
+        ui.runOnIdle {
+            assertEquals(listOf(14L to false), triggered)
+            assertEquals(1, summaryClicked)
         }
     }
 }

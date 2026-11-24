@@ -7,8 +7,8 @@ import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.KeyMoment
 import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.MoveQuality
+import com.example.chessmentor.domain.entity.PredefinedThemes
 import com.example.chessmentor.domain.pgn.PgnParser
-import com.example.chessmentor.domain.training.PuzzleKind
 import com.example.chessmentor.domain.training.PuzzleQualityEvaluator
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.github.bhlangonijr.chesslib.Board
@@ -35,6 +35,69 @@ object GameReviewHelper {
 
     /** Допуск в сантипешках для засчитывания равноценного альтернативного хода при исправлении ошибки. */
     const val EQUIVALENT_BEST_TOLERANCE_CP = 25
+
+    private val BETTER_MARKER_REGEX = Regex("""(?:^|\s)Сильнее:\s*""")
+    private val REFUTATION_MARKER_REGEX = Regex("""(?:^|\s)Опровержение:\s*""")
+
+    /**
+     * Структурированные части комментария к неудачному ходу:
+     * причина без спойлера лучшего ответа, линия «Сильнее» и линия «Опровержение».
+     */
+    data class StructuredMoveComment(
+        val reason: String?,
+        val betterLine: String?,
+        val refutationLine: String?,
+        val isStructured: Boolean
+    )
+
+    fun parseMoveComment(comment: String?): StructuredMoveComment {
+        val raw = comment?.trim().orEmpty()
+        if (raw.isEmpty()) {
+            return StructuredMoveComment(null, null, null, isStructured = false)
+        }
+        val betterMatch = BETTER_MARKER_REGEX.find(raw)
+        val refMatch = REFUTATION_MARKER_REGEX.find(raw)
+        if (betterMatch == null && refMatch == null) {
+            return StructuredMoveComment(
+                reason = raw,
+                betterLine = null,
+                refutationLine = null,
+                isStructured = false
+            )
+        }
+
+        val markers = listOfNotNull(
+            betterMatch?.let { "better" to it },
+            refMatch?.let { "ref" to it }
+        ).sortedBy { it.second.range.first }
+
+        val firstStart = markers.first().second.range.first
+        val reason = raw.substring(0, firstStart).trim().takeIf { it.isNotEmpty() }
+
+        var betterLine: String? = null
+        var refutationLine: String? = null
+        for ((idx, entry) in markers.withIndex()) {
+            val contentStart = entry.second.range.last + 1
+            val contentEnd = if (idx + 1 < markers.size) {
+                markers[idx + 1].second.range.first
+            } else {
+                raw.length
+            }
+            val value = raw.substring(contentStart, contentEnd).trim().takeIf { it.isNotEmpty() }
+            if (entry.first == "better") {
+                betterLine = value
+            } else {
+                refutationLine = value
+            }
+        }
+
+        return StructuredMoveComment(
+            reason = reason,
+            betterLine = betterLine,
+            refutationLine = refutationLine,
+            isStructured = true
+        )
+    }
 
     // ==================== ФИЛЬТРЫ И НАВИГАЦИЯ ПО КЛЮЧЕВЫМ МОМЕНТАМ ====================
 
@@ -444,22 +507,13 @@ object GameReviewHelper {
         analyzedMoves: List<AnalyzedMove>,
         playerColor: ChessColor
     ): Int {
-        val playerMistakes = mistakes.filter {
-            it.color == playerColor && !it.fenBefore.isNullOrBlank() && it.bestMove.isNotBlank()
-        }
-        if (playerMistakes.isEmpty()) return 0
+        if (mistakes.isEmpty()) return 0
         val byMoveAndColor = analyzedMoves.associateBy { it.moveNumber to it.color }
-        val strict = playerMistakes.count { m ->
-            PuzzleQualityEvaluator.classifyMistake(m, byMoveAndColor[m.moveNumber to m.color]) !=
-                PuzzleKind.REJECTED
-        }
-        // Если есть реальные ошибки/зевки с FEN и bestMove, но строгий фильтр отсеял пограничные,
-        // учитываем ошибки с потерей >= 90 сП (они доступны через прицельный разбор партии).
-        return if (strict > 0) {
-            strict
-        } else {
-            playerMistakes.count { it.evaluationLoss >= 90 && it.bestMove != it.userMove }
-        }
+        return PuzzleQualityEvaluator.selectTrainableMistakes(
+            mistakes = mistakes,
+            analyzedByMoveAndColor = byMoveAndColor,
+            playerColor = playerColor
+        ).size
     }
 
     /**
@@ -576,10 +630,22 @@ object GameReviewHelper {
 
         val bullets = buildList {
             worstTurningPoint?.let { tp ->
-                val bestPart = tp.bestMoveSan?.let { " (сильнее было $it)" }.orEmpty()
+                val tpMistake = mistakes.find { it.moveNumber == tp.moveNumber && it.color == tp.color }
+                val tpAnalyzed = sorted.find { it.moveIndex == tp.moveIndex }
+                val parsed = parseMoveComment(tpMistake?.comment ?: tpAnalyzed?.comment)
+                val themeName = tpMistake?.themeId?.let { tid ->
+                    PredefinedThemes.all().find { it.id == tid }?.name
+                }
+                val reasonSuffix = when {
+                    parsed.isStructured && !parsed.reason.isNullOrBlank() ->
+                        " — ${parsed.reason.trimEnd('.')}"
+                    !themeName.isNullOrBlank() ->
+                        " (тема: ${themeName.lowercase(Locale.ROOT)})"
+                    else -> ""
+                }
                 val clkPart = if (tp.inTimeTrouble) " в цейтноте" else ""
                 add(
-                    "Переломный момент: ${tp.formattedMove}$clkPart снизил шансы с ${tp.winPercentBefore}% до ${tp.winPercentAfter}%$bestPart."
+                    "Переломный момент: ${tp.formattedMove}$clkPart снизил шансы с ${tp.winPercentBefore}% до ${tp.winPercentAfter}%$reasonSuffix."
                 )
             }
             if (timeTroubleMistakes > 0) {

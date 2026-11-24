@@ -182,6 +182,7 @@ fun ChessMentorApp(
             paddingValues = paddingValues,
             currentScreen = currentScreen,
             isRestoringSession = sessionState is SessionState.Restoring && currentUser == null,
+            dueReviewCount = dueReviewCount,
             pendingTrainingModeKey = pendingTrainingModeKey,
             pendingGamesSearchQuery = pendingGamesSearchQuery,
             pendingGamesColor = pendingGamesColorKey?.let { key ->
@@ -540,6 +541,7 @@ private fun NavigationHost(
     paddingValues: PaddingValues,
     currentScreen: String,
     isRestoringSession: Boolean,
+    dueReviewCount: Int,
     pendingTrainingModeKey: String?,
     pendingGamesSearchQuery: String?,
     pendingGamesColor: ChessColor?,
@@ -649,7 +651,13 @@ private fun NavigationHost(
                         gameViewModel.selectGame(game)
                         onScreenChange("summary")
                     },
-                    onNavigateToSettings = { onScreenChange("settings") }
+                    onNavigateToSettings = { onScreenChange("settings") },
+                    dueReviewCount = dueReviewCount,
+                    onNavigateToWeakPatterns = { onOpenTrainingWithMode(TrainingMode.WeakPatterns) },
+                    onAnalysisComplete = {
+                        onSetSummaryReturn("home")
+                        onScreenChange("summary")
+                    }
                 )
             }
         }

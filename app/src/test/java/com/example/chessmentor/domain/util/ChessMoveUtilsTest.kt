@@ -88,4 +88,26 @@ class ChessMoveUtilsTest {
         assertNull(ChessMoveUtils.sanOrUciToMove("e2e5", startFen))
         assertNotNull(ChessMoveUtils.sanOrUciToMove("e4", startFen))
     }
+
+    @Test
+    fun parseMovesInMemory_parsesCastlingVariationsAndCustomFenWithoutTempFiles() {
+        val rawPgn = """
+            [Event "Memory"]
+            [White "A"]
+            [Black "B"]
+
+            1. e4 {center} e5 (1... c5 2. Nf3) 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 1-0
+        """.trimIndent()
+        val normalized = ChessMoveUtils.normalizePgn(rawPgn)
+        val moves = ChessMoveUtils.parseMovesInMemory(normalized)
+        assertEquals(10, moves.size)
+        assertEquals("e2e4", ChessMoveUtils.moveToUci(moves.first()))
+        assertEquals("e1g1", ChessMoveUtils.moveToUci(moves[8]))
+
+        val customFen = "7k/4P3/8/8/8/8/8/4K3 w - - 0 1"
+        val promoPgn = ChessMoveUtils.normalizePgn("""[SetUp "1"] [FEN "$customFen"] 1. e8=N Kg8 *""")
+        val promoMoves = ChessMoveUtils.parseMovesInMemory(promoPgn)
+        assertEquals(2, promoMoves.size)
+        assertEquals("e7e8n", ChessMoveUtils.moveToUci(promoMoves.first()))
+    }
 }

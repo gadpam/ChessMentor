@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -159,18 +160,93 @@ fun CompactMistakeCard(
                 }
             }
 
-            // Полное тренерское пояснение
-            val explanation = mistake.comment?.trim()?.takeIf { onRevealAnswer == null && it.isNotEmpty() }
-            if (explanation != null) {
-                Text(
-                    text = explanation,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
-                    lineHeight = 16.sp
-                )
-            }
+            // Разделение: причина ошибки (без спойлера ответа), линия «Сильнее» и «Опровержение»
+            MistakeExplanationBlock(
+                comment = mistake.comment,
+                answerConcealed = onRevealAnswer != null
+            )
 
             MistakeReviewActions(onRetryMove, onRevealAnswer, onShowEngineLine, onPracticeInTrainer)
+        }
+    }
+}
+
+@Composable
+internal fun MistakeExplanationBlock(
+    comment: String?,
+    answerConcealed: Boolean
+) {
+    val parsed = remember(comment) { GameReviewHelper.parseMoveComment(comment) }
+    val reasonText = parsed.reason?.takeIf { it.isNotBlank() }
+    val palette = LocalChessPalette.current
+
+    if (!parsed.isStructured) {
+        if (!answerConcealed && reasonText != null) {
+            Text(
+                text = reasonText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
+                lineHeight = 16.sp
+            )
+        }
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (reasonText != null) {
+            Text(
+                text = reasonText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
+                lineHeight = 16.sp
+            )
+        }
+        if (!answerConcealed) {
+            parsed.betterLine?.let { line ->
+                LabeledLineRow(
+                    label = "Сильнее",
+                    line = line,
+                    accent = palette.positive
+                )
+            }
+            parsed.refutationLine?.let { line ->
+                LabeledLineRow(
+                    label = "Опровержение",
+                    line = line,
+                    accent = palette.negative
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LabeledLineRow(
+    label: String,
+    line: String,
+    accent: Color
+) {
+    Surface(
+        color = accent.copy(alpha = 0.08f),
+        shape = RoundedCornerShape(6.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = accent
+            )
+            Text(
+                text = line,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurface,
+                lineHeight = 16.sp
+            )
         }
     }
 }

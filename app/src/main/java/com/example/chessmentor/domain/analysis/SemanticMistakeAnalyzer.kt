@@ -285,18 +285,26 @@ class SemanticMistakeAnalyzer(
             if (rayMotif != null) return rayMotif
         }
 
-        // 4. Взятие незащищённой фигуры
+        // 4. Взятие незащищённой фигуры или отвлечение / перегрузка защитника
         if (targetBefore != Piece.NONE && targetBefore.pieceSide == targetSide) {
             val defendersAfter = bitCount(boardAfter.squareAttackedBy(move.to, targetSide))
             if (defendersAfter == 0 && ChessMoveUtils.pieceValue(targetBefore.pieceType) >= 300) {
                 return TacticalMotif.HANGING_PIECE
             }
-            if (givesCheck && ChessMoveUtils.pieceValue(targetBefore.pieceType) >= 100) {
-                return TacticalMotif.REMOVING_DEFENDER
-            }
         }
 
-        // 5. Ловля фигуры
+        // 5. Перегрузка / Отвлечение защитника (при взятии или жертве/нападении под взятие защитника)
+        detectOverloadingOrDeflection(board, boardAfter, move, moverSide, targetSide)?.let {
+            return it
+        }
+
+        if (targetBefore != Piece.NONE && targetBefore.pieceSide == targetSide &&
+            givesCheck && ChessMoveUtils.pieceValue(targetBefore.pieceType) >= 100
+        ) {
+            return TacticalMotif.REMOVING_DEFENDER
+        }
+
+        // 6. Ловля фигуры
         if (materialLoss?.wasTrapped == true) {
             return if (materialLoss.pieceType == PieceType.QUEEN) {
                 TacticalMotif.QUEEN_TRAP
@@ -306,6 +314,95 @@ class SemanticMistakeAnalyzer(
         }
 
         return null
+    }
+
+    /**
+     * Различает перегрузку (одна фигура защищает >= 2 важных объектов одновременно)
+     * и отвлечение (вынужденный ответ защитника с его поля открывает взятие или мат).
+     */
+    private fun detectOverloadingOrDeflection(
+        boardBefore: Board,
+        boardAfter: Board,
+        move: Move,
+        moverSide: Side,
+        targetSide: Side
+    ): TacticalMotif? {
+        if (boardAfter.isMated) return null
+
+        val targetPieceBefore = boardBefore.getPiece(move.to)
+        val isCaptureOnTarget = targetPieceBefore != Piece.NONE && targetPieceBefore.pieceSide == targetSide
+
+        // Защитники, способные легально забрать нашу фигуру на move.to
+        val replyCaptures = runCatching { boardAfter.legalMoves() }
+            .getOrDefault(emptyList())
+            .filter { it.to == move.to }
+
+        for (reply in replyCaptures) {
+            val defenderSq = reply.from
+            val defenderPiece = boardAfter.getPiece(defenderSq)
+            if (defenderPiece == Piece.NONE || defenderPiece.pieceSide != targetSide) continue
+
+            val simAfterReply = Board().apply { loadFromFen(boardAfter.fen) }
+            if (!simAfterReply.doMove(reply)) continue
+
+            // Ищем второй важный объект стороны targetSide, который был защищён defenderSq,
+            // но после ответа defenderSq -> move.to остался под ударом или без защиты, либо возник мат в 1 ход.
+            val mateOpened = hasMateInOne(simAfterReply, moverSide)
+
+            var abandonedValuableSquare: Square? = null
+            for (sq in Square.values()) {
+                if (sq == Square.NONE || sq == move.to || sq == defenderSq) continue
+                val p = simAfterReply.getPiece(sq)
+                if (p == Piece.NONE || p.pieceSide != targetSide || p.pieceType == PieceType.KING) continue
+                val pieceVal = ChessMoveUtils.pieceValue(p.pieceType)
+                if (pieceVal < 300) continue
+
+                val attackedAfter = simAfterReply.squareAttackedBy(sq, moverSide)
+                if (attackedAfter == 0L) continue
+
+                val defendedBeforeMove = (boardBefore.squareAttackedBy(sq, targetSide) and defenderSq.bitboard) != 0L
+                if (!defendedBeforeMove) continue
+
+                val defendersNow = bitCount(simAfterReply.squareAttackedBy(sq, targetSide))
+                val attackersNow = bitCount(attackedAfter)
+                if (defendersNow == 0 || attackersNow > defendersNow) {
+                    abandonedValuableSquare = sq
+                    break
+                }
+            }
+
+            if (!mateOpened && abandonedValuableSquare == null) continue
+
+            // Если до хода move защитник уже держал одновременно и объект на move.to, и вторую цель -> перегрузка.
+            // Если move.to был пустым полем или жертвой под отвлекающий удар -> отвлечение.
+            if (isCaptureOnTarget && abandonedValuableSquare != null) {
+                val defendedTargetBefore = (boardBefore.squareAttackedBy(move.to, targetSide) and defenderSq.bitboard) != 0L
+                val otherProtectedValuables = Square.values().count { sq ->
+                    if (sq == Square.NONE || sq == defenderSq) return@count false
+                    val p = boardBefore.getPiece(sq)
+                    p != Piece.NONE && p.pieceSide == targetSide &&
+                        ChessMoveUtils.pieceValue(p.pieceType) >= 300 &&
+                        (boardBefore.squareAttackedBy(sq, targetSide) and defenderSq.bitboard) != 0L
+                }
+                if (defendedTargetBefore && otherProtectedValuables >= 2) {
+                    return TacticalMotif.OVERLOADING
+                }
+            }
+
+            return TacticalMotif.DEFLECTION
+        }
+
+        return null
+    }
+
+    private fun hasMateInOne(board: Board, attackerSide: Side): Boolean {
+        if (board.sideToMove != attackerSide) return false
+        val legal = runCatching { board.legalMoves() }.getOrDefault(emptyList())
+        for (m in legal) {
+            val sim = Board().apply { loadFromFen(board.fen) }
+            if (sim.doMove(m) && sim.isMated) return true
+        }
+        return false
     }
 
     private fun detectMateMotif(
@@ -575,6 +672,9 @@ class SemanticMistakeAnalyzer(
             TacticalMotif.SKEWER -> "Сквозной удар соперника выигрывает материал ($pieceName)."
             TacticalMotif.DISCOVERED_CHECK -> "Вскрытый шах с выигрышем материала ($pieceName)."
             TacticalMotif.DISCOVERED_ATTACK -> "Вскрытое нападение — теряется $pieceName."
+            TacticalMotif.OVERLOADING -> "Перегрузка защитника — теряется $pieceName."
+            TacticalMotif.DEFLECTION -> "Отвлечение защитника — теряется $pieceName."
+            TacticalMotif.REMOVING_DEFENDER -> "Уничтожение защитника — теряется $pieceName."
             TacticalMotif.QUEEN_TRAP -> "Ферзь попадает в ловушку!"
             TacticalMotif.TRAPPED_PIECE -> "Фигура ($pieceName) поймана и теряется."
             TacticalMotif.HANGING_PIECE -> "Незащищённая фигура: теряется $pieceName."

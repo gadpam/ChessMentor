@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.analysis.MistakeAnalysis
+import com.example.chessmentor.domain.engine.EngineAnalysisProfile
 import com.example.chessmentor.domain.entity.Exercise
 import com.example.chessmentor.domain.entity.ExerciseAttempt
 import com.example.chessmentor.domain.entity.TacticalPattern
@@ -176,7 +177,9 @@ class TrainingViewModel(
         private const val ANIMATION_DELAY_MS = 600L
         private const val PUNISHMENT_DISPLAY_MS = 2200L
         private const val MAX_SOLUTION_PLIES = PuzzleQualityEvaluator.MAX_QUIESCENCE_PLIES
-        private const val FREE_ANALYSIS_DEPTH = 12
+        private const val FREE_ANALYSIS_DEPTH = EngineAnalysisProfile.INTERACTIVE_ANALYSIS_DEPTH
+        private const val VERIFICATION_DEPTH = EngineAnalysisProfile.MOVE_VERIFICATION_DEPTH
+        private const val PUZZLE_GEN_DEPTH = EngineAnalysisProfile.PUZZLE_GENERATION_DEPTH
     }
 
     private val semanticAnalyzer = container.semanticMistakeAnalyzer
@@ -1127,7 +1130,7 @@ class TrainingViewModel(
             try {
                 val engine = container.chessEngine
                 if (engine.init()) {
-                    val line = engine.getBestMoveWithLine(board.fen, 12)
+                    val line = engine.getBestMoveWithLine(board.fen, PUZZLE_GEN_DEPTH)
                     val validatedPv = normalizeSequenceToUci(
                         board.fen,
                         line?.principalVariation?.take(MAX_SOLUTION_PLIES).orEmpty()
@@ -1416,7 +1419,7 @@ class TrainingViewModel(
         try {
             val engine = container.chessEngine
             if (!engine.init()) return@withContext emptyList()
-            val line = engine.getBestMoveWithLine(fenAfterUserMove, 10) ?: return@withContext emptyList()
+            val line = engine.getBestMoveWithLine(fenAfterUserMove, VERIFICATION_DEPTH) ?: return@withContext emptyList()
             val validated = normalizeSequenceToUci(fenAfterUserMove, line.principalVariation.take(maxPlies))
             if (validated.size < 2) return@withContext emptyList()
             if (validated.size % 2 == 0) validated else validated.dropLast(1)
@@ -1566,11 +1569,11 @@ class TrainingViewModel(
             }
 
             val punishmentLineObj = withContext(Dispatchers.IO) {
-                engine.getBestMoveWithLine(boardAfterPlayer.fen, 10)
+                engine.getBestMoveWithLine(boardAfterPlayer.fen, VERIFICATION_DEPTH)
             }
 
             val bestMoveLineObj = withContext(Dispatchers.IO) {
-                engine.getBestMoveWithLine(fenBefore, 10)
+                engine.getBestMoveWithLine(fenBefore, VERIFICATION_DEPTH)
             }
 
             if (punishmentLineObj == null || bestMoveLineObj == null) {
@@ -2299,7 +2302,10 @@ class TrainingViewModel(
                 val result = withContext(Dispatchers.IO) {
                     val engine = container.chessEngine
                     if (!engine.init()) return@withContext null
-                    engine.getBestMoveWithLine(fen, FREE_ANALYSIS_DEPTH)
+                    val depth = runCatching {
+                        EngineAnalysisProfile.interactiveDepth(container.engineSettingsRepository.getSettings())
+                    }.getOrDefault(FREE_ANALYSIS_DEPTH)
+                    engine.getBestMoveWithLine(fen, depth)
                 }
 
                 val latest = _uiState.value

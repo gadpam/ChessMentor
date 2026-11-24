@@ -30,9 +30,6 @@ import com.github.bhlangonijr.chesslib.Piece
 import com.github.bhlangonijr.chesslib.PieceType
 import com.github.bhlangonijr.chesslib.Side
 import com.github.bhlangonijr.chesslib.move.Move
-import com.github.bhlangonijr.chesslib.move.MoveList
-import com.github.bhlangonijr.chesslib.pgn.PgnHolder
-import java.io.File
 import java.util.Collections
 import java.util.Locale
 import kotlin.coroutines.coroutineContext
@@ -587,33 +584,7 @@ class AnalyzeGameUseCase(
     // ==================== РАЗБОР PGN И ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
 
     private fun parseMoves(normalized: ChessMoveUtils.NormalizedPgn): List<Move> {
-        val tempFile = File.createTempFile("analyze", ".pgn")
-        return try {
-            tempFile.writeText(normalized.document)
-            val pgnHolder = PgnHolder(tempFile.absolutePath)
-            pgnHolder.loadPgn()
-            val pgnMoves = pgnHolder.games.firstOrNull()?.halfMoves?.toList().orEmpty()
-            if (pgnMoves.isNotEmpty()) {
-                pgnMoves
-            } else {
-                parseMovesFallback(normalized)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "PgnHolder failed, attempting MoveList SAN fallback", e)
-            parseMovesFallback(normalized)
-        } finally {
-            tempFile.delete()
-        }
-    }
-
-    private fun parseMovesFallback(normalized: ChessMoveUtils.NormalizedPgn): List<Move> {
-        val moveList = if (normalized.startFen != null) {
-            MoveList(normalized.startFen)
-        } else {
-            MoveList()
-        }
-        moveList.loadFromSan(normalized.movesText)
-        return moveList.toList()
+        return ChessMoveUtils.parseMovesInMemory(normalized)
     }
 
     private fun resolveMoveSan(move: Move, fenBefore: String): String {

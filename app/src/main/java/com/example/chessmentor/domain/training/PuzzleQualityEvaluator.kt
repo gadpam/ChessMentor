@@ -52,6 +52,37 @@ object PuzzleQualityEvaluator {
     const val MAX_QUIESCENCE_PLIES = 7
 
     /**
+     * Единый отбор ошибок игрока из партии для тренажёра (используется и при подсчёте на экране итогов,
+     * и при прицельной генерации задач в [GenerateExercisesFromMistakesUseCase.executeForGame]).
+     */
+    fun selectTrainableMistakes(
+        mistakes: List<Mistake>,
+        analyzedByMoveAndColor: Map<Pair<Int, ChessColor>, AnalyzedMove>,
+        playerColor: ChessColor,
+        maxFallback: Int = 5
+    ): List<Mistake> {
+        val candidates = mistakes.filter {
+            it.color == playerColor &&
+                !it.fenBefore.isNullOrBlank() &&
+                it.bestMove.isNotBlank() &&
+                it.bestMove != it.userMove
+        }.sortedWith(
+            compareByDescending<Mistake> { it.getSeverity() }
+                .thenByDescending { it.evaluationLoss }
+        )
+        if (candidates.isEmpty()) return emptyList()
+
+        val strict = candidates.filter { m ->
+            classifyMistake(m, analyzedByMoveAndColor[m.moveNumber to m.color]) != PuzzleKind.REJECTED
+        }
+        return if (strict.isNotEmpty()) {
+            strict
+        } else {
+            candidates.filter { it.evaluationLoss >= 90 }.take(maxFallback)
+        }
+    }
+
+    /**
      * Классифицирует ошибку из партии: подходит ли она для тренажёра, и если да —
      * это задача на выигрыш ([PuzzleKind.WINNING_TACTIC]) или на точную защиту
      * ([PuzzleKind.DEFENSIVE_RESOURCE]).

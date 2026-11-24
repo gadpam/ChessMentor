@@ -24,6 +24,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -45,9 +46,13 @@ import com.example.chessmentor.domain.entity.KeyMoment
 import com.example.chessmentor.domain.entity.MoveQuality
 import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.presentation.ui.components.AnalysisProgressDialog
+import com.example.chessmentor.presentation.ui.components.BoardThemes
+import com.example.chessmentor.presentation.ui.components.ChessBoard
 import com.example.chessmentor.presentation.ui.components.EvaluationGraph
 import com.example.chessmentor.presentation.viewmodel.BoardViewModel
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
+import com.github.bhlangonijr.chesslib.Board
+import com.github.bhlangonijr.chesslib.Square
 
 /**
  * Экран сводки анализа партии
@@ -150,6 +155,50 @@ fun SummaryScreen(
 
     val currentMoveLabel = boardViewModel.getCurrentMoveNotation()
     val currentMoveEval = evaluations.getOrNull(currentMoveIndex + 1)
+    val totalPlies = boardViewModel.moves.size
+    val previewMoveIndex = remember(currentMoveIndex, coachReport?.turningPoint?.moveIndex, totalPlies) {
+        when {
+            currentMoveIndex >= 0 -> currentMoveIndex
+            coachReport?.turningPoint != null -> coachReport.turningPoint.moveIndex
+            totalPlies > 0 -> totalPlies - 1
+            else -> -1
+        }
+    }
+    val (previewBoard, previewLastMove) = remember(game.id, previewMoveIndex, totalPlies) {
+        boardViewModel.getBoardSnapshotAtMove(previewMoveIndex)
+    }
+    val previewTitle = remember(currentMoveIndex, coachReport?.turningPoint, previewMoveIndex, totalPlies) {
+        when {
+            currentMoveIndex >= 0 ->
+                "Позиция на ходе ${boardViewModel.moveNotations.getOrNull(currentMoveIndex) ?: "${currentMoveIndex + 1}"}"
+            coachReport?.turningPoint != null ->
+                "Переломный ход ${coachReport.turningPoint.formattedMove}"
+            totalPlies > 0 ->
+                "Финальная позиция"
+            else ->
+                "Стартовая позиция"
+        }
+    }
+    val previewEval = if (hasRealEvaluations && previewMoveIndex >= 0) {
+        evaluations.getOrNull(previewMoveIndex + 1)
+    } else {
+        null
+    }
+    val previewNote = remember(game.id, previewMoveIndex, coachReport?.turningPoint, boardViewModel.mistakes.size) {
+        val tp = coachReport?.turningPoint
+        if (currentMoveIndex < 0 && tp != null) {
+            val mistake = boardViewModel.mistakes.find { it.moveNumber == tp.moveNumber && it.color == tp.color }
+            val reason = GameReviewHelper.parseMoveComment(mistake?.comment).takeIf { it.isStructured }?.reason
+            reason ?: "Шансы: ${tp.winPercentBefore}% → ${tp.winPercentAfter}%"
+        } else if (previewMoveIndex >= 0 && totalPlies > 0) {
+            boardViewModel.moveNotations.getOrNull(previewMoveIndex)?.let { "Последний ход: $it" }
+        } else {
+            null
+        }
+    }
+    val boardTheme = remember(gameViewModel.currentUser.value?.preferredTheme) {
+        BoardThemes.getByName(gameViewModel.currentUser.value?.preferredTheme ?: BoardThemes.DEFAULT_NAME)
+    }
     val layoutDirection = LocalLayoutDirection.current
 
     LazyColumn(
@@ -168,6 +217,25 @@ fun SummaryScreen(
                 game = game,
                 cardInfo = cardInfo,
                 openingLabel = openingLabel
+            )
+        }
+
+        // Интерактивная мини-доска ключевой позиции выше сгиба (переломный ход или финал)
+        item {
+            SummaryMiniBoardCard(
+                board = previewBoard,
+                lastMove = previewLastMove,
+                flipped = game.playerColor == ChessColor.BLACK,
+                boardTheme = boardTheme,
+                title = previewTitle,
+                subtitle = previewNote,
+                evalCp = previewEval,
+                onClick = {
+                    if (previewMoveIndex >= 0) {
+                        boardViewModel.goToMove(previewMoveIndex)
+                    }
+                    onReviewClick()
+                }
             )
         }
 
@@ -269,6 +337,135 @@ fun SummaryScreen(
         onDismiss = { gameViewModel.clearAnalysisProgress() },
         onCancel = { gameViewModel.cancelAnalysis() }
     )
+}
+
+@Composable
+internal fun SummaryMiniBoardCard(
+    board: Board,
+    lastMove: Pair<Square, Square>?,
+    flipped: Boolean,
+    boardTheme: com.example.chessmentor.presentation.ui.components.BoardTheme = BoardThemes.getByName(BoardThemes.DEFAULT_NAME),
+    title: String,
+    subtitle: String? = null,
+    evalCp: Int? = null,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .semantics {
+                contentDescription = "$title — открыть интерактивный разбор на доске"
+            },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            val narrow = maxWidth < 300.dp || LocalDensity.current.fontScale >= 1.6f
+            val boardSize = if (narrow) 96.dp else 116.dp
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(boardSize)
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                ) {
+                    ChessBoard(
+                        board = board,
+                        lastMove = lastMove,
+                        arrows = emptyList(),
+                        theme = boardTheme,
+                        flipped = flipped,
+                        showCoordinates = false,
+                        onSquareClick = null,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (evalCp != null) {
+                            val palette = LocalChessPalette.current
+                            val evalColor = when {
+                                evalCp > 50 -> palette.positive
+                                evalCp < -50 -> palette.negative
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                            Surface(
+                                color = evalColor.copy(alpha = 0.14f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = ChessEngine.formatEvaluation(evalCp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = evalColor,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    if (!subtitle.isNullOrBlank()) {
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                            lineHeight = 16.sp
+                        )
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = "Разобрать позицию на доске",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

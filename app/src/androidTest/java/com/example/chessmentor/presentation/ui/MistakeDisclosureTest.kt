@@ -24,6 +24,36 @@ class MistakeDisclosureTest {
     @Test fun savedMistakeSeparatesRetryAnswerAndEngine() = checkCard(savedMistake = true)
     @Test fun analyzedMoveSeparatesRetryAnswerAndEngine() = checkCard(savedMistake = false)
 
+    @Test fun structuredCommentShowsReasonBeforeRevealAndSplitsBetterVsRefutationAfterReveal() {
+        val structuredComment = "Зевок вилки: теряется ладья. Сильнее: 1. Nf3 Nc6. Опровержение: 1... Qa5+ 2. Bd2 Qxa1."
+        ui.setContent {
+            var shown by remember { mutableStateOf(false) }
+            val reveal: (() -> Unit)? = if (shown) null else ({ shown = true })
+            Box(Modifier.width(320.dp).verticalScroll(rememberScrollState())) {
+                CompactMistakeCard(
+                    Mistake(gameId = 1, themeId = 1, moveNumber = 1, color = ChessColor.WHITE,
+                        evaluationLoss = 450, mistakeType = MistakeType.BLUNDER,
+                        bestMove = "Nf3", userMove = "a3", comment = structuredComment),
+                    onRevealAnswer = reveal,
+                    onRetryMove = {},
+                    onShowEngineLine = {}
+                )
+            }
+        }
+        // До раскрытия видна только безспойлерная причина, но не «Сильнее»/«Опровержение» и не ответ
+        ui.onNodeWithText("Зевок вилки: теряется ладья.").assertIsDisplayed()
+        ui.onNodeWithText("Nf3").assertDoesNotExist()
+        ui.onNodeWithText("Сильнее").assertDoesNotExist()
+        ui.onNodeWithText("Опровержение").assertDoesNotExist()
+
+        ui.onNodeWithText("Показать лучший ход").performScrollTo().performClick()
+        ui.onNodeWithText("Nf3").assertExists()
+        ui.onNodeWithText("Сильнее").assertExists()
+        ui.onNodeWithText("1. Nf3 Nc6.").assertExists()
+        ui.onNodeWithText("Опровержение").assertExists()
+        ui.onNodeWithText("1... Qa5+ 2. Bd2 Qxa1.").assertExists()
+    }
+
     private fun checkCard(savedMistake: Boolean) {
         val calls = mutableListOf<String>()
         val comment = "Сыграйте Nf3 вместо хода в партии"

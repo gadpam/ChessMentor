@@ -228,14 +228,13 @@ class StockfishEngine(
 
     private suspend fun <T> runCancellableSearch(block: () -> T): T =
         withContext(Dispatchers.Default) {
+            coroutineContext.ensureActive()
             mutex.withLock {
                 coroutineContext.ensureActive()
                 ensureReadyLocked()
                 val stopTriggered = AtomicBoolean(false)
-                val cancelWatcher = Job(parent = coroutineContext[Job])
-                val cancelHandle = cancelWatcher.invokeOnCompletion { cause ->
-                    if (cause is CancellationException) {
-                        stopTriggered.set(true)
+                val cancelHandle = coroutineContext[Job]?.invokeOnCompletion(onCancelling = true) { cause ->
+                    if (cause is CancellationException && stopTriggered.compareAndSet(false, true)) {
                         nativeStop()
                     }
                 }
@@ -248,8 +247,7 @@ class StockfishEngine(
                     coroutineContext.ensureActive()
                     result
                 } finally {
-                    cancelHandle.dispose()
-                    cancelWatcher.complete()
+                    cancelHandle?.dispose()
                 }
             }
         }

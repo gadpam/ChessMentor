@@ -84,6 +84,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -1034,6 +1035,7 @@ internal fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
         else -> MaterialTheme.colorScheme.surfaceVariant
     }
     var showDetails by remember { mutableStateOf(false) }
+    val hasMoreDetails = details.size > 1 || (uiState.feedbackMessage?.contains('\n') == true)
     Surface(
         onClick = { showDetails = true },
         modifier = Modifier.fillMaxWidth(),
@@ -1050,6 +1052,14 @@ internal fun UnifiedFeedbackPanel(uiState: TrainingUiState) {
         ) {
             Text(headline, modifier = Modifier.weight(1f), maxLines = 2,
                 overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+            if (hasMoreDetails) {
+                Text(
+                    text = "Подробнее",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
             Icon(Icons.Default.Info, contentDescription = "Открыть пояснение")
         }
     }
@@ -1293,6 +1303,7 @@ private fun BottomControlPanel(
                         }
                     }
                 } else {
+                    SolutionResultInlineCard(uiState = uiState)
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1393,6 +1404,76 @@ private fun BottomControlPanel(
                 }
             } else {
                 TrainingHelpControls(uiState, controlsEnabled, onHint, onShowBetterMove, onRevealSolution, onSkip)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SolutionResultInlineCard(uiState: TrainingUiState) {
+    val explanation = uiState.postSolveExplanation?.takeIf { it.isNotBlank() }
+    val line = uiState.solutionSanLine?.takeIf { it.isNotBlank() }
+    val schedule = uiState.nextReviewNote?.takeIf { it.isNotBlank() }
+    val motif = uiState.patternDisplayName?.takeIf { it.isNotBlank() }
+    if (explanation == null && line == null && schedule == null) return
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 132.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            if (motif != null || schedule != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (motif != null) {
+                        Text(
+                            text = "Мотив: $motif",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f, fill = false),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (schedule != null) {
+                        Text(
+                            text = schedule,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            if (explanation != null) {
+                Text(
+                    text = explanation,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            if (line != null) {
+                Text(
+                    text = "Решение: $line",
+                    style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
         }
     }

@@ -6,6 +6,7 @@ import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.domain.analysis.SemanticMistakeAnalyzer
 import com.example.chessmentor.domain.analysis.TacticalMotif
 import com.example.chessmentor.domain.clustering.ExerciseClusterer
+import com.example.chessmentor.domain.engine.EngineAnalysisProfile
 import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Exercise
@@ -52,8 +53,8 @@ class GenerateExercisesFromMistakesUseCase(
 ) {
     companion object {
         private const val TAG = "GenerateExercisesUC"
-        private const val SOLUTION_DEPTH = 12
-        private const val CLARITY_CHECK_DEPTH = 8
+        private const val SOLUTION_DEPTH = EngineAnalysisProfile.PUZZLE_GENERATION_DEPTH
+        private const val CLARITY_CHECK_DEPTH = EngineAnalysisProfile.CLARITY_CHECK_DEPTH
         private const val MAX_SOLUTION_PLIES = PuzzleQualityEvaluator.MAX_QUIESCENCE_PLIES
 
         /** Позиция уже безнадёжна для игрока до хода (≤ -5.5 пешки) — не подходит для задачи. */
@@ -276,13 +277,18 @@ class GenerateExercisesFromMistakesUseCase(
             }
 
             // 2. Если в партии пока нет ни одной задачи, но есть ощутимые ошибки (>= 90 сП),
-            // создаём прицельные упражнения по самым крупным ошибкам этой партии.
+            // создаём прицельные упражнения по тому же правилу, что и счётчик на экране итогов.
             val existingForGame = exerciseRepository.findByUserId(userId)
                 .any { it.sourceGameId == gameId }
             if (!existingForGame && created.isEmpty()) {
-                for (mistake in allMistakes.filter { it.evaluationLoss >= 90 }) {
+                val fallbackCandidates = PuzzleQualityEvaluator.selectTrainableMistakes(
+                    mistakes = allMistakes,
+                    analyzedByMoveAndColor = gameContext.byMoveAndColor,
+                    playerColor = game.playerColor,
+                    maxFallback = maxExercises.coerceAtMost(5)
+                )
+                for (mistake in fallbackCandidates) {
                     coroutineContext.ensureActive()
-                    if (created.size >= maxExercises.coerceAtMost(5)) break
                     val saved = tryCreateFromMistake(mistake, relaxFilter = true)
                     if (saved != null) created.add(saved)
                 }

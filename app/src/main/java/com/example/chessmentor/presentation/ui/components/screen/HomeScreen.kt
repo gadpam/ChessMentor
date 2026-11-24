@@ -43,6 +43,9 @@ import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalett
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnParser
+import com.example.chessmentor.domain.training.CoachTip
+import com.example.chessmentor.domain.training.CoachTipActionKind
+import com.example.chessmentor.domain.training.CoachTipProvider
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.TrainingLabels
 import com.example.chessmentor.presentation.ui.components.BoardThemes
@@ -526,7 +529,10 @@ fun DashboardScreen(
     onNavigateToSmartSession: () -> Unit = onNavigateToDailyPuzzle,
     onOpenEngineSettings: (() -> Unit)? = null,
     onOpenGame: (Game) -> Unit = {},
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    dueReviewCount: Int = 0,
+    onNavigateToWeakPatterns: (() -> Unit)? = null,
+    onAnalysisComplete: (() -> Unit)? = null
 ) {
     val epochDay = remember { CuratedExerciseBank.currentEpochDay() }
     val dailyPuzzle = remember(epochDay) { CuratedExerciseBank.getDailyPuzzle(epochDay) }
@@ -537,6 +543,9 @@ fun DashboardScreen(
     } else {
         remember { mutableStateOf<EngineStatus>(EngineStatus.Idle) }
     }
+    val analysisProgress by gameViewModel.analysisProgress.collectAsState(initial = null)
+    val requestedGameId by gameViewModel.libraryAnalysisRequestedGameId
+    val isBusyAnalyzing by gameViewModel.isLoading
 
     LaunchedEffect(user.id, epochDay) {
         gameViewModel.loadUserData()
@@ -550,7 +559,17 @@ fun DashboardScreen(
         }
     }
 
-    val recentGames = gameViewModel.userGames.take(2)
+    val allGames = gameViewModel.userGames.toList()
+    val recentGames = allGames.take(2)
+    val coachTip = remember(user.rating, user.gamesAnalyzed, allGames, dueReviewCount, isDailySolved, epochDay) {
+        CoachTipProvider.buildTip(
+            user = user,
+            games = allGames,
+            dueReviewCount = dueReviewCount,
+            isDailySolved = isDailySolved,
+            epochDay = epochDay
+        )
+    }
     val layoutDirection = LocalLayoutDirection.current
 
     LazyColumn(
@@ -617,15 +636,50 @@ fun DashboardScreen(
             ) { game ->
                 MiniGameCard(
                     game = game,
-                    onOpen = onOpenGame
+                    onOpen = onOpenGame,
+                    onAnalyze = { id, retry ->
+                        gameViewModel.analyzeGameWithProgress(
+                            id,
+                            forceReanalyze = retry,
+                            requestedByLibrary = true
+                        )
+                    },
+                    isBusy = isBusyAnalyzing
                 )
             }
         }
 
         item {
-            TipCard()
+            val tipAction: (() -> Unit)? = when (coachTip.actionKind) {
+                CoachTipActionKind.ANALYZE_PENDING_GAME -> coachTip.targetGameId?.let { gid ->
+                    {
+                        val retry = allGames.firstOrNull { it.id == gid }?.analysisStatus == com.example.chessmentor.domain.entity.AnalysisStatus.FAILED
+                        gameViewModel.analyzeGameWithProgress(
+                            gid,
+                            forceReanalyze = retry,
+                            requestedByLibrary = true
+                        )
+                    }
+                }
+                CoachTipActionKind.REVIEW_WEAK_PATTERNS -> onNavigateToWeakPatterns ?: onNavigateToSmartSession
+                CoachTipActionKind.PRACTICE_RECENT_GAME -> coachTip.targetGameId?.let { gid ->
+                    allGames.firstOrNull { it.id == gid }?.let { target -> { onOpenGame(target) } }
+                }
+                CoachTipActionKind.SOLVE_DAILY_PUZZLE -> onNavigateToDailyPuzzle
+                CoachTipActionKind.NONE -> null
+            }
+            TipCard(tip = coachTip, onAction = tipAction)
         }
     }
+
+    LibraryAnalysisFeedback(
+        requestedGameId = requestedGameId,
+        progress = analysisProgress,
+        forgetRequest = gameViewModel::forgetLibraryAnalysisRequest,
+        onDismiss = gameViewModel::clearAnalysisProgress,
+        onCancel = gameViewModel::cancelAnalysis,
+        onOpenSummary = { onAnalysisComplete?.invoke() }
+    )
 }
 
 @Composable
@@ -783,12 +837,30 @@ fun DailyPuzzleWidget(
 }
 
 @Composable
-fun MiniGameCard(game: Game, onOpen: (Game) -> Unit) {
-    GameCard(game = game, info = PgnParser.extractGameCardInfo(game), showDate = true, showNumber = true, onClick = { onOpen(game) })
+fun MiniGameCard(
+    game: Game,
+    onOpen: (Game) -> Unit,
+    onAnalyze: ((Long, Boolean) -> Unit)? = null,
+    isBusy: Boolean = false
+) {
+    GameCard(
+        game = game,
+        info = PgnParser.extractGameCardInfo(game),
+        showDate = true,
+        showNumber = true,
+        isBusy = isBusy,
+        onClick = { onOpen(game) },
+        onAnalyze = onAnalyze
+    )
 }
 
 @Composable
-private fun TipCard() {
+internal fun TipCard(
+    tip: CoachTip = CoachTip(
+        text = "Контролируйте центр доски пешками в начале партии — это даёт пространство для фигур и ограничивает противника."
+    ),
+    onAction: (() -> Unit)? = null
+) {
     Card(
         colors = CardDefaults.cardColors(
             containerColor = LocalChessPalette.current.accentBackground
@@ -797,24 +869,38 @@ private fun TipCard() {
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(
-                imageVector = Icons.Default.Psychology,
-                contentDescription = "Совет тренера",
-                tint = LocalChessPalette.current.caution,
-                modifier = Modifier.size(24.dp)
-            )
-            Text(
-                text = "Совет тренера: Контролируйте центр доски пешками в начале партии — это даёт пространство для фигур и ограничивает противника.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                lineHeight = 22.sp,
-                modifier = Modifier.weight(1f)
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Psychology,
+                    contentDescription = "Совет тренера",
+                    tint = LocalChessPalette.current.caution,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = "Совет тренера: ${tip.text}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    lineHeight = 22.sp,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            if (tip.actionLabel != null && onAction != null) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(
+                        onClick = onAction,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Text(tip.actionLabel, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
         }
     }
 }

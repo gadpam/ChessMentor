@@ -99,4 +99,19 @@ class SemanticMistakeAnalyzerTest {
         assertEquals(TacticalMotif.FORK, result.tacticalMotif)
         assertEquals("d5c7", result.betterMoveInfo?.moveUci)
     }
+
+    @Test
+    fun detectMotif_recognizesDeflectionAndOverloading() {
+        // Отвлечение: 1. Qa8! отвлекает чёрную ладью d8 с защиты поля e8 под Re8#
+        val deflectionBoard = Board().apply {
+            loadFromFen("3r2k1/5ppp/8/8/Q7/8/8/4R1K1 w - - 0 1")
+        }
+        assertEquals(TacticalMotif.DEFLECTION, analyzer.detectMotif(deflectionBoard, "a4a8"))
+
+        // Перегрузка: чёрный ферзь b7 одновременно защищает ладью a8 и слона c6; 1. Rxc6!
+        val overloadingBoard = Board().apply {
+            loadFromFen("r5k1/1q3ppp/2b5/8/8/8/8/R1R3K1 w - - 0 1")
+        }
+        assertEquals(TacticalMotif.OVERLOADING, analyzer.detectMotif(overloadingBoard, "c1c6"))
+    }
 }
