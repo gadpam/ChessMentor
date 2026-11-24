@@ -490,7 +490,7 @@ class UserProgressBackupTest {
                 preferredTheme = "Tournament"
             )
         )
-        src.sessionRepo.setThemeMode(AppThemeMode.DARK)
+        src.session.setThemeMode(AppThemeMode.DARK)
         val pgn = """
             [White "Styler"]
             [Black "Opponent"]
@@ -519,7 +519,7 @@ class UserProgressBackupTest {
 
         assertEquals(0, summary.totalChanges)
         assertTrue(summary.preferencesUpdated)
-        assertEquals(AppThemeMode.DARK, dst.sessionRepo.themeMode.value)
+        assertEquals(AppThemeMode.DARK, dst.session.themeMode.value)
         assertFalse(summary.updatedUser.isSoundEnabled)
     }
 
