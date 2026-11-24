@@ -89,7 +89,7 @@ internal fun filterGameByPeriod(
     period: StatsPeriod,
     nowMs: Long = System.currentTimeMillis()
 ): Boolean {
-    val cutoff = period.cutoffMs(nowMs) ?: return true
+    val cutoff = period.cutoffMillis(nowMs) ?: return true
     return playedAt > 0L && playedAt >= cutoff
 }
 
