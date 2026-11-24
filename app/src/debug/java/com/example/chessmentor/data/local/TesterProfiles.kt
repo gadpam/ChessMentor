@@ -126,7 +126,7 @@ internal class TesterProfiles(private val db: AppDatabase) {
                     patternClusterId = "BACK_RANK_MATE_ONE_MOVE",
                     difficultyRating = 35,
                     patternFeatures = listOf("back_rank", "mate_in_1"),
-                    theme = TacticalTheme.CHECKMATE,
+                    theme = TacticalTheme.MATE,
                     rating = 1250,
                     createdFrom = ExerciseSource.MISTAKE,
                     sourceGameId = game1Id,
