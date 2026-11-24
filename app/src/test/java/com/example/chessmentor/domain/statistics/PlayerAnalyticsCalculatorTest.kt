@@ -512,9 +512,9 @@ class PlayerAnalyticsCalculatorTest {
     fun `equal phase accuracy hides strongest weakest and endgame coaching names calculation mode`() {
         val equalGame = sampleGame(1L, ChessColor.WHITE, "1/2-1/2", "C50", "Итальянская партия", 1500, "300+0", fixedNow - dayMs, 95.0, 10, 0)
         val equalMoves = buildList {
-            for (m in 1..4) add(playerMove(1L, m * 2 - 2, m, ChessColor.WHITE, "e4", MoveQuality.BEST, 20, 20))
-            for (m in 13..16) add(playerMove(1L, m * 2 - 2, m, ChessColor.WHITE, "Nc3", MoveQuality.BEST, 20, 20))
-            for (m in 31..34) add(playerMove(1L, m * 2 - 2, m, ChessColor.WHITE, "Kf2", MoveQuality.BEST, 20, 20))
+            for (m in 1..4) add(playerMove(1L, m * 2 - 2, m, ChessColor.WHITE, "e4", MoveQuality.BEST_MOVE, 20, 20))
+            for (m in 13..16) add(playerMove(1L, m * 2 - 2, m, ChessColor.WHITE, "Nc3", MoveQuality.BEST_MOVE, 20, 20))
+            for (m in 31..34) add(playerMove(1L, m * 2 - 2, m, ChessColor.WHITE, "Kf2", MoveQuality.BEST_MOVE, 20, 20))
         }
         val equalReport = PlayerAnalyticsCalculator.computeGameAnalytics(
             listOf(equalGame),
@@ -528,8 +528,8 @@ class PlayerAnalyticsCalculatorTest {
 
         val endgameWeakGame = sampleGame(2L, ChessColor.WHITE, "0-1", "D35", "Ферзевый гамбит", 1500, "300+0", fixedNow - dayMs, 74.0, 40, 2)
         val endgameWeakMoves = buildList {
-            for (m in 1..4) add(playerMove(2L, m * 2 - 2, m, ChessColor.WHITE, "d4", MoveQuality.BEST, 20, 20))
-            for (m in 13..16) add(playerMove(2L, m * 2 - 2, m, ChessColor.WHITE, "Nf3", MoveQuality.BEST, 20, 20))
+            for (m in 1..4) add(playerMove(2L, m * 2 - 2, m, ChessColor.WHITE, "d4", MoveQuality.BEST_MOVE, 20, 20))
+            for (m in 13..16) add(playerMove(2L, m * 2 - 2, m, ChessColor.WHITE, "Nf3", MoveQuality.BEST_MOVE, 20, 20))
             for (m in 31..34) add(playerMove(2L, m * 2 - 2, m, ChessColor.WHITE, "Ke2", MoveQuality.BLUNDER, 50, -320))
         }
         val weakEndgameReport = PlayerAnalyticsCalculator.computeGameAnalytics(
