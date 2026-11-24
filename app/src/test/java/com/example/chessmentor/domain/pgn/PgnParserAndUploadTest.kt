@@ -380,4 +380,46 @@ class PgnParserAndUploadTest {
         assertEquals("A40 · Дебют ферзевых пешек", bareCard.openingLabel)
         assertFalse(bareCard.openingLabel!!.startsWith("ECO "))
     }
+
+    @Test
+    fun parseAndValidate_detectsResultConflictAndDoesNotAssignWinner() {
+        val conflictedPgn = """
+            [White "Hero"]
+            [Black "Opponent"]
+            [Result "1-0"]
+
+            1. e4 e5 2. Nf3 Nc6 0-1
+        """.trimIndent()
+
+        val res = PgnParser.parseAndValidate(conflictedPgn)
+        assertTrue("Expected success, got $res", res is PgnParser.ParseResult.Success)
+        val parsed = (res as PgnParser.ParseResult.Success).game
+        assertTrue(parsed.hasResultConflict)
+        assertEquals(PgnParser.PgnResult.WHITE_WIN, parsed.headerResult)
+        assertEquals(PgnParser.PgnResult.BLACK_WIN, parsed.trailingResult)
+        assertEquals(PgnParser.PgnResult.ONGOING, parsed.metadata.result)
+
+        val conflictedCard = PgnParser.extractGameCardInfo(
+            Game(id = 10L, userId = 1L, pgnData = conflictedPgn, playerColor = ChessColor.WHITE, playedAt = 1L)
+        )
+        assertTrue(conflictedCard.hasResultConflict)
+        assertEquals(PgnParser.PlayerOutcome.UNKNOWN, conflictedCard.outcome)
+
+        // Контроль: согласованная сдача без мата (1-0 и 1-0) не считается конфликтом
+        val resignationPgn = """
+            [White "Hero"]
+            [Black "Opponent"]
+            [Result "1-0"]
+
+            1. e4 e5 2. Nf3 Nc6 1-0
+        """.trimIndent()
+        val okParsed = (PgnParser.parseAndValidate(resignationPgn) as PgnParser.ParseResult.Success).game
+        assertFalse(okParsed.hasResultConflict)
+        assertEquals(PgnParser.PgnResult.WHITE_WIN, okParsed.metadata.result)
+        val okCard = PgnParser.extractGameCardInfo(
+            Game(id = 11L, userId = 1L, pgnData = resignationPgn, playerColor = ChessColor.WHITE, playedAt = 1L)
+        )
+        assertFalse(okCard.hasResultConflict)
+        assertEquals(PgnParser.PlayerOutcome.WIN, okCard.outcome)
+    }
 }

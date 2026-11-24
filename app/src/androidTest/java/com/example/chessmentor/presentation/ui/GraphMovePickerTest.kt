@@ -28,13 +28,24 @@ class GraphMovePickerTest {
         }
         ui.onNodeWithText("Выбрать ход из списка").performClick()
         ui.onNodeWithText("18... d6").assertDoesNotExist()
-        ui.onNodeWithText("17... c5").assert(hasText("-1.3"))
+        ui.onNodeWithText("Текущий ход").assertDoesNotExist()
+        ui.onNodeWithText("17... c5").assert(hasText("-1.3")).assertIsNotSelected()
         ui.onNodeWithText("Закрыть").performClick()
         ui.runOnIdle { assertEquals(emptyList<Int>(), opened) }
         ui.onNodeWithText("Выбрать ход из списка").performClick()
         ui.onNodeWithText("18. Nf3").assert(hasText("+0.7")).performClick()
         ui.onNodeWithText("Открыть ход на доске").assertDoesNotExist()
         ui.runOnIdle { assertEquals(listOf(1), opened) }
+    }
+
+    @Test fun listMarksCurrentPlyAndSelectedStateWhenInsideGame() {
+        ui.setContent {
+            GraphMovePicker(listOf("17... c5", "18. Nf3"), listOf(0, -130, 70), currentMoveIndex = 1) {}
+        }
+        ui.onNodeWithText("Выбрать ход из списка").performClick()
+        ui.onNodeWithText("Текущий ход").assertIsDisplayed()
+        ui.onNodeWithText("18. Nf3").assertIsSelected()
+        ui.onNodeWithText("17... c5").assertIsNotSelected()
     }
 
     @Test fun filteredExpandedListSurvivesTripToSelectedMoment() {

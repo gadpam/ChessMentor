@@ -29,8 +29,12 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
@@ -532,7 +536,15 @@ private fun SectionSegmentItem(
     }
     Surface(
         onClick = onSelect,
-        modifier = modifier.heightIn(min = 48.dp),
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .semantics {
+                selected = isSelected
+                role = Role.Tab
+                if (isSelected) {
+                    stateDescription = "Выбран раздел"
+                }
+            },
         shape = RoundedCornerShape(10.dp),
         color = if (isSelected) {
             MaterialTheme.colorScheme.primary
@@ -934,10 +946,21 @@ private fun AccuracyTrendCard(
                     Text("${yMin.roundToInt()}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
 
+                val trendText = when (direction) {
+                    TrendDirection.IMPROVING -> "рост точности"
+                    TrendDirection.DECLINING -> "снижение точности"
+                    else -> "без резких изменений"
+                }
+                val chartSummaryDescription = buildString {
+                    append("График динамики точности по ${points.size} партиям, тренд: $trendText.")
+                    append(" Выбрана партия против ${selected.opponentLabel}: точность ${formatPct(selected.accuracy)}%.")
+                }
+
                 Canvas(
                     modifier = Modifier
                         .weight(1f)
                         .height(145.dp)
+                        .semantics { contentDescription = chartSummaryDescription }
                         .pointerInput(points) {
                             detectTapGestures { tap ->
                                 if (points.size == 1) {

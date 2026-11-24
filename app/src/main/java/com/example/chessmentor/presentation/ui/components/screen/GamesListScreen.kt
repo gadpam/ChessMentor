@@ -539,7 +539,7 @@ fun GameCard(
     val white = game.playerColor == ChessColor.WHITE
     val detail = listOfNotNull(id?.takeIf { showNumber }?.let { "№$it" },
         info.dateLabel.takeIf { showDate }, info.timeControlLabel).joinToString(" · ")
-    val identity: @Composable (Boolean) -> Unit = { stacked ->
+    val identity: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             com.example.chessmentor.presentation.ui.components.ChessSideBadge(
                 color = game.playerColor,
@@ -550,7 +550,7 @@ fun GameCard(
                 Text(
                     text = info.title.removePrefix("vs "),
                     style = MaterialTheme.typography.titleMedium,
-                    maxLines = if (stacked) 2 else 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
                 if (detail.isNotEmpty()) {
@@ -695,9 +695,9 @@ fun GameCard(
             BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp, vertical = 2.dp)) {
                 val stacked = maxWidth < (255 * LocalDensity.current.fontScale).dp
                 if (stacked) {
-                    Column { identity(true); actions() }
+                    Column { identity(); actions() }
                 } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) { identity(false) }
+                    Box(Modifier.weight(1f)) { identity() }
                     actions()
                 }
             }

@@ -401,6 +401,11 @@ private fun RegisterForm(
         leadingIcon = { Icon(Icons.Default.Email, null) },
         singleLine = true,
         isError = trimmedEmail.isNotEmpty() && !isEmailValid,
+        supportingText = if (trimmedEmail.isNotEmpty() && !isEmailValid) {
+            { Text("Укажите корректный email (например, name@example.com)") }
+        } else {
+            null
+        },
         keyboardOptions = KeyboardOptions(
             keyboardType = KeyboardType.Email,
             imeAction = ImeAction.Next
@@ -424,6 +429,11 @@ private fun RegisterForm(
         },
         singleLine = true,
         isError = password.isNotEmpty() && password.length < 6,
+        supportingText = if (password.isNotEmpty() && password.length < 6) {
+            { Text("Минимум 6 символов") }
+        } else {
+            null
+        },
         visualTransformation = if (showPassword) {
             VisualTransformation.None
         } else {

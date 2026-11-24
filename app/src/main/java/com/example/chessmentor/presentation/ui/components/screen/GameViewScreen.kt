@@ -873,58 +873,14 @@ private fun GameViewScreenContent(
 
     // Выбор фигуры при превращении пешки (в режиме «Исправить» и в аналитической ветке)
     pendingPromotion?.let { (from, to) ->
-        val promoOptions = if (board.sideToMove == Side.WHITE) {
-            listOf(
-                PieceType.QUEEN to "♕ Ферзь",
-                PieceType.ROOK to "♖ Ладья",
-                PieceType.BISHOP to "♗ Слон",
-                PieceType.KNIGHT to "♘ Конь"
-            )
-        } else {
-            listOf(
-                PieceType.QUEEN to "♛ Ферзь",
-                PieceType.ROOK to "♜ Ладья",
-                PieceType.BISHOP to "♝ Слон",
-                PieceType.KNIGHT to "♞ Конь"
-            )
-        }
-        AlertDialog(
-            onDismissRequest = { pendingPromotion = null },
-            title = { Text("Превращение пешки") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    promoOptions.forEach { (type, label) ->
-                        Surface(
-                            shape = MaterialTheme.shapes.medium,
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 48.dp)
-                                .clip(MaterialTheme.shapes.medium)
-                                .clickable {
-                                    pendingPromotion = null
-                                    selectedSquare = null
-                                    handleUserBoardMove(from, to, promotion = type)
-                                }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(label, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                    }
-                }
+        com.example.chessmentor.presentation.ui.components.PawnPromotionDialog(
+            side = board.sideToMove,
+            onSelect = { type ->
+                pendingPromotion = null
+                selectedSquare = null
+                handleUserBoardMove(from, to, promotion = type)
             },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { pendingPromotion = null }) {
-                    Text("Отмена")
-                }
-            }
+            onDismiss = { pendingPromotion = null }
         )
     }
 

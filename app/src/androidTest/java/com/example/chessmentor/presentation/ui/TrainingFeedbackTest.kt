@@ -49,4 +49,17 @@ class TrainingFeedbackTest {
         ui.onNodeWithText("Конь нападает одновременно на короля и ладью.").assertIsDisplayed()
         ui.onNodeWithText("Решение: 1. Nc7+ Kd8 2. Nxa8").assertIsDisplayed()
     }
+
+    @Test fun solutionResultInlineCardShowsSaveWarningWhenPersistenceFails() {
+        val warning = "Не удалось сохранить результат в локальную базу — проверьте свободную память."
+        ui.setContent {
+            SolutionResultInlineCard(
+                TrainingUiState(
+                    isSolved = true,
+                    saveWarningMessage = warning
+                )
+            )
+        }
+        ui.onNodeWithText(warning).assertIsDisplayed()
+    }
 }

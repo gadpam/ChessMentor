@@ -18,6 +18,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -195,45 +199,62 @@ private fun ProfilesSection(
             @OptIn(ExperimentalLayoutApi::class)
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                 val stackProfiles = maxWidth < (290 * LocalDensity.current.fontScale).dp
+                val fastPreset = EngineSettings.fast()
+                val defaultPreset = EngineSettings.default().let {
+                    it.copy(threads = it.threads.coerceAtMost(availableCores))
+                }
+                val deepPreset = EngineSettings.deep().let {
+                    it.copy(threads = it.threads.coerceAtMost(availableCores))
+                }
+                val matchesAnyPreset = currentSettings == fastPreset ||
+                    currentSettings == defaultPreset ||
+                    currentSettings == deepPreset
                 val profileData = listOf(
-                    Triple("Быстрый", "Глубина 12", currentSettings.depth <= 12) to {
-                        onProfileSelected(EngineSettings.fast())
+                    Triple("Быстрый", "Глубина 12", currentSettings == fastPreset) to {
+                        onProfileSelected(fastPreset)
                     },
-                    Triple("Стандарт", "Глубина 15", currentSettings.depth in 13..17) to {
-                        val def = EngineSettings.default()
-                        onProfileSelected(def.copy(threads = def.threads.coerceAtMost(availableCores)))
+                    Triple("Стандарт", "Глубина 15", currentSettings == defaultPreset) to {
+                        onProfileSelected(defaultPreset)
                     },
-                    Triple("Глубокий", "Глубина 22", currentSettings.depth >= 18) to {
-                        val deep = EngineSettings.deep()
-                        onProfileSelected(deep.copy(threads = deep.threads.coerceAtMost(availableCores)))
+                    Triple("Глубокий", "Глубина 22", currentSettings == deepPreset) to {
+                        onProfileSelected(deepPreset)
                     }
                 )
-                if (stackProfiles) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        profileData.forEach { (meta, click) ->
-                            ProfileChip(
-                                name = meta.first,
-                                description = meta.second,
-                                isSelected = meta.third,
-                                onClick = click,
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (stackProfiles) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            profileData.forEach { (meta, click) ->
+                                ProfileChip(
+                                    name = meta.first,
+                                    description = meta.second,
+                                    isSelected = meta.third,
+                                    onClick = click,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            profileData.forEach { (meta, click) ->
+                                ProfileChip(
+                                    name = meta.first,
+                                    description = meta.second,
+                                    isSelected = meta.third,
+                                    onClick = click,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        profileData.forEach { (meta, click) ->
-                            ProfileChip(
-                                name = meta.first,
-                                description = meta.second,
-                                isSelected = meta.third,
-                                onClick = click,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
+                    if (!matchesAnyPreset) {
+                        Text(
+                            text = "Ручная настройка: глубина ${currentSettings.depth} · ${currentSettings.threads} пот. · ${currentSettings.hashSizeMb} МБ",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -250,7 +271,12 @@ private fun ProfileChip(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.heightIn(min = 48.dp),
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .semantics {
+                selected = isSelected
+                role = Role.RadioButton
+            },
         onClick = onClick,
         shape = MaterialTheme.shapes.medium,
         color = if (isSelected) {

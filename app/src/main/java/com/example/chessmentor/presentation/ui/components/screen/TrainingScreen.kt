@@ -599,65 +599,19 @@ fun TrainingScreen(
 
     pendingPromotion?.let { (from, to) ->
         val promoSide = if (uiState.isFreeAnalysisMode) uiState.board.sideToMove else uiState.playerSide
-        val options = remember(promoSide) {
-            if (promoSide == Side.WHITE) {
-                listOf(
-                    Triple(PieceType.QUEEN, "♕", "Ферзь"),
-                    Triple(PieceType.ROOK, "♖", "Ладья"),
-                    Triple(PieceType.BISHOP, "♗", "Слон"),
-                    Triple(PieceType.KNIGHT, "♘", "Конь")
+        com.example.chessmentor.presentation.ui.components.PawnPromotionDialog(
+            side = promoSide,
+            onSelect = { pieceType ->
+                pendingPromotion = null
+                val promotionMove = ChessMoveUtils.createMove(
+                    from = from,
+                    to = to,
+                    side = promoSide,
+                    promotion = pieceType
                 )
-            } else {
-                listOf(
-                    Triple(PieceType.QUEEN, "♛", "Ферзь"),
-                    Triple(PieceType.ROOK, "♜", "Ладья"),
-                    Triple(PieceType.BISHOP, "♝", "Слон"),
-                    Triple(PieceType.KNIGHT, "♞", "Конь")
-                )
-            }
-        }
-        AlertDialog(
-            onDismissRequest = { pendingPromotion = null },
-            title = { Text("Превращение пешки") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    options.forEach { (pieceType, symbol, title) ->
-                        Surface(
-                            shape = MaterialTheme.shapes.medium,
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 48.dp)
-                                .clip(MaterialTheme.shapes.medium)
-                                .clickable {
-                                    pendingPromotion = null
-                                    val promotionMove = ChessMoveUtils.createMove(
-                                        from = from,
-                                        to = to,
-                                        side = promoSide,
-                                        promotion = pieceType
-                                    )
-                                    viewModel.onMoveMade(promotionMove)
-                                }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("$symbol $title", fontWeight = FontWeight.Medium)
-                            }
-                        }
-                    }
-                }
+                viewModel.onMoveMade(promotionMove)
             },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { pendingPromotion = null }) {
-                    Text("Отмена")
-                }
-            }
+            onDismiss = { pendingPromotion = null }
         )
     }
 }
@@ -1403,6 +1357,14 @@ private fun BottomControlPanel(
                     )
                 }
             } else {
+                uiState.saveWarningMessage?.takeIf { it.isNotBlank() }?.let { saveWarning ->
+                    Text(
+                        text = saveWarning,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
                 TrainingHelpControls(uiState, controlsEnabled, onHint, onShowBetterMove, onRevealSolution, onSkip)
             }
         }
@@ -1414,8 +1376,9 @@ internal fun SolutionResultInlineCard(uiState: TrainingUiState) {
     val explanation = uiState.postSolveExplanation?.takeIf { it.isNotBlank() }
     val line = uiState.solutionSanLine?.takeIf { it.isNotBlank() }
     val schedule = uiState.nextReviewNote?.takeIf { it.isNotBlank() }
+    val saveWarning = uiState.saveWarningMessage?.takeIf { it.isNotBlank() }
     val motif = uiState.patternDisplayName?.takeIf { it.isNotBlank() }
-    if (explanation == null && line == null && schedule == null) return
+    if (explanation == null && line == null && schedule == null && saveWarning == null) return
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
@@ -1430,6 +1393,14 @@ internal fun SolutionResultInlineCard(uiState: TrainingUiState) {
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            if (saveWarning != null) {
+                Text(
+                    text = saveWarning,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
             if (motif != null || schedule != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

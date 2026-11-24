@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,7 +30,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -712,21 +715,29 @@ internal fun GraphMovePicker(
         Text("Выбрать ход из списка")
     }
     if (expanded) {
+        val listState = rememberLazyListState(
+            initialFirstVisibleItemIndex = if (currentMoveIndex in 0 until count) {
+                (currentMoveIndex - 1).coerceAtLeast(0)
+            } else {
+                0
+            }
+        )
         AlertDialog(
             onDismissRequest = { expanded = false },
             title = { Text("Ходы партии") },
             text = {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 420.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     items(count) { index ->
                         val isCurrent = index == currentMoveIndex
                         Surface(
                             color = if (isCurrent) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
                             } else {
                                 Color.Transparent
                             },
@@ -734,6 +745,12 @@ internal fun GraphMovePicker(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(min = 48.dp)
+                                .semantics {
+                                    selected = isCurrent
+                                    if (isCurrent) {
+                                        stateDescription = "Текущий ход"
+                                    }
+                                }
                                 .clickable {
                                     expanded = false
                                     onOpenReviewAtMove(index)
@@ -750,11 +767,29 @@ internal fun GraphMovePicker(
                                     text = moveLabels[index],
                                     modifier = Modifier.weight(1f),
                                     fontFamily = FontFamily.Monospace,
-                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
+                                if (isCurrent) {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "Текущий ход",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
                                 Text(
                                     text = ChessEngine.formatEvaluation(evaluations[index + 1]),
-                                    fontFamily = FontFamily.Monospace
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal
                                 )
                             }
                         }
@@ -763,7 +798,10 @@ internal fun GraphMovePicker(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { expanded = false }) {
+                TextButton(
+                    onClick = { expanded = false },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
                     Text("Закрыть")
                 }
             }

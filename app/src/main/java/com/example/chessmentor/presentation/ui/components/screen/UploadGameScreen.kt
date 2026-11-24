@@ -491,7 +491,29 @@ internal fun PgnLivePreviewCard(
                     )
                 }
 
-                if (meta.result != PgnParser.PgnResult.ONGOING) {
+                if (parsed.hasResultConflict) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.78f),
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = "Расхождение результата в PGN",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "В заголовке [Result]: ${parsed.headerResult.displaySymbol()}, в конце ходов: ${parsed.trailingResult.displaySymbol()}. До исправления исход не будет засчитан в статистике.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                } else if (meta.result != PgnParser.PgnResult.ONGOING) {
                     val colors = MaterialTheme.colorScheme
                     val (fill, ink) = when (outcome) {
                         PgnParser.PlayerOutcome.WIN -> colors.primaryContainer to colors.onPrimaryContainer

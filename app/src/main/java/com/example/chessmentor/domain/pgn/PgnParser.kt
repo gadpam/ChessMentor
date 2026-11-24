@@ -192,7 +192,10 @@ object PgnParser {
         val detectedEco: String?,
         val detectedOpeningName: String?,
         val clocks: ClockSummary,
-        val fingerprint: String
+        val fingerprint: String,
+        val headerResult: PgnResult = metadata.result,
+        val trailingResult: PgnResult = PgnResult.ONGOING,
+        val hasResultConflict: Boolean = false
     ) {
         val effectiveEco: String?
             get() = detectedEco ?: metadata.eco
@@ -236,7 +239,8 @@ object PgnParser {
         val plyCount: Int,
         val fullMoveCount: Int,
         val hasClockData: Boolean,
-        val playerTimeTroubleMoves: Int
+        val playerTimeTroubleMoves: Int,
+        val hasResultConflict: Boolean = false
     ) {
         /** Поисковая строка в нижнем регистре для мгновенной фильтрации библиотеки. */
         val searchBlob: String by lazy {
@@ -454,10 +458,16 @@ object PgnParser {
             return ParseResult.Failure("В PGN не найдено легальных ходов")
         }
 
-        // Если результат в заголовках не был указан, но указан в конце текста ходов или на доске мат/пат
+        // Если результат в заголовках и в конце текста ходов противоречат друг другу — не приписываем исход
+        val headerResult = metadata.result
+        val trailingResult = extracted.trailingResult
+        val hasResultConflict = headerResult != PgnResult.ONGOING &&
+            trailingResult != PgnResult.ONGOING &&
+            headerResult != trailingResult
         val resolvedResult = when {
-            metadata.result != PgnResult.ONGOING -> metadata.result
-            extracted.trailingResult != PgnResult.ONGOING -> extracted.trailingResult
+            hasResultConflict -> PgnResult.ONGOING
+            headerResult != PgnResult.ONGOING -> headerResult
+            trailingResult != PgnResult.ONGOING -> trailingResult
             board.isMated -> if (board.sideToMove == Side.WHITE) PgnResult.BLACK_WIN else PgnResult.WHITE_WIN
             board.isStaleMate -> PgnResult.DRAW
             else -> PgnResult.ONGOING
@@ -498,7 +508,10 @@ object PgnParser {
                 detectedEco = detectedEco,
                 detectedOpeningName = detectedOpeningName,
                 clocks = clockSummary,
-                fingerprint = fingerprint
+                fingerprint = fingerprint,
+                headerResult = headerResult,
+                trailingResult = trailingResult,
+                hasResultConflict = hasResultConflict
             )
         )
     }
@@ -645,10 +658,13 @@ object PgnParser {
         val plyCount = extracted.sanTokens.size
         val fullMoveCount = if (plyCount == 0) 0 else (plyCount + if (startSideIsWhite) 1 else 2) / 2
 
-        val resolvedResult = if (metadata.result != PgnResult.ONGOING) {
-            metadata.result
-        } else {
-            extracted.trailingResult
+        val hasResultConflict = metadata.result != PgnResult.ONGOING &&
+            extracted.trailingResult != PgnResult.ONGOING &&
+            metadata.result != extracted.trailingResult
+        val resolvedResult = when {
+            hasResultConflict -> PgnResult.ONGOING
+            metadata.result != PgnResult.ONGOING -> metadata.result
+            else -> extracted.trailingResult
         }
         val outcome = resolvedResult.forPlayer(game.playerColor)
 
@@ -721,7 +737,8 @@ object PgnParser {
             plyCount = plyCount,
             fullMoveCount = fullMoveCount,
             hasClockData = clockSummary.hasData,
-            playerTimeTroubleMoves = clockSummary.timeTroubleMovesFor(game.playerColor)
+            playerTimeTroubleMoves = clockSummary.timeTroubleMovesFor(game.playerColor),
+            hasResultConflict = hasResultConflict
         )
     }
 

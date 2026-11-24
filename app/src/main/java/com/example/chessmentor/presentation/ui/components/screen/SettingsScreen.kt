@@ -11,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -43,6 +44,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -298,6 +301,7 @@ fun SettingsScreen(
         // Полная резервная копия (JSON + SHA-256) и экспорт PGN
         item {
             DataBackupCard(
+                profileNickname = user.nickname,
                 totalGames = totalGames,
                 analyzedGames = analyzedGames,
                 totalAttempts = totalAttempts,
@@ -323,17 +327,13 @@ fun SettingsScreen(
             )
         }
 
-        // Выход из аккаунта
+        // Выход из аккаунта (обратимое действие: данные профиля остаются на устройстве)
         item {
             OutlinedButton(
                 onClick = { showLogoutDialog = true },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 48.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error
-                ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
+                    .heightIn(min = 48.dp)
             ) {
                 Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Выйти из аккаунта")
                 Spacer(Modifier.width(8.dp))
@@ -370,8 +370,7 @@ fun SettingsScreen(
                         showLogoutDialog = false
                         viewModel.logout(onLogout)
                     },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) {
                     Text("Выйти")
                 }
@@ -546,7 +545,16 @@ private fun ParametersCard(
             HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp))
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .toggleable(
+                        value = isSoundEnabled,
+                        role = Role.Switch,
+                        onValueChange = onSoundToggle
+                    )
+                    .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -562,14 +570,15 @@ private fun ParametersCard(
                         } else {
                             Icons.AutoMirrored.Filled.VolumeOff
                         },
-                        contentDescription = if (isSoundEnabled) "Звук включён" else "Звук выключен"
+                        contentDescription = null
                     )
                     Spacer(Modifier.width(12.dp))
                     Text("Звуковые эффекты ходов")
                 }
                 Switch(
                     checked = isSoundEnabled,
-                    onCheckedChange = onSoundToggle
+                    onCheckedChange = null,
+                    modifier = Modifier.clearAndSetSemantics {}
                 )
             }
 
@@ -916,6 +925,7 @@ private fun ChangePasswordCard(
 
 @Composable
 private fun DataBackupCard(
+    profileNickname: String,
     totalGames: Int,
     analyzedGames: Int,
     totalAttempts: Int,
@@ -940,7 +950,7 @@ private fun DataBackupCard(
 
             Text(
                 text = "Партий: $totalGames (разобрано: $analyzedGames) · Попыток в тренажёре: $totalAttempts. " +
-                    "JSON — партии и прогресс. PGN — только партии.",
+                    "JSON сохраняет партии, разборы и прогресс для переноса; восстановление загружает их в текущий профиль «$profileNickname» без пароля.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -957,12 +967,12 @@ private fun DataBackupCard(
                 } else {
                     Icon(
                         imageVector = Icons.Default.Download,
-                        contentDescription = "Скачать резервную копию JSON",
+                        contentDescription = "Сохранить прогресс в JSON",
                         modifier = Modifier.size(18.dp)
                     )
                 }
                 Spacer(Modifier.width(8.dp))
-                Text(if (isExporting) "Подготовка копии…" else "Полная резервная копия (.json)")
+                Text(if (isExporting) "Подготовка копии…" else "Сохранить прогресс (.json)")
             }
 
             OutlinedButton(
@@ -977,12 +987,12 @@ private fun DataBackupCard(
                 } else {
                     Icon(
                         imageVector = Icons.Default.Upload,
-                        contentDescription = "Загрузить резервную копию JSON",
+                        contentDescription = "Восстановить в этот профиль из JSON",
                         modifier = Modifier.size(18.dp)
                     )
                 }
                 Spacer(Modifier.width(8.dp))
-                Text(if (isImporting) "Восстановление…" else "Восстановить из копии (.json)")
+                Text(if (isImporting) "Восстановление…" else "Восстановить в этот профиль (.json)")
             }
 
             OutlinedButton(
@@ -994,11 +1004,11 @@ private fun DataBackupCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Download,
-                    contentDescription = "Экспортировать партии в PGN",
+                    contentDescription = "Экспортировать только партии в PGN",
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(Modifier.width(8.dp))
-                Text("Экспортировать все партии (.pgn)")
+                Text("Только партии (.pgn)")
             }
         }
     }

@@ -100,6 +100,7 @@ data class TrainingUiState(
     val moveRevealedInExercise: Boolean = false,
     val isReviewOfFailed: Boolean = false,
     val nextReviewNote: String? = null,
+    val saveWarningMessage: String? = null,
     val dueReviewCount: Int = 0,
     val currentStepNumber: Int = 1,
     val totalPlayerSteps: Int = 1,
@@ -265,6 +266,7 @@ class TrainingViewModel(
         solutionSanLine = null,
         postSolveExplanation = null,
         nextReviewNote = null,
+        saveWarningMessage = null,
         isDailyAlreadySolved = false,
         hintLevel = HintLevel.NONE,
         hasActiveExercise = false,
@@ -718,6 +720,9 @@ class TrainingViewModel(
                 }.onFailure { e ->
                     if (e is CancellationException) throw e
                     Log.w(TAG, "Failed to save revealed attempt", e)
+                    _uiState.value = _uiState.value.copy(
+                        saveWarningMessage = "Не удалось сохранить результат в локальную базу — проверьте свободную память."
+                    )
                 }
                 scheduleInterleavedReinforcement(null)
             }
@@ -1025,6 +1030,7 @@ class TrainingViewModel(
             moveRevealedInExercise = false,
             isReviewOfFailed = isReviewOfFailed,
             nextReviewNote = null,
+            saveWarningMessage = null,
             dueReviewCount = dueReviewCount,
             currentStepNumber = 1,
             totalPlayerSteps = totalPlayerSteps,
@@ -1546,6 +1552,9 @@ class TrainingViewModel(
             }.onFailure { e ->
                 if (e is CancellationException) throw e
                 Log.e(TAG, "Error saving failed attempt", e)
+                _uiState.value = _uiState.value.copy(
+                    saveWarningMessage = "Не удалось сохранить результат в локальную базу — проверьте свободную память."
+                )
             }
         }
 
@@ -2082,6 +2091,11 @@ class TrainingViewModel(
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Error saving training success", e)
+                if (currentExercise?.id == targetExerciseId) {
+                    _uiState.value = _uiState.value.copy(
+                        saveWarningMessage = "Не удалось сохранить результат в локальную базу — проверьте свободную память."
+                    )
+                }
             }
         }
     }

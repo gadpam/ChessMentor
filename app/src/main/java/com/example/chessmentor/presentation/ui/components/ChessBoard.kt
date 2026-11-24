@@ -9,7 +9,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,12 +31,19 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Piece
 import com.github.bhlangonijr.chesslib.Side
 import com.github.bhlangonijr.chesslib.Square
+import java.util.Locale
 import kotlin.math.min
 
 data class BoardTheme(
@@ -157,7 +167,7 @@ fun ChessBoard(
         }
     }
 
-    Box(modifier = modifier.background(Color.Transparent)) {
+    BoxWithConstraints(modifier = modifier.background(Color.Transparent)) {
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -379,5 +389,83 @@ fun ChessBoard(
                 }
             }
         }
+
+        // Умная семантика для TalkBack на интерактивной доске: только занятые клетки
+        // и допустимые поля хода выбранной фигуры (без 64 пустых остановок и без спойлеров).
+        if (onSquareClick != null) {
+            val boardSizeDp = minOf(maxWidth, maxHeight)
+            if (boardSizeDp > 0.dp) {
+                val squareSizeDp = boardSizeDp / 8f
+                val xOffsetDp = (maxWidth - boardSizeDp) / 2f
+                val yOffsetDp = (maxHeight - boardSizeDp) / 2f
+
+                for (rank in 0..7) {
+                    for (file in 0..7) {
+                        val actualRank = if (flipped) rank else 7 - rank
+                        val actualFile = if (flipped) 7 - file else file
+                        val square = Square.squareAt(actualRank * 8 + actualFile)
+                        val piece = board.getPiece(square)
+                        val isLegalMove = square in legalMoveSquares
+                        val isLegalCapture = square in legalCaptureSquares
+                        if (piece == Piece.NONE && !isLegalMove && !isLegalCapture) continue
+
+                        val coord = square.value().lowercase(Locale.ROOT)
+                        val isSelected = square == selectedSquare
+                        val isCheckedKing = checkedKingPiece != Piece.NONE && piece == checkedKingPiece
+
+                        val description = if (piece == Piece.NONE) {
+                            "Пойти на $coord"
+                        } else {
+                            buildString {
+                                append("$coord: ${describePieceRu(piece)}")
+                                if (isSelected) append(", выбрано")
+                                if (isLegalCapture) append(", можно побить")
+                                if (isCheckedKing) append(", шах")
+                            }
+                        }
+                        val actionLabel = when {
+                            piece == Piece.NONE -> "Пойти на $coord"
+                            isSelected -> "Снять выбор"
+                            isLegalCapture -> "Взять на $coord"
+                            else -> "Выбрать $coord"
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .offset(
+                                    x = xOffsetDp + squareSizeDp * file,
+                                    y = yOffsetDp + squareSizeDp * rank
+                                )
+                                .size(squareSizeDp)
+                                .semantics {
+                                    contentDescription = description
+                                    role = Role.Button
+                                    if (isSelected) selected = true
+                                    onClick(label = actionLabel) {
+                                        currentOnSquareClick?.invoke(square)
+                                        true
+                                    }
+                                }
+                        )
+                    }
+                }
+            }
+        }
     }
+}
+
+private fun describePieceRu(piece: Piece): String = when (piece) {
+    Piece.WHITE_PAWN -> "белая пешка"
+    Piece.WHITE_KNIGHT -> "белый конь"
+    Piece.WHITE_BISHOP -> "белый слон"
+    Piece.WHITE_ROOK -> "белая ладья"
+    Piece.WHITE_QUEEN -> "белый ферзь"
+    Piece.WHITE_KING -> "белый король"
+    Piece.BLACK_PAWN -> "чёрная пешка"
+    Piece.BLACK_KNIGHT -> "чёрный конь"
+    Piece.BLACK_BISHOP -> "чёрный слон"
+    Piece.BLACK_ROOK -> "чёрная ладья"
+    Piece.BLACK_QUEEN -> "чёрный ферзь"
+    Piece.BLACK_KING -> "чёрный король"
+    Piece.NONE -> "пустая клетка"
 }
