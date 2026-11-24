@@ -839,9 +839,9 @@ fun DailyPuzzleWidget(
 @Composable
 fun MiniGameCard(
     game: Game,
-    onOpen: (Game) -> Unit,
     onAnalyze: ((Long, Boolean) -> Unit)? = null,
-    isBusy: Boolean = false
+    isBusy: Boolean = false,
+    onOpen: (Game) -> Unit
 ) {
     GameCard(
         game = game,
