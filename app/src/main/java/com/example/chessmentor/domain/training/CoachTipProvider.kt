@@ -88,9 +88,9 @@ object CoachTipProvider {
         val tips = when (SkillLevel.fromRating(user.rating)) {
             SkillLevel.BEGINNER -> BEGINNER_TIPS
             SkillLevel.INTERMEDIATE -> INTERMEDIATE_TIPS
-            SkillLevel.ADVANCED -> ADVANCED_TIPS
+            SkillLevel.ADVANCED, SkillLevel.EXPERT -> ADVANCED_TIPS
         }
-        val idx = (abs(epochDay + user.gamesAnalyzed) % tips.size).toInt()
+        val idx = (abs(epochDay + games.size) % tips.size).toInt()
         return CoachTip(text = tips[idx])
     }
 

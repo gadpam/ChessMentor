@@ -561,7 +561,7 @@ fun DashboardScreen(
 
     val allGames = gameViewModel.userGames.toList()
     val recentGames = allGames.take(2)
-    val coachTip = remember(user.rating, user.gamesAnalyzed, allGames, dueReviewCount, isDailySolved, epochDay) {
+    val coachTip = remember(user.rating, allGames, dueReviewCount, isDailySolved, epochDay) {
         CoachTipProvider.buildTip(
             user = user,
             games = allGames,

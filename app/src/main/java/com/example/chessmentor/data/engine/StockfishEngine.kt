@@ -233,7 +233,8 @@ class StockfishEngine(
                 coroutineContext.ensureActive()
                 ensureReadyLocked()
                 val stopTriggered = AtomicBoolean(false)
-                val cancelHandle = coroutineContext[Job]?.invokeOnCompletion(onCancelling = true) { cause ->
+                val cancelWatcher = Job(parent = coroutineContext[Job])
+                val cancelHandle = cancelWatcher.invokeOnCompletion { cause ->
                     if (cause is CancellationException && stopTriggered.compareAndSet(false, true)) {
                         nativeStop()
                     }
@@ -247,7 +248,8 @@ class StockfishEngine(
                     coroutineContext.ensureActive()
                     result
                 } finally {
-                    cancelHandle?.dispose()
+                    cancelHandle.dispose()
+                    cancelWatcher.complete()
                 }
             }
         }

@@ -634,7 +634,7 @@ object GameReviewHelper {
                 val tpAnalyzed = sorted.find { it.moveIndex == tp.moveIndex }
                 val parsed = parseMoveComment(tpMistake?.comment ?: tpAnalyzed?.comment)
                 val themeName = tpMistake?.themeId?.let { tid ->
-                    PredefinedThemes.all().find { it.id == tid }?.name
+                    PredefinedThemes.getAll().find { it.id == tid }?.description
                 }
                 val reasonSuffix = when {
                     parsed.isStructured && !parsed.reason.isNullOrBlank() ->
