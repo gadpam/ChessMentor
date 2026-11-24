@@ -46,6 +46,7 @@ import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.StatsPeriod
 import com.example.chessmentor.presentation.ui.components.BrandEmptyState
 import com.example.chessmentor.presentation.ui.components.ListSkeleton
 import com.example.chessmentor.presentation.ui.components.MessageCard
@@ -83,6 +84,15 @@ private data class IndexedGame(
     val info: PgnParser.GameCardInfo
 )
 
+internal fun filterGameByPeriod(
+    playedAt: Long,
+    period: StatsPeriod,
+    nowMs: Long = System.currentTimeMillis()
+): Boolean {
+    val cutoff = period.cutoffMs(nowMs) ?: return true
+    return playedAt > 0L && playedAt >= cutoff
+}
+
 @Composable
 fun GamesListScreen(
     paddingValues: PaddingValues,
@@ -94,7 +104,8 @@ fun GamesListScreen(
     onOpenEngineSettings: (() -> Unit)? = null,
     initialSearchQuery: String? = null,
     initialColorFilter: ChessColor? = null,
-    onInitialFilterConsumed: () -> Unit = {}
+    onInitialFilterConsumed: () -> Unit = {},
+    initialPeriodFilter: StatsPeriod? = null
 ) {
     val games = gameViewModel.userGames.toList()
     val message by gameViewModel.message
@@ -118,29 +129,40 @@ fun GamesListScreen(
         )
     }
     var activeSortName by rememberSaveable { mutableStateOf(LibrarySort.NEWEST.name) }
+    var activePeriodName by rememberSaveable {
+        mutableStateOf((initialPeriodFilter ?: StatsPeriod.ALL).name)
+    }
     val activeFilter = LibraryFilter.entries.firstOrNull { it.name == activeFilterName } ?: LibraryFilter.ALL
     val activeSort = LibrarySort.entries.firstOrNull { it.name == activeSortName } ?: LibrarySort.NEWEST
+    val activePeriod = StatsPeriod.entries.firstOrNull { it.name == activePeriodName } ?: StatsPeriod.ALL
     var sortMenuExpanded by remember { mutableStateOf(false) }
 
     val focusManager = LocalFocusManager.current
     val showAllGames = {
         searchQuery = ""
         activeFilterName = LibraryFilter.ALL.name
+        activePeriodName = StatsPeriod.ALL.name
         focusManager.clearFocus()
     }
 
     var searchOpen by rememberSaveable {
-        mutableStateOf(!initialSearchQuery.isNullOrBlank() || initialColorFilter != null)
+        mutableStateOf(
+            !initialSearchQuery.isNullOrBlank() ||
+                initialColorFilter != null ||
+                (initialPeriodFilter != null && initialPeriodFilter != StatsPeriod.ALL)
+        )
     }
 
-    LaunchedEffect(initialSearchQuery, initialColorFilter) {
-        if (!initialSearchQuery.isNullOrBlank() || initialColorFilter != null) {
+    LaunchedEffect(initialSearchQuery, initialColorFilter, initialPeriodFilter) {
+        val hasIncomingPeriod = initialPeriodFilter != null && initialPeriodFilter != StatsPeriod.ALL
+        if (!initialSearchQuery.isNullOrBlank() || initialColorFilter != null || hasIncomingPeriod) {
             searchQuery = initialSearchQuery.orEmpty()
             activeFilterName = when (initialColorFilter) {
                 ChessColor.WHITE -> LibraryFilter.WHITE.name
                 ChessColor.BLACK -> LibraryFilter.BLACK.name
                 null -> LibraryFilter.ALL.name
             }
+            activePeriodName = (initialPeriodFilter ?: StatsPeriod.ALL).name
             searchOpen = true
             onInitialFilterConsumed()
         }
@@ -160,8 +182,9 @@ fun GamesListScreen(
         list
     }
 
-    val filteredGames = remember(indexedGames, searchQuery, activeFilter, activeSort) {
+    val filteredGames = remember(indexedGames, searchQuery, activeFilter, activeSort, activePeriod) {
         val query = searchQuery.trim().lowercase(Locale.ROOT)
+        val nowMs = System.currentTimeMillis()
         val filtered = indexedGames.filter { item ->
             val matchesFilter = when (activeFilter) {
                 LibraryFilter.ALL -> true
@@ -174,7 +197,8 @@ fun GamesListScreen(
                 LibraryFilter.BLACK -> item.game.playerColor == ChessColor.BLACK
             }
             val matchesQuery = query.isEmpty() || query in item.info.searchBlob
-            matchesFilter && matchesQuery
+            val matchesPeriod = filterGameByPeriod(item.game.playedAt, activePeriod, nowMs)
+            matchesFilter && matchesQuery && matchesPeriod
         }
 
         when (activeSort) {
@@ -300,14 +324,18 @@ fun GamesListScreen(
                     },
                     shownCount = filteredGames.size,
                     totalCount = indexedGames.size,
-                    onShowAll = showAllGames
+                    onShowAll = showAllGames,
+                    activePeriod = activePeriod,
+                    onPeriodReset = { activePeriodName = StatsPeriod.ALL.name }
                 )
             }
 
-            if (!searchOpen && (activeFilter != LibraryFilter.ALL || searchQuery.isNotBlank() || activeSort != LibrarySort.NEWEST)) item {
+            if (!searchOpen && (activeFilter != LibraryFilter.ALL || activePeriod != StatsPeriod.ALL || searchQuery.isNotBlank() || activeSort != LibrarySort.NEWEST)) item {
                 TextButton(onClick = { searchOpen = true }) {
                     Text(listOfNotNull(searchQuery.takeIf { it.isNotBlank() }?.let { "«$it»" },
-                        activeFilter.label.takeIf { activeFilter != LibraryFilter.ALL }, activeSort.label,
+                        activeFilter.label.takeIf { activeFilter != LibraryFilter.ALL },
+                        activePeriod.displayName.takeIf { activePeriod != StatsPeriod.ALL },
+                        activeSort.label,
                         "${filteredGames.size} из ${games.size}").joinToString(" · "))
                 }
             }
@@ -316,7 +344,8 @@ fun GamesListScreen(
                     NoMatchingGamesCard(
                         query = searchQuery.trim(),
                         filter = activeFilter,
-                        onShowAll = showAllGames
+                        onShowAll = showAllGames,
+                        period = activePeriod
                     )
                 }
             } else {
@@ -409,7 +438,9 @@ private fun LibrarySearchAndFilters(
     onSortChange: (LibrarySort) -> Unit,
     shownCount: Int,
     totalCount: Int,
-    onShowAll: () -> Unit
+    onShowAll: () -> Unit,
+    activePeriod: StatsPeriod = StatsPeriod.ALL,
+    onPeriodReset: () -> Unit = {}
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -479,6 +510,25 @@ private fun LibrarySearchAndFilters(
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            if (activePeriod != StatsPeriod.ALL) {
+                FilterChip(
+                    selected = true,
+                    onClick = onPeriodReset,
+                    trailingIcon = {
+                        Icon(
+                            Icons.Default.Clear,
+                            contentDescription = "Сбросить период",
+                            modifier = Modifier.size(16.dp)
+                        )
+                    },
+                    label = {
+                        Text(
+                            "Период: ${activePeriod.displayName}",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                )
+            }
             LibraryFilter.entries.forEach { filter ->
                 FilterChip(
                     selected = activeFilter == filter,
@@ -490,21 +540,26 @@ private fun LibrarySearchAndFilters(
             }
         }
 
-        if (activeFilter != LibraryFilter.ALL || searchQuery.isNotBlank() || activeSort != LibrarySort.NEWEST) {
+        if (activeFilter != LibraryFilter.ALL || activePeriod != StatsPeriod.ALL || searchQuery.isNotBlank() || activeSort != LibrarySort.NEWEST) {
             Text(
                 text = "Показано: $shownCount из $totalCount · ${activeSort.label}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        if (shownCount > 0 && (activeFilter != LibraryFilter.ALL || searchQuery.isNotBlank())) {
+        if (shownCount > 0 && (activeFilter != LibraryFilter.ALL || activePeriod != StatsPeriod.ALL || searchQuery.isNotBlank())) {
             TextButton(onClick = onShowAll) { Text("Показать все партии") }
         }
     }
 }
 
 @Composable
-private fun NoMatchingGamesCard(query: String, filter: LibraryFilter, onShowAll: () -> Unit) {
+private fun NoMatchingGamesCard(
+    query: String,
+    filter: LibraryFilter,
+    onShowAll: () -> Unit,
+    period: StatsPeriod = StatsPeriod.ALL
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
@@ -522,6 +577,7 @@ private fun NoMatchingGamesCard(query: String, filter: LibraryFilter, onShowAll:
                 text = buildList {
                     if (query.isNotEmpty()) add("Запрос: «$query»")
                     if (filter != LibraryFilter.ALL) add("Фильтр: ${filter.label}")
+                    if (period != StatsPeriod.ALL) add("Период: ${period.displayName}")
                 }.joinToString("\n"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant

@@ -2,11 +2,18 @@ package com.example.chessmentor.domain.analysis
 
 import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
+import com.example.chessmentor.domain.entity.Exercise
+import com.example.chessmentor.domain.entity.ExerciseAttempt
 import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.MistakeType
 import com.example.chessmentor.domain.entity.MoveQuality
+import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.pgn.PgnParser
+import com.example.chessmentor.domain.repository.ExerciseRepository
+import com.example.chessmentor.domain.training.AttemptQuality
+import com.example.chessmentor.domain.training.SpacedRepetitionScheduler
 import com.example.chessmentor.domain.training.TrainingMode
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -314,5 +321,112 @@ class GameReviewHelperTest {
             ).size,
             report.trainableMistakesCount
         )
+    }
+
+    @Test
+    fun saveRetryPositionToRepetition_savesExactPositionAndMarksAssistedCorrections() = runBlocking {
+        val repo = InMemoryExerciseRepo()
+        val fenBefore = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+
+        // 1. Самостоятельное исправление (hintLevel = 0, answerRevealed = false, 1-я попытка)
+        val clean = GameReviewHelper.saveRetryPositionToRepetition(
+            userId = 1L,
+            gameId = 15L,
+            moveNumber = 2,
+            fenBefore = fenBefore,
+            expectedBestRaw = "Nf3",
+            hintLevel = 0,
+            answerRevealedBeforeRetry = false,
+            attemptsCount = 1,
+            isPlayerMistake = true,
+            analyzedMove = null,
+            mistake = null,
+            exerciseRepository = repo,
+            nowMs = 1_700_000_000_000L
+        )
+        assertNotNull(clean)
+        assertTrue(clean!!.createdNew)
+        assertFalse(clean.recordedAssistedAttempt)
+        assertEquals(fenBefore, clean.exercise.fenPosition)
+        assertEquals(listOf("g1f3"), clean.exercise.solutionMoves)
+        assertTrue(repo.attempts.isEmpty())
+
+        // Повторное сохранение той же позиции не создаёт дубликат, а при раскрытом ответе
+        // записывает попытку с @REVEALED -> AttemptQuality.FAILED (коробка 0), не выдавая за самостоятельное решение
+        val assisted = GameReviewHelper.saveRetryPositionToRepetition(
+            userId = 1L,
+            gameId = 15L,
+            moveNumber = 2,
+            fenBefore = fenBefore,
+            expectedBestRaw = "Nf3",
+            hintLevel = 2,
+            answerRevealedBeforeRetry = true,
+            attemptsCount = 2,
+            isPlayerMistake = true,
+            analyzedMove = null,
+            mistake = null,
+            exerciseRepository = repo,
+            nowMs = 1_700_000_005_000L
+        )
+        assertNotNull(assisted)
+        assertFalse(assisted!!.createdNew)
+        assertTrue(assisted.recordedAssistedAttempt)
+        assertEquals(1, repo.stored.size)
+        assertEquals(1, repo.attempts.size)
+
+        val schedule = SpacedRepetitionScheduler.buildSchedule(
+            attempts = repo.attempts,
+            exercisesById = mapOf(assisted.exercise.id!! to assisted.exercise)
+        )
+        val card = schedule[assisted.exercise.id!!]
+        assertNotNull(card)
+        assertEquals(AttemptQuality.FAILED, card!!.lastQuality)
+        assertEquals(0, card.cleanFirstTrySolves)
+        assertEquals(0, card.box)
+    }
+
+    private class InMemoryExerciseRepo : ExerciseRepository {
+        val stored = mutableListOf<Exercise>()
+        val attempts = mutableListOf<ExerciseAttempt>()
+        private var nextId = 1L
+
+        override suspend fun findById(id: Long): Exercise? = stored.firstOrNull { it.id == id }
+        override suspend fun findByIds(ids: List<Long>): List<Exercise> = stored.filter { it.id in ids }
+        override suspend fun findSuitableExercise(userId: Long, userRating: Int, excludeId: Long): Exercise? = null
+        override suspend fun findFailedUnresolvedExercise(userId: Long, excludeId: Long): Exercise? = null
+        override suspend fun findUserMistakeExercise(userId: Long, excludeId: Long): Exercise? = null
+        override suspend fun findExerciseByTheme(userId: Long, theme: TacticalTheme, userRating: Int, excludeId: Long): Exercise? = null
+        override suspend fun findByTheme(theme: String): List<Exercise> = emptyList()
+        override suspend fun findByPattern(pattern: String): List<Exercise> = emptyList()
+        override suspend fun findBySourceGameAndMove(gameId: Long, moveNumber: Int): Exercise? =
+            stored.firstOrNull { it.sourceGameId == gameId && it.sourceMoveNumber == moveNumber }
+        override suspend fun findByUserId(userId: Long): List<Exercise> = stored.toList()
+        override suspend fun findAccessibleByUserId(userId: Long): List<Exercise> = stored.toList()
+        override suspend fun findAnyAccessibleExcept(userId: Long, excludeId: Long): Exercise? = null
+        override suspend fun findGlobalByFen(fen: String): Exercise? = null
+        override suspend fun findUserExerciseByFen(userId: Long, fen: String): Exercise? =
+            stored.firstOrNull { it.fenPosition == fen }
+        override suspend fun findByFen(fen: String): Exercise? = stored.firstOrNull { it.fenPosition == fen }
+        override suspend fun deleteDuplicatesForUser(userId: Long) = Unit
+        override suspend fun deleteGlobalDuplicates() = Unit
+        override suspend fun countExercises(): Int = stored.size
+        override suspend fun countGlobalExercises(): Int = 0
+        override suspend fun hasUserSolvedExercise(userId: Long, exerciseId: Long): Boolean = false
+        override suspend fun saveExercise(exercise: Exercise): Exercise {
+            val saved = if (exercise.id == null) exercise.copy(id = nextId++) else exercise
+            stored.removeAll { it.id == saved.id }
+            stored.add(saved)
+            return saved
+        }
+        override suspend fun saveAttempt(attempt: ExerciseAttempt): ExerciseAttempt {
+            attempts.add(attempt)
+            return attempt
+        }
+        override suspend fun getAttemptsByUserId(userId: Long): List<ExerciseAttempt> = attempts.toList()
+        override suspend fun findByCluster(userId: Long, clusterId: String, excludeId: Long, limit: Int): List<Exercise> = emptyList()
+        override suspend fun findSimilarByPattern(userId: Long, pattern: String, excludeId: Long, minDifficulty: Int, maxDifficulty: Int, limit: Int): List<Exercise> = emptyList()
+        override suspend fun findForMistakeRepetition(userId: Long, pattern: String, difficulty: Int, excludeId: Long, limit: Int): List<Exercise> = emptyList()
+        override suspend fun incrementTimesShown(exerciseId: Long) = Unit
+        override suspend fun incrementTimesSolved(exerciseId: Long) = Unit
     }
 }

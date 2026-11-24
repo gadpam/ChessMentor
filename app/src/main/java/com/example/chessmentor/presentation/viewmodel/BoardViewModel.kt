@@ -19,6 +19,7 @@ import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.MoveQuality
 import com.example.chessmentor.domain.opening.OpeningDatabase
 import com.example.chessmentor.domain.pgn.PgnParser
+import com.example.chessmentor.domain.repository.ExerciseRepository
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.example.chessmentor.presentation.ui.components.SoundManager
 import com.github.bhlangonijr.chesslib.Board
@@ -50,7 +51,11 @@ data class RetryMistakeUiState(
     val isCheckingEngine: Boolean = false,
     val isSolved: Boolean = false,
     val attemptsCount: Int = 0,
-    val feedback: String
+    val feedback: String,
+    val answerRevealedBeforeRetry: Boolean = false,
+    val isSavingRepetition: Boolean = false,
+    val savedRepetitionMessage: String? = null,
+    val savedExerciseId: Long? = null
 )
 
 /**
@@ -437,7 +442,7 @@ class BoardViewModel : ViewModel() {
             analyzed.bestMove != analyzed.san
     }
 
-    fun startRetryCurrentMove() {
+    fun startRetryCurrentMove(answerWasRevealed: Boolean = false) {
         val idx = currentMoveIndex.intValue
         if (idx < 0 || idx >= moves.size) return
 
@@ -483,8 +488,64 @@ class BoardViewModel : ViewModel() {
             playedSan = playedSan,
             expectedBestRaw = rawBest,
             expectedBestSan = bestSan,
-            feedback = prompt
+            feedback = prompt,
+            answerRevealedBeforeRetry = answerWasRevealed
         )
+    }
+
+    fun saveSolvedRetryToRepetition(
+        userId: Long,
+        exerciseRepository: ExerciseRepository
+    ) {
+        val state = retryState.value ?: return
+        if (!state.isSolved || state.isSavingRepetition || state.savedRepetitionMessage != null) return
+        val targetIdx = state.targetMoveIndex
+        val analyzed = analyzedMoves.firstOrNull { it.moveIndex == targetIdx }
+        val mistake = mistakes.firstOrNull { it.moveNumber == state.moveNumber && it.color == state.moverColor }
+        val gameId = currentGame?.id
+
+        retryState.value = state.copy(isSavingRepetition = true)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    GameReviewHelper.saveRetryPositionToRepetition(
+                        userId = userId,
+                        gameId = gameId,
+                        moveNumber = state.moveNumber,
+                        fenBefore = state.fenBefore,
+                        expectedBestRaw = state.expectedBestRaw,
+                        hintLevel = state.hintLevel,
+                        answerRevealedBeforeRetry = state.answerRevealedBeforeRetry,
+                        attemptsCount = state.attemptsCount,
+                        isPlayerMistake = state.isPlayerMistake,
+                        analyzedMove = analyzed,
+                        mistake = mistake,
+                        exerciseRepository = exerciseRepository
+                    )
+                }.getOrNull()
+            }
+            val current = retryState.value ?: return@launch
+            if (current.targetMoveIndex != targetIdx) return@launch
+            retryState.value = if (result != null) {
+                val note = if (result.recordedAssistedAttempt) {
+                    "Сохранено к повторению (с учётом подсказки — скоро вернётся)"
+                } else if (result.createdNew) {
+                    "Позиция сохранена в личный тренажёр к повторению"
+                } else {
+                    "Позиция уже есть в вашем списке повторения"
+                }
+                current.copy(
+                    isSavingRepetition = false,
+                    savedRepetitionMessage = note,
+                    savedExerciseId = result.exercise.id
+                )
+            } else {
+                current.copy(
+                    isSavingRepetition = false,
+                    savedRepetitionMessage = "Не удалось сохранить позицию"
+                )
+            }
+        }
     }
 
     fun requestRetryHint() {

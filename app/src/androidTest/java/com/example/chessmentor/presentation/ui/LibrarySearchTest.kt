@@ -21,6 +21,7 @@ import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.StatsPeriod
 import com.example.chessmentor.presentation.ui.components.screen.GameCard
 import com.example.chessmentor.presentation.ui.components.screen.GamesListScreen
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
@@ -184,5 +185,48 @@ class LibrarySearchTest {
         ui.onNodeWithText("Показать все партии").assertDoesNotExist()
         visibleText("Импортировать партии").performClick()
         ui.runOnIdle { assertEquals(1, imports) }
+    }
+
+    @Test fun incomingPeriodAndColorFilterFromStatsMatchesOnlyRecentGamesAndResetsCleanly() {
+        val now = System.currentTimeMillis()
+        val recentBlack = Game(
+            id = 101,
+            userId = 1,
+            playedAt = now - 2 * 86_400_000L,
+            playerColor = ChessColor.BLACK,
+            pgnData = "[Event \"Blitz\"]\n[White \"RecentRival\"]\n[Black \"Tester\"]\n[Opening \"French Defense\"]\n[Result \"0-1\"]\n\n1. e4 e6 0-1"
+        )
+        val oldBlack = recentBlack.copy(
+            id = 102,
+            playedAt = now - 40 * 86_400_000L,
+            pgnData = "[Event \"Blitz\"]\n[White \"OldRival\"]\n[Black \"Tester\"]\n[Opening \"French Defense\"]\n[Result \"0-1\"]\n\n1. e4 e6 0-1"
+        )
+        val undatedBlack = recentBlack.copy(
+            id = 103,
+            playedAt = 0L,
+            pgnData = "[Event \"Blitz\"]\n[White \"UndatedRival\"]\n[Black \"Tester\"]\n[Opening \"French Defense\"]\n[Result \"0-1\"]\n\n1. e4 e6 0-1"
+        )
+        model.userGames.addAll(listOf(recentBlack, oldBlack, undatedBlack))
+        ui.setContent {
+            GamesListScreen(
+                paddingValues = PaddingValues(),
+                gameViewModel = model,
+                container = container,
+                onGameClick = {},
+                initialSearchQuery = "French",
+                initialColorFilter = ChessColor.BLACK,
+                initialPeriodFilter = StatsPeriod.LAST_7_DAYS
+            )
+        }
+
+        visibleText("Период: 7 дней").assertIsDisplayed()
+        visibleText("Показано: 1 из 3 · Сначала новые").assertIsDisplayed()
+        visibleText("RecentRival").assertIsDisplayed()
+        ui.onNodeWithText("OldRival").assertDoesNotExist()
+        ui.onNodeWithText("UndatedRival").assertDoesNotExist()
+
+        visibleText("Показать все партии").performClick()
+        visibleText("RecentRival").assertIsDisplayed()
+        visibleText("OldRival").assertIsDisplayed()
     }
 }

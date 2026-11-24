@@ -24,6 +24,7 @@ import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.session.SessionState
+import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.StatsPeriod
 import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.usecase.LoginUserUseCase
 import com.example.chessmentor.domain.usecase.RegisterUserUseCase
@@ -68,6 +69,7 @@ fun ChessMentorApp(
     var pendingTrainingModeKey by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingGamesSearchQuery by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingGamesColorKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingGamesPeriodKey by rememberSaveable { mutableStateOf<String?>(null) }
     var trainingReturnScreen by rememberSaveable { mutableStateOf<String?>(null) }
     var uploadReturnScreen by rememberSaveable { mutableStateOf("games") }
     var summaryReturnScreen by rememberSaveable { mutableStateOf("games") }
@@ -189,6 +191,9 @@ fun ChessMentorApp(
             pendingGamesColor = pendingGamesColorKey?.let { key ->
                 ChessColor.entries.firstOrNull { it.name == key }
             },
+            pendingGamesPeriod = pendingGamesPeriodKey?.let { key ->
+                StatsPeriod.entries.firstOrNull { it.name == key }
+            },
             currentUser = currentUser,
             gameViewModel = gameViewModel,
             boardViewModel = boardViewModel,
@@ -256,15 +261,17 @@ fun ChessMentorApp(
             onTrainingModeConsumed = {
                 pendingTrainingModeKey = null
             },
-            onOpenGamesWithFilter = { query, color ->
+            onOpenGamesWithFilter = { query, color, period ->
                 pendingGamesSearchQuery = query
                 pendingGamesColorKey = color?.name
+                pendingGamesPeriodKey = period.name
                 currentScreen = "games"
-                Log.d(TAG, "Open games library filtered by query='$query' color=$color")
+                Log.d(TAG, "Open games library filtered by query='$query' color=$color period=$period")
             },
             onGamesFilterConsumed = {
                 pendingGamesSearchQuery = null
                 pendingGamesColorKey = null
+                pendingGamesPeriodKey = null
             },
             onOpenGameSummaryById = { fromScreen, gameId ->
                 val cached = gameViewModel.userGames.firstOrNull { it.id == gameId }
@@ -573,6 +580,7 @@ private fun NavigationHost(
     pendingTrainingModeKey: String?,
     pendingGamesSearchQuery: String?,
     pendingGamesColor: ChessColor?,
+    pendingGamesPeriod: StatsPeriod?,
     currentUser: User?,
     gameViewModel: GameViewModel,
     boardViewModel: BoardViewModel,
@@ -596,7 +604,7 @@ private fun NavigationHost(
     onReturnToGameFromTraining: (() -> Unit)?,
     onDueReviewCountChange: (Int) -> Unit,
     onTrainingModeConsumed: () -> Unit,
-    onOpenGamesWithFilter: (query: String, color: ChessColor?) -> Unit,
+    onOpenGamesWithFilter: (query: String, color: ChessColor?, period: StatsPeriod) -> Unit,
     onGamesFilterConsumed: () -> Unit,
     onOpenGameSummaryById: (fromScreen: String, gameId: Long) -> Unit,
     onOpenGameAtMove: (fromScreen: String, gameId: Long, moveIndex: Int?) -> Unit,
@@ -709,7 +717,8 @@ private fun NavigationHost(
                 onOpenEngineSettings = { onOpenEngineSettings("games") },
                 initialSearchQuery = pendingGamesSearchQuery,
                 initialColorFilter = pendingGamesColor,
-                onInitialFilterConsumed = onGamesFilterConsumed
+                onInitialFilterConsumed = onGamesFilterConsumed,
+                initialPeriodFilter = pendingGamesPeriod
             )
         }
 
@@ -729,7 +738,8 @@ private fun NavigationHost(
                     onPracticeMistake = { gameId, moveNumber ->
                         onOpenGameMistakeTraining("game_view", gameId, moveNumber)
                     },
-                    onNavigateBack = onNavigateBack
+                    onNavigateBack = onNavigateBack,
+                    exerciseRepository = container.exerciseRepository
                 )
             } else {
                 LaunchedEffect(Unit) {
@@ -834,8 +844,8 @@ private fun NavigationHost(
                     onStartTraining = { mode ->
                         onOpenTrainingWithMode(mode)
                     },
-                    onOpenGamesLibrary = { query, color ->
-                        onOpenGamesWithFilter(query, color)
+                    onOpenGamesLibrary = { query, color, period ->
+                        onOpenGamesWithFilter(query, color, period)
                     },
                     onOpenGameById = { gameId ->
                         onOpenGameSummaryById("stats", gameId)

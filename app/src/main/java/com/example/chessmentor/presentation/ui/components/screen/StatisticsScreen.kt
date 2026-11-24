@@ -98,7 +98,7 @@ fun StatisticsScreen(
     container: AppContainer,
     onPracticeWeakPatterns: (() -> Unit)? = null,
     onStartTraining: ((TrainingMode) -> Unit)? = null,
-    onOpenGamesLibrary: ((query: String, color: ChessColor?) -> Unit)? = null,
+    onOpenGamesLibrary: ((query: String, color: ChessColor?, period: StatsPeriod) -> Unit)? = null,
     onOpenGameById: ((Long) -> Unit)? = null,
     onNavigateToUpload: (() -> Unit)? = null,
     onOpenTimeTroubleEpisode: ((gameId: Long, moveIndex: Int?) -> Unit)? = null
@@ -132,6 +132,9 @@ fun StatisticsScreen(
         retry = statisticsViewModel::refresh
     ) { stats ->
         val report = stats.gameAnalytics
+        val periodOpenGamesLibrary = onOpenGamesLibrary?.let { fn ->
+            { query: String, color: ChessColor? -> fn(query, color, stats.period) }
+        }
         val emptyPeriod = stats.totalGames == 0 && stats.totalGamesAllTime > 0 && stats.period != StatsPeriod.ALL
         // ==================== ВКЛАДКИ РАЗДЕЛОВ ====================
         item(key = "section_tabs") {
@@ -165,8 +168,9 @@ fun StatisticsScreen(
                     item(key = "coaching_plan") {
                         CoachingPlanCard(
                             actions = stats.coachingActions,
+                            analyzedGamesCount = stats.analyzedGames,
                             onStartTraining = launchTraining,
-                            onOpenGamesLibrary = onOpenGamesLibrary,
+                            onOpenGamesLibrary = periodOpenGamesLibrary,
                             onOpenGameById = onOpenGameById
                         )
                     }
@@ -284,7 +288,7 @@ fun StatisticsScreen(
                                 color = repertoireColor,
                                 best = bestForColor,
                                 weakest = weakestForColor,
-                                onOpenLibrary = onOpenGamesLibrary
+                                onOpenLibrary = periodOpenGamesLibrary
                             )
                         }
                     }
@@ -299,8 +303,9 @@ fun StatisticsScreen(
                         OpeningLinesListCard(
                             color = repertoireColor,
                             lines = activeLines,
-                            onOpenLibrary = onOpenGamesLibrary,
-                            onOpenGameById = onOpenGameById
+                            onOpenLibrary = periodOpenGamesLibrary,
+                            onOpenGameById = onOpenGameById,
+                            period = stats.period
                         )
                     }
 
@@ -308,7 +313,7 @@ fun StatisticsScreen(
                         item(key = "eco_families") {
                             EcoVolumesCard(
                                 families = report.repertoire.ecoFamilies,
-                                onSearchEco = onOpenGamesLibrary?.let { fn -> { code -> fn(code, null) } }
+                                onSearchEco = periodOpenGamesLibrary?.let { fn -> { code -> fn(code, null) } }
                             )
                         }
                     }
@@ -778,6 +783,7 @@ private fun SummaryMetric(label: String, detail: String? = null) {
 @Composable
 private fun CoachingPlanCard(
     actions: List<CoachingAction>,
+    analyzedGamesCount: Int = 0,
     onStartTraining: ((TrainingMode) -> Unit)?,
     onOpenGamesLibrary: ((query: String, color: ChessColor?) -> Unit)?,
     onOpenGameById: ((Long) -> Unit)?
@@ -806,11 +812,33 @@ private fun CoachingPlanCard(
                 )
             }
 
+            if (analyzedGamesCount in 1..4) {
+                Text(
+                    text = "Выборка пока мала ($analyzedGamesCount разобр.) — рекомендации уточнятся по мере анализа новых партий.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             actions.forEachIndexed { idx, action ->
                 if (idx > 0) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (idx == 0) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                        ) {
+                            Text(
+                                text = "Главный следующий шаг",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
                     Text(
                         text = action.title,
                         style = MaterialTheme.typography.bodyMedium,
@@ -1773,7 +1801,7 @@ private fun DailyActivityCard(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Партий: $totalGames14 · Решено задач: $totalSolved14",
+                        text = "Сыграно по дате PGN: $totalGames14 · Решено задач: $totalSolved14",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2100,7 +2128,8 @@ private fun OpeningLinesListCard(
     color: ChessColor,
     lines: List<OpeningLineStat>,
     onOpenLibrary: ((query: String, color: ChessColor?) -> Unit)?,
-    onOpenGameById: ((Long) -> Unit)?
+    onOpenGameById: ((Long) -> Unit)?,
+    period: StatsPeriod = StatsPeriod.ALL
 ) {
     val sideTitle = if (color == ChessColor.WHITE) "Репертуар белыми" else "Репертуар чёрными"
     var expandedKey by remember(color) { mutableStateOf<String?>(null) }
@@ -2138,7 +2167,8 @@ private fun OpeningLinesListCard(
                         onOpenLibrary = onOpenLibrary?.let { fn -> { fn(line.searchQuery, color) } },
                         onOpenLatestGame = line.latestGameId?.let { gid ->
                             onOpenGameById?.let { fn -> { fn(gid) } }
-                        }
+                        },
+                        period = period
                     )
                 }
             }
@@ -2153,7 +2183,8 @@ private fun OpeningLineItem(
     expanded: Boolean,
     onToggle: () -> Unit,
     onOpenLibrary: (() -> Unit)?,
-    onOpenLatestGame: (() -> Unit)?
+    onOpenLatestGame: (() -> Unit)?,
+    period: StatsPeriod = StatsPeriod.ALL
 ) {
     Column(
         modifier = Modifier
@@ -2290,7 +2321,14 @@ private fun OpeningLineItem(
                             ) {
                                 Icon(Icons.Default.Search, contentDescription = "Все партии", modifier = Modifier.size(15.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("Все партии (${line.gamesCount})", style = MaterialTheme.typography.labelMedium)
+                                Text(
+                                    text = if (period == StatsPeriod.ALL) {
+                                        "Все партии (${line.gamesCount})"
+                                    } else {
+                                        "Партии за период (${line.gamesCount})"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium
+                                )
                             }
                         }
                         if (onOpenLatestGame != null) {

@@ -14,7 +14,10 @@ import androidx.compose.ui.unit.dp
 import com.example.chessmentor.domain.entity.*
 import com.example.chessmentor.presentation.ui.components.CompactMistakeCard
 import com.example.chessmentor.presentation.ui.components.screen.AnalyzedMoveInfoCard
+import com.example.chessmentor.presentation.ui.components.screen.RetryMistakePanel
+import com.example.chessmentor.presentation.viewmodel.RetryMistakeUiState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -93,5 +96,39 @@ class MistakeDisclosureTest {
         if (savedMistake) ui.onNodeWithText("В тренажёр").performScrollTo().performClick()
         else ui.onNodeWithText("В тренажёр").assertDoesNotExist()
         ui.runOnIdle { assertEquals(if (savedMistake) listOf("retry", "engine", "trainer") else listOf("retry", "engine"), calls) }
+    }
+
+    @Test fun solvedRetryPanelOffersSaveToRepetitionWithAssistedDisclosure() {
+        var saveClicked = false
+        ui.setContent {
+            Box(Modifier.width(320.dp).verticalScroll(rememberScrollState())) {
+                RetryMistakePanel(
+                    state = RetryMistakeUiState(
+                        targetMoveIndex = 4,
+                        moveNumber = 3,
+                        moverColor = ChessColor.WHITE,
+                        isPlayerMistake = true,
+                        fenBefore = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+                        playedSan = "Qh5",
+                        expectedBestRaw = "Nf3",
+                        expectedBestSan = "Nf3",
+                        hintLevel = 1,
+                        isSolved = true,
+                        attemptsCount = 1,
+                        feedback = "Верно!",
+                        answerRevealedBeforeRetry = true
+                    ),
+                    onHint = {},
+                    onShowLine = null,
+                    onPracticeInTrainer = null,
+                    onContinueGame = {},
+                    onCancel = {},
+                    onSaveToRepetition = { saveClicked = true }
+                )
+            }
+        }
+        ui.onNodeWithText("без зачёта самостоятельности", substring = true).assertIsDisplayed()
+        ui.onNodeWithText("Сохранить к повторению").performScrollTo().assertIsDisplayed().performClick()
+        assertTrue(saveClicked)
     }
 }

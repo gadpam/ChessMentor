@@ -46,6 +46,7 @@ import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.MoveQuality
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnParser
+import com.example.chessmentor.domain.repository.ExerciseRepository
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.example.chessmentor.presentation.ui.components.*
@@ -74,7 +75,8 @@ fun GameViewScreen(
     chessEngine: ChessEngine? = null,
     onOpenSummary: (() -> Unit)? = null,
     onPracticeMistake: ((gameId: Long, moveNumber: Int) -> Unit)? = null,
-    onNavigateBack: (() -> Unit)? = null
+    onNavigateBack: (() -> Unit)? = null,
+    exerciseRepository: ExerciseRepository? = null
 ) {
     val game by gameViewModel.selectedGame
 
@@ -100,7 +102,8 @@ fun GameViewScreen(
             chessEngine = chessEngine,
             onOpenSummary = onOpenSummary,
             onPracticeMistake = onPracticeMistake,
-            onNavigateBack = onNavigateBack
+            onNavigateBack = onNavigateBack,
+            exerciseRepository = exerciseRepository
         )
     }
 }
@@ -115,7 +118,8 @@ private fun GameViewScreenContent(
     chessEngine: ChessEngine?,
     onOpenSummary: (() -> Unit)?,
     onPracticeMistake: ((gameId: Long, moveNumber: Int) -> Unit)?,
-    onNavigateBack: (() -> Unit)?
+    onNavigateBack: (() -> Unit)?,
+    exerciseRepository: ExerciseRepository?
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -427,7 +431,11 @@ private fun GameViewScreenContent(
                     } else {
                         null
                     },
-                    onPracticeInTrainer = if (activeRetry.isPlayerMistake && gameId != null && onPracticeMistake != null) {
+                    onPracticeInTrainer = if (
+                        (activeRetry.isPlayerMistake || activeRetry.savedExerciseId != null) &&
+                        gameId != null &&
+                        onPracticeMistake != null
+                    ) {
                         { onPracticeMistake(gameId, activeRetry.moveNumber) }
                     } else {
                         null
@@ -438,6 +446,11 @@ private fun GameViewScreenContent(
                     },
                     onCancel = {
                         boardViewModel.exitRetryMode(advanceToNext = false)
+                    },
+                    onSaveToRepetition = if (activeRetry.isSolved && user?.id != null && exerciseRepository != null) {
+                        { boardViewModel.saveSolvedRetryToRepetition(user.id, exerciseRepository) }
+                    } else {
+                        null
                     }
                 )
             }
@@ -469,7 +482,7 @@ private fun GameViewScreenContent(
                     clockSeconds = currentMoveClock,
                     onRevealAnswer = revealAnswer,
                     onRetryMove = if (canRetry) {
-                        { boardViewModel.startRetryCurrentMove() }
+                        { boardViewModel.startRetryCurrentMove(answerWasRevealed = answerRevealed) }
                     } else {
                         null
                     },
@@ -500,7 +513,7 @@ private fun GameViewScreenContent(
                     clockSeconds = currentMoveClock,
                     onRevealAnswer = revealAnswer,
                     onRetryMove = if (canRetry) {
-                        { boardViewModel.startRetryCurrentMove() }
+                        { boardViewModel.startRetryCurrentMove(answerWasRevealed = answerRevealed) }
                     } else {
                         null
                     },
@@ -1169,7 +1182,8 @@ internal fun RetryMistakePanel(
     onShowLine: (() -> Unit)?,
     onPracticeInTrainer: (() -> Unit)?,
     onContinueGame: () -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    onSaveToRepetition: (() -> Unit)? = null
 ) {
     val containerColor = if (state.isSolved) {
         LocalChessPalette.current.positive.copy(alpha = 0.14f)
@@ -1217,6 +1231,47 @@ internal fun RetryMistakePanel(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface
             )
+
+            if (state.isSolved) {
+                val assistedNote = state.hintLevel > 0 || state.answerRevealedBeforeRetry
+                when {
+                    state.savedRepetitionMessage != null -> {
+                        Text(
+                            text = state.savedRepetitionMessage,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    onSaveToRepetition != null -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            OutlinedButton(
+                                onClick = onSaveToRepetition,
+                                enabled = !state.isSavingRepetition,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                            ) {
+                                Text(
+                                    if (state.isSavingRepetition) {
+                                        "Сохраняем позицию..."
+                                    } else {
+                                        "Сохранить к повторению"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
+                            if (assistedNote) {
+                                Text(
+                                    text = "Решение было показано или подсказано — запишется для скорого повтора без зачёта самостоятельности.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             var more by remember(state.targetMoveIndex, state.isSolved) { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

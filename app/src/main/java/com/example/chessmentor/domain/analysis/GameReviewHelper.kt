@@ -4,11 +4,19 @@ package com.example.chessmentor.domain.analysis
 import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
+import com.example.chessmentor.domain.entity.Exercise
+import com.example.chessmentor.domain.entity.ExerciseAttempt
+import com.example.chessmentor.domain.entity.ExerciseSource
 import com.example.chessmentor.domain.entity.KeyMoment
 import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.MoveQuality
 import com.example.chessmentor.domain.entity.PredefinedThemes
+import com.example.chessmentor.domain.entity.TacticalPattern
+import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.pgn.PgnParser
+import com.example.chessmentor.domain.repository.ExerciseRepository
+import com.example.chessmentor.domain.training.AttemptMetadata
+import com.example.chessmentor.domain.training.HintUsage
 import com.example.chessmentor.domain.training.PuzzleQualityEvaluator
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.github.bhlangonijr.chesslib.Board
@@ -720,4 +728,124 @@ object GameReviewHelper {
         MoveQuality.GREAT_MOVE,
         MoveQuality.BEST_MOVE
     )
+
+    data class RetryExerciseSaveResult(
+        val exercise: Exercise,
+        val createdNew: Boolean,
+        val recordedAssistedAttempt: Boolean
+    )
+
+    /**
+     * Сохраняет позицию из интерактивного режима «Исправить ошибку» в персональную очередь
+     * интервального повторения без дублирования уже существующего упражнения и с честным
+     * учётом подсказок/показанного ответа (не выдавая повтор ответа за самостоятельное решение).
+     */
+    suspend fun saveRetryPositionToRepetition(
+        userId: Long,
+        gameId: Long?,
+        moveNumber: Int,
+        fenBefore: String,
+        expectedBestRaw: String,
+        hintLevel: Int,
+        answerRevealedBeforeRetry: Boolean,
+        attemptsCount: Int,
+        isPlayerMistake: Boolean,
+        analyzedMove: AnalyzedMove?,
+        mistake: Mistake?,
+        exerciseRepository: ExerciseRepository,
+        nowMs: Long = System.currentTimeMillis()
+    ): RetryExerciseSaveResult? {
+        if (userId <= 0L || fenBefore.isBlank()) return null
+        val bestUci = ChessMoveUtils.sanOrUciToUci(expectedBestRaw, fenBefore) ?: return null
+
+        val existing = if (gameId != null && gameId > 0L && isPlayerMistake) {
+            exerciseRepository.findBySourceGameAndMove(gameId, moveNumber)
+        } else {
+            null
+        } ?: exerciseRepository.findUserExerciseByFen(userId, fenBefore)
+
+        val exercise = if (existing != null) {
+            existing
+        } else {
+            val pattern = patternForRetryPosition(mistake, moveNumber)
+            val theme = themeForPattern(pattern)
+            val loss = mistake?.evaluationLoss ?: analyzedMove?.evalLoss ?: 150
+            val diff = when {
+                loss >= 400 -> 45
+                loss >= 200 -> 55
+                else -> 65
+            }
+            exerciseRepository.saveExercise(
+                Exercise(
+                    fenPosition = fenBefore,
+                    solutionMoves = listOf(bestUci),
+                    tacticalPattern = pattern,
+                    patternClusterId = "${pattern.name}_MEDIUM",
+                    difficultyRating = diff,
+                    theme = theme,
+                    createdFrom = ExerciseSource.MISTAKE,
+                    sourceGameId = gameId,
+                    sourceMoveNumber = moveNumber,
+                    createdAt = nowMs
+                )
+            )
+        }
+
+        val savedId = exercise.id
+        val solutionWasShown = answerRevealedBeforeRetry || hintLevel >= 2
+        val hintUsage = when {
+            solutionWasShown -> HintUsage.FULL_SOLUTION
+            hintLevel == 1 -> HintUsage.PIECE_HIGHLIGHT
+            else -> HintUsage.NONE
+        }
+        val retries = (attemptsCount - 1).coerceAtLeast(0)
+        val recordedAssisted = savedId != null && (solutionWasShown || hintUsage != HintUsage.NONE || retries > 0)
+
+        if (recordedAssisted && savedId != null) {
+            val taggedMoves = AttemptMetadata.buildTaggedMoves(
+                rawUciMoves = listOf(bestUci),
+                hintUsage = hintUsage,
+                retryCount = retries,
+                solutionRevealed = solutionWasShown
+            )
+            exerciseRepository.saveAttempt(
+                ExerciseAttempt(
+                    userId = userId,
+                    exerciseId = savedId,
+                    solved = true,
+                    timeSpentSeconds = 2,
+                    movesMade = taggedMoves,
+                    attemptedAt = nowMs
+                )
+            )
+        }
+
+        return RetryExerciseSaveResult(
+            exercise = exercise,
+            createdNew = existing == null,
+            recordedAssistedAttempt = recordedAssisted
+        )
+    }
+
+    private fun patternForRetryPosition(mistake: Mistake?, moveNumber: Int): TacticalPattern {
+        val themeId = mistake?.themeId
+        return when (themeId) {
+            1L -> TacticalPattern.FORK_KNIGHT
+            2L -> TacticalPattern.PIN_RELATIVE
+            3L -> TacticalPattern.SKEWER
+            4L -> TacticalPattern.DISCOVERED_ATTACK
+            5L, 7L -> TacticalPattern.BACK_RANK_MATE
+            14L, 15L -> TacticalPattern.ENDGAME_TECHNIQUE
+            16L, 17L -> TacticalPattern.DEFENSIVE_MOVE
+            else -> if (moveNumber >= 35) TacticalPattern.ENDGAME_TECHNIQUE else TacticalPattern.CALCULATION
+        }
+    }
+
+    private fun themeForPattern(pattern: TacticalPattern): TacticalTheme = when {
+        pattern.name.startsWith("FORK") -> TacticalTheme.FORK
+        pattern.name.startsWith("PIN") || pattern == TacticalPattern.SKEWER -> TacticalTheme.PIN
+        pattern.name.startsWith("DISCOVERED") -> TacticalTheme.DISCOVERED_ATTACK
+        "MATE" in pattern.name -> TacticalTheme.MATE
+        else -> TacticalTheme.TACTIC
+    }
 }
