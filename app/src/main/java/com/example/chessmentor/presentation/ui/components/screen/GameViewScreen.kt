@@ -194,12 +194,23 @@ private fun GameViewScreenContent(
     val currentEvaluation = boardViewModel.getCurrentEvaluation()
     val currentMistake = boardViewModel.getCurrentMistake()
     val currentAnalyzedMove = boardViewModel.getCurrentAnalyzedMove()
-    val canRetry = boardViewModel.canRetryCurrentMove()
+    val totalMoves = boardViewModel.getTotalMoves()
+    val canRetry = remember(
+        game.id,
+        game.pgnData,
+        currentMoveIndex,
+        totalMoves,
+        analyzedMoves.size,
+        mistakes.size,
+        isInVariation,
+        retryState != null
+    ) {
+        boardViewModel.canRetryCurrentMove()
+    }
     var answerRevealed by remember(game.id, game.pgnData, currentMoveIndex, retryState != null) { mutableStateOf(false) }
     val concealAnswer = canRetry && !answerRevealed
     val revealAnswer: (() -> Unit)? = if (concealAnswer) ({ answerRevealed = true }) else null
     val displayedMoves = boardViewModel.sanMoves.toList()
-    val totalMoves = boardViewModel.getTotalMoves()
     val hasRealEvaluations = boardViewModel.hasRealEvaluations() || engineLine?.evalWhiteCp != null
     val currentMoveClock = boardViewModel.getCurrentMoveClock()
     val fenBeforeCurrent = remember(currentMoveIndex, totalMoves) {
@@ -421,12 +432,20 @@ private fun GameViewScreenContent(
                     onShowLine = if (chessEngine != null && activeRetry.isSolved) {
                         {
                             val idx = activeRetry.targetMoveIndex
+                            val wasPlayerMistake = activeRetry.isPlayerMistake
                             boardViewModel.exitRetryMode(advanceToNext = false)
                             boardViewModel.goToMove(idx)
-                            boardViewModel.analyzeBestAlternativeForCurrentMove(
-                                chessEngine,
-                                isEngineBusy = isBackgroundAnalyzing
-                            )
+                            if (wasPlayerMistake) {
+                                boardViewModel.analyzeBestAlternativeForCurrentMove(
+                                    chessEngine,
+                                    isEngineBusy = isBackgroundAnalyzing
+                                )
+                            } else {
+                                boardViewModel.analyzeCurrentPosition(
+                                    chessEngine,
+                                    isEngineBusy = isBackgroundAnalyzing
+                                )
+                            }
                         }
                     } else {
                         null
@@ -436,7 +455,12 @@ private fun GameViewScreenContent(
                         gameId != null &&
                         onPracticeMistake != null
                     ) {
-                        { onPracticeMistake(gameId, activeRetry.moveNumber) }
+                        {
+                            onPracticeMistake(
+                                gameId,
+                                if (activeRetry.isPlayerMistake) activeRetry.moveNumber else null
+                            )
+                        }
                     } else {
                         null
                     },
@@ -500,7 +524,8 @@ private fun GameViewScreenContent(
                         { onPracticeMistake(gameId, currentMistake.moveNumber) }
                     } else {
                         null
-                    }
+                    },
+                    isPlayerMove = isPlayerMistake
                 )
             }
 
@@ -1212,10 +1237,15 @@ internal fun RetryMistakePanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (state.isSolved) {
-                        "Ошибка на ${state.moveNumber}-м ходу исправлена!"
-                    } else {
-                        "Исправьте ход ${state.moveNumber}"
+                    text = when {
+                        state.isSolved && state.isPlayerMistake ->
+                            "Ошибка на ${state.moveNumber}-м ходу исправлена!"
+                        state.isSolved ->
+                            "Ответ на ${state.moveNumber}-м ходу найден!"
+                        state.isPlayerMistake ->
+                            "Исправьте ход ${state.moveNumber}"
+                        else ->
+                            "Ответ на ошибку (${state.moveNumber})"
                     },
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
@@ -1583,7 +1613,13 @@ internal fun AnalyzedMoveInfoCard(
                 answerConcealed = onRevealAnswer != null
             )
 
-            MistakeReviewActions(onRetryMove, onRevealAnswer, onShowEngineLine, onPracticeInTrainer)
+            MistakeReviewActions(
+                onRetryMove = onRetryMove,
+                onRevealAnswer = onRevealAnswer,
+                onShowEngineLine = onShowEngineLine,
+                onPracticeInTrainer = onPracticeInTrainer,
+                isPlayerMove = isPlayerMove
+            )
         }
     }
 }

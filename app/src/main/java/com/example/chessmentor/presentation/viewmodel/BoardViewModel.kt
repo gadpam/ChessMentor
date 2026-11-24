@@ -55,7 +55,8 @@ data class RetryMistakeUiState(
     val answerRevealedBeforeRetry: Boolean = false,
     val isSavingRepetition: Boolean = false,
     val savedRepetitionMessage: String? = null,
-    val savedExerciseId: Long? = null
+    val savedExerciseId: Long? = null,
+    val playedMistakeNotation: String? = if (isPlayerMistake) playedSan else null
 )
 
 /**
@@ -427,69 +428,65 @@ class BoardViewModel : ViewModel() {
 
     // ==================== ИНТЕРАКТИВНЫЙ РЕЖИМ «ИСПРАВИТЬ ОШИБКУ» ====================
 
+    private fun resolveRetrySetupForCurrentMove(
+        idx: Int = currentMoveIndex.intValue
+    ): GameReviewHelper.RetryChallengeSetup? {
+        if (idx < 0 || idx >= moves.size) return null
+        return GameReviewHelper.resolveRetryChallengeSetup(
+            targetMoveIndex = idx,
+            playerColor = playerColor,
+            fenBeforeMove = getFenBeforeMove(idx),
+            fenAfterMove = fensAfterPly.getOrNull(idx),
+            playedSan = sanMoves.getOrElse(idx) { "" },
+            analyzedMoves = analyzedMoves,
+            mistakes = mistakes,
+            sanMoves = sanMoves,
+            firstMoveIsWhite = firstMoveIsWhite,
+            startMoveNumber = startMoveNumber
+        )
+    }
+
     fun canRetryCurrentMove(): Boolean {
         if (isInVariation() || isInRetryMode()) return false
-        val idx = currentMoveIndex.intValue
-        if (idx < 0 || idx >= moves.size) return false
-        val mistake = getCurrentMistake()
-        if (mistake != null && mistake.bestMove.isNotBlank() && mistake.bestMove != mistake.userMove) {
-            return true
-        }
-        val analyzed = getCurrentAnalyzedMove()
-        return analyzed != null &&
-            analyzed.isMistake() &&
-            !analyzed.bestMove.isNullOrBlank() &&
-            analyzed.bestMove != analyzed.san
+        return resolveRetrySetupForCurrentMove() != null
     }
 
     fun startRetryCurrentMove(answerWasRevealed: Boolean = false) {
         val idx = currentMoveIndex.intValue
-        if (idx < 0 || idx >= moves.size) return
-
-        val mistake = getCurrentMistake()
-        val analyzed = getCurrentAnalyzedMove()
-        val rawBest = mistake?.bestMove?.takeIf { it.isNotBlank() }
-            ?: analyzed?.bestMove?.takeIf { it.isNotBlank() }
-            ?: return
-
-        val fenBefore = getFenBeforeMove(idx)
-        val bestUci = ChessMoveUtils.sanOrUciToUci(rawBest, fenBefore) ?: return
-        val bestSan = ChessMoveUtils.uciToSan(bestUci, fenBefore)
-
-        val isWhite = if (firstMoveIsWhite) idx % 2 == 0 else idx % 2 != 0
-        val moverColor = analyzed?.color ?: mistake?.color ?: if (isWhite) ChessColor.WHITE else ChessColor.BLACK
-        val moveNo = analyzed?.moveNumber ?: mistake?.moveNumber
-            ?: (startMoveNumber + ((idx + if (firstMoveIsWhite) 0 else 1) / 2))
-        val playedSan = sanMoves.getOrElse(idx) { analyzed?.san ?: mistake?.userMove.orEmpty() }
-        val isPlayer = moverColor == playerColor
+        val setup = resolveRetrySetupForCurrentMove(idx) ?: return
 
         cancelEngineJobs()
         engineLineState.value = null
         variationSteps.clear()
         variationAnchorIndex.intValue = -1
 
-        // Откатываем доску на позицию ДО ошибки и подсвечиваем предшествующий ход соперника
-        board.value = boardFromFen(fenBefore)
-        lastMove.value = lastMovesByPly.getOrNull(idx - 1)
+        board.value = boardFromFen(setup.fenToPlay)
+        lastMove.value = if (setup.isPlayerMistake) {
+            lastMovesByPly.getOrNull(idx - 1)
+        } else {
+            lastMovesByPly.getOrNull(idx)
+        }
         highlightedSquares.value = emptySet()
 
-        val prompt = if (isPlayer) {
-            "В партии вы сыграли $playedSan. Найдите сильнейший ход за ${if (moverColor == ChessColor.WHITE) "белых" else "чёрных"}!"
+        val sideText = if (playerColor == ChessColor.WHITE) "белых" else "чёрных"
+        val prompt = if (setup.isPlayerMistake) {
+            "В партии вы сыграли ${setup.playedSan}. Найдите сильнейший ход за $sideText!"
         } else {
-            "Соперник ошибся ходом $playedSan. Найдите лучший ход за ${if (moverColor == ChessColor.WHITE) "белых" else "чёрных"}!"
+            "Соперник ошибся ходом ${setup.playedSan}. Найдите лучший ответ за $sideText!"
         }
 
         retryState.value = RetryMistakeUiState(
             targetMoveIndex = idx,
-            moveNumber = moveNo,
-            moverColor = moverColor,
-            isPlayerMistake = isPlayer,
-            fenBefore = fenBefore,
-            playedSan = playedSan,
-            expectedBestRaw = rawBest,
-            expectedBestSan = bestSan,
+            moveNumber = setup.moveNumber,
+            moverColor = setup.moverColor,
+            isPlayerMistake = setup.isPlayerMistake,
+            fenBefore = setup.fenToPlay,
+            playedSan = setup.playedSan,
+            expectedBestRaw = setup.expectedBestUci,
+            expectedBestSan = setup.expectedBestSan,
             feedback = prompt,
-            answerRevealedBeforeRetry = answerWasRevealed
+            answerRevealedBeforeRetry = answerWasRevealed,
+            playedMistakeNotation = setup.playedMistakeNotation
         )
     }
 
@@ -587,7 +584,7 @@ class BoardViewModel : ViewModel() {
             fenBefore = state.fenBefore,
             attemptedNotation = attemptedUci,
             expectedBestNotation = state.expectedBestRaw,
-            playedMistakeNotation = state.playedSan
+            playedMistakeNotation = state.playedMistakeNotation
         )
 
         val nextAttempts = state.attemptsCount + 1
@@ -894,6 +891,20 @@ class BoardViewModel : ViewModel() {
         )
     }
 
+    /**
+     * Запрашивает у Stockfish сильнейшую линию для текущей позиции на доске
+     * (например, для просмотра опровержения после ответа на ошибку соперника).
+     */
+    fun analyzeCurrentPosition(engine: ChessEngine, isEngineBusy: Boolean = false) {
+        cachedEngine = engine
+        requestEngineAnalysis(
+            engine = engine,
+            fen = board.value.fen,
+            isAlternativeBeforeMove = false,
+            isEngineBusy = isEngineBusy
+        )
+    }
+
     fun dismissEngineLine() {
         val wasAltBefore = engineLineState.value?.isAlternativeBeforeMove == true
         engineJob?.cancel()
@@ -1045,7 +1056,8 @@ class BoardViewModel : ViewModel() {
         }
         val retry = retryState.value
         if (retry != null && !retry.isSolved) {
-            return evaluations.getOrElse(retry.targetMoveIndex) { 0 }
+            val evalIdx = if (retry.isPlayerMistake) retry.targetMoveIndex else retry.targetMoveIndex + 1
+            return evaluations.getOrElse(evalIdx) { 0 }
         }
         return evaluations.getOrElse(currentMoveIndex.intValue + 1) { 0 }
     }

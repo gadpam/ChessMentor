@@ -385,6 +385,139 @@ class GameReviewHelperTest {
         assertEquals(0, card.box)
     }
 
+    @Test
+    fun extractFirstMoveAndResolveRetrySetup_punishesOpponentBlunderAfterHisMove_andRequiresContinuation() {
+        assertEquals("Kxh7", GameReviewHelper.extractFirstMoveFromLine("14... Kxh7 15. Qd3+"))
+        assertEquals("Nxd5", GameReviewHelper.extractFirstMoveFromLine("15. Nxd5."))
+        assertEquals("Qxh2#", GameReviewHelper.extractFirstMoveFromLine("14...Qxh2#"))
+        assertNull(GameReviewHelper.extractFirstMoveFromLine("..."))
+        assertNull(GameReviewHelper.extractFirstMoveFromLine(""))
+
+        // Позиции до и после 3. Bxf7+?? (ход 5, index = 4): белые отдают слона с шахом
+        val fenBeforeOpponentBlunder =
+            "rnbqkb1r/pppp1ppp/5n2/4p3/2B1P3/8/PPPP1PPP/RNBQK1NR w KQkq - 2 3"
+        val fenAfterOpponentBlunder =
+            "rnbqkb1r/pppp1Bpp/5n2/4p3/4P3/8/PPPP1PPP/RNBQK1NR b KQkq - 0 3"
+
+        val opponentBlunder = AnalyzedMove(
+            gameId = 1L,
+            moveIndex = 4,
+            moveNumber = 3,
+            color = ChessColor.WHITE,
+            quality = MoveQuality.BLUNDER,
+            san = "Bxf7+",
+            bestMove = "Nf3",
+            evalBefore = 15,
+            evalAfter = -340,
+            evalLoss = 355,
+            comment = "Зевок фигуры под удар короля. Сильнее: 3. Nf3 Nc6. Опровержение: 3... Kxf7 4. Nf3."
+        )
+        val playerMissedNext = AnalyzedMove(
+            gameId = 1L,
+            moveIndex = 5,
+            moveNumber = 3,
+            color = ChessColor.BLACK,
+            quality = MoveQuality.BLUNDER,
+            san = "Ke7",
+            bestMove = "Kxf7",
+            evalBefore = -340,
+            evalAfter = 20,
+            evalLoss = 360,
+            comment = "Упущен шанс наказать ошибку соперника! Сильнее: 3... Kxf7."
+        )
+
+        val setup = GameReviewHelper.resolveRetryChallengeSetup(
+            targetMoveIndex = 4,
+            playerColor = ChessColor.BLACK,
+            fenBeforeMove = fenBeforeOpponentBlunder,
+            fenAfterMove = fenAfterOpponentBlunder,
+            playedSan = "Bxf7+",
+            analyzedMoves = listOf(opponentBlunder, playerMissedNext),
+            mistakes = emptyList(),
+            sanMoves = listOf("e4", "e5", "Bc4", "Nf6", "Bxf7+", "Ke7")
+        )
+        assertNotNull(setup)
+        assertFalse(setup!!.isPlayerMistake)
+        assertEquals(ChessColor.WHITE, setup.moverColor)
+        // Стартовая позиция для игрока — строго ПОСЛЕ 3. Bxf7+ (чёрный король уже под шахом)
+        assertEquals(fenAfterOpponentBlunder, setup.fenToPlay)
+        assertEquals("e8f7", setup.expectedBestUci)
+        assertEquals("Kxf7", setup.expectedBestSan)
+        assertEquals("Ke7", setup.playedMistakeNotation)
+
+        // Ход 3... Ke7 из партии фиксируется как промах, а 3... Kxf7 засчитывается
+        val missedEval = GameReviewHelper.evaluateRetryAttempt(
+            fenBefore = setup.fenToPlay,
+            attemptedNotation = "e8e7",
+            expectedBestNotation = setup.expectedBestUci,
+            playedMistakeNotation = setup.playedMistakeNotation
+        )
+        assertEquals(GameReviewHelper.RetryVerdict.SAME_AS_GAME_MISTAKE, missedEval.verdict)
+
+        val winningEval = GameReviewHelper.evaluateRetryAttempt(
+            fenBefore = setup.fenToPlay,
+            attemptedNotation = "e8f7",
+            expectedBestNotation = setup.expectedBestUci,
+            playedMistakeNotation = setup.playedMistakeNotation
+        )
+        assertEquals(GameReviewHelper.RetryVerdict.EXACT_BEST, winningEval.verdict)
+
+        // Запасной путь без «Опровержение:» в комментарии — из следующего полухода игрока
+        val noCommentBlunder = opponentBlunder.copy(comment = "Грубый зевок! (-3.5). Сильнее: 3. Nf3.")
+        val fallbackSetup = GameReviewHelper.resolveRetryChallengeSetup(
+            targetMoveIndex = 4,
+            playerColor = ChessColor.BLACK,
+            fenBeforeMove = fenBeforeOpponentBlunder,
+            fenAfterMove = fenAfterOpponentBlunder,
+            playedSan = "Bxf7+",
+            analyzedMoves = listOf(noCommentBlunder, playerMissedNext),
+            mistakes = emptyList()
+        )
+        assertNotNull(fallbackSetup)
+        assertEquals("e8f7", fallbackSetup!!.expectedBestUci)
+
+        // Если нет ни «Опровержение:», ни проверенного продолжения на следующем полуходе — задача недоступна
+        val noContinuation = GameReviewHelper.resolveRetryChallengeSetup(
+            targetMoveIndex = 4,
+            playerColor = ChessColor.BLACK,
+            fenBeforeMove = fenBeforeOpponentBlunder,
+            fenAfterMove = fenAfterOpponentBlunder,
+            playedSan = "Bxf7+",
+            analyzedMoves = listOf(noCommentBlunder),
+            mistakes = emptyList()
+        )
+        assertNull(noContinuation)
+    }
+
+    @Test
+    fun saveRetryPositionToRepetition_forOpponentBlunder_leavesSourceMoveNumberNullToAvoidCollision() =
+        runBlocking {
+            val repo = InMemoryExerciseRepo()
+            val fenAfterOpponentBlunder =
+                "rnbqkb1r/pppp1Bpp/5n2/4p3/4P3/8/PPPP1PPP/RNBQK1NR b KQkq - 0 3"
+
+            val saved = GameReviewHelper.saveRetryPositionToRepetition(
+                userId = 1L,
+                gameId = 25L,
+                moveNumber = 3,
+                fenBefore = fenAfterOpponentBlunder,
+                expectedBestRaw = "e8f7",
+                hintLevel = 0,
+                answerRevealedBeforeRetry = false,
+                attemptsCount = 1,
+                isPlayerMistake = false,
+                analyzedMove = null,
+                mistake = null,
+                exerciseRepository = repo,
+                nowMs = 1_700_000_000_000L
+            )
+            assertNotNull(saved)
+            assertTrue(saved!!.createdNew)
+            assertEquals(25L, saved.exercise.sourceGameId)
+            assertNull(saved.exercise.sourceMoveNumber)
+            assertNull(repo.findBySourceGameAndMove(25L, 3))
+        }
+
     private class InMemoryExerciseRepo : ExerciseRepository {
         val stored = mutableListOf<Exercise>()
         val attempts = mutableListOf<ExerciseAttempt>()

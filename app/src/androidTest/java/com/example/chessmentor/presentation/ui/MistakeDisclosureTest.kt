@@ -131,4 +131,68 @@ class MistakeDisclosureTest {
         ui.onNodeWithText("Сохранить к повторению").performScrollTo().assertIsDisplayed().performClick()
         assertTrue(saveClicked)
     }
+
+    @Test fun opponentMistakeCardUsesAnswerActionAndTitle() {
+        ui.setContent {
+            Box(Modifier.width(320.dp).verticalScroll(rememberScrollState())) {
+                AnalyzedMoveInfoCard(
+                    analyzedMove = AnalyzedMove(
+                        gameId = 1,
+                        moveIndex = 4,
+                        moveNumber = 3,
+                        color = ChessColor.WHITE,
+                        quality = MoveQuality.BLUNDER,
+                        san = "Bxf7+",
+                        bestMove = "Nf3",
+                        evalBefore = 10,
+                        evalAfter = -340,
+                        evalLoss = 350,
+                        comment = "Зевок фигуры. Сильнее: 3. Nf3. Опровержение: 3... Kxf7."
+                    ),
+                    isPlayerMove = false,
+                    fenBefore = null,
+                    clockSeconds = null,
+                    onRevealAnswer = {},
+                    onRetryMove = {},
+                    onShowEngineLine = {},
+                    onPracticeInTrainer = null
+                )
+            }
+        }
+        ui.onNodeWithText("Найти ответ").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("Попробовать снова").assertDoesNotExist()
+        ui.onNodeWithText("Зевок соперника").assertExists()
+    }
+
+    @Test fun opponentRetryPanelShowsAnswerCopyBeforeAndAfterSolve() {
+        var state by mutableStateOf(
+            RetryMistakeUiState(
+                targetMoveIndex = 4,
+                moveNumber = 3,
+                moverColor = ChessColor.WHITE,
+                isPlayerMistake = false,
+                fenBefore = "rnbqkb1r/pppp1Bpp/5n2/4p3/4P3/8/PPPP1PPP/RNBQK1NR b KQkq - 0 3",
+                playedSan = "Bxf7+",
+                expectedBestRaw = "e8f7",
+                expectedBestSan = "Kxf7",
+                feedback = "Соперник ошибся ходом Bxf7+. Найдите лучший ответ за чёрных!"
+            )
+        )
+        ui.setContent {
+            Box(Modifier.width(320.dp).verticalScroll(rememberScrollState())) {
+                RetryMistakePanel(
+                    state = state,
+                    onHint = {},
+                    onShowLine = null,
+                    onPracticeInTrainer = null,
+                    onContinueGame = {},
+                    onCancel = {}
+                )
+            }
+        }
+        ui.onNodeWithText("Ответ на ошибку (3)").assertIsDisplayed()
+        ui.onNodeWithText("Исправьте ход 3").assertDoesNotExist()
+        ui.runOnIdle { state = state.copy(isSolved = true, feedback = "Верно!") }
+        ui.onNodeWithText("Ответ на 3-м ходу найден!").assertIsDisplayed()
+    }
 }

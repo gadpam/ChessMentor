@@ -217,6 +217,172 @@ object GameReviewHelper {
         val message: String
     )
 
+    data class RetryChallengeSetup(
+        val isPlayerMistake: Boolean,
+        val moverColor: ChessColor,
+        val moveNumber: Int,
+        val fenToPlay: String,
+        val playedSan: String,
+        val expectedBestUci: String,
+        val expectedBestSan: String,
+        val playedMistakeNotation: String?,
+        val sourceMistake: Mistake?,
+        val sourceAnalyzedMove: AnalyzedMove?
+    )
+
+    private val MOVE_NUMBER_PREFIX_REGEX = Regex("""^\d+\.{1,3}""")
+    private val TRAILING_SAN_PUNCT_REGEX = Regex("""[.,;:!?]+$""")
+
+    /**
+     * Извлекает первый шахматный ход (SAN) из строки варианта вроде
+     * `"14... Kxh7 15. Qd3+"`, `"15. Nxd5."` или `"14...Qxh2#"`.
+     */
+    fun extractFirstMoveFromLine(line: String?): String? {
+        val raw = line?.trim().orEmpty()
+        if (raw.isEmpty()) return null
+        for (token in raw.split(Regex("""\s+"""))) {
+            val cleaned = token
+                .replace(MOVE_NUMBER_PREFIX_REGEX, "")
+                .replace(TRAILING_SAN_PUNCT_REGEX, "")
+                .trim()
+            if (cleaned.isNotEmpty() && cleaned !in setOf("...", "*", "1-0", "0-1", "1/2-1/2")) {
+                return cleaned
+            }
+        }
+        return null
+    }
+
+    /**
+     * Формирует параметры интерактивного задания «Исправить ошибку» / «Найти ответ на ошибку соперника»
+     * для полухода [targetMoveIndex]:
+     * - для ошибки игрока: позиция ДО его хода (`fenBeforeMove`), требуется найти сильнейший ход игрока вместо ошибки;
+     * - для ошибки соперника: позиция ПОСЛЕ ошибки соперника (`fenAfterMove`), очередь хода у игрока,
+     *   задача доступна только если позиция не терминальная и есть проверенное продолжение (опровержение) за игрока.
+     */
+    fun resolveRetryChallengeSetup(
+        targetMoveIndex: Int,
+        playerColor: ChessColor,
+        fenBeforeMove: String,
+        fenAfterMove: String?,
+        playedSan: String,
+        analyzedMoves: List<AnalyzedMove>,
+        mistakes: List<Mistake>,
+        sanMoves: List<String> = emptyList(),
+        firstMoveIsWhite: Boolean = true,
+        startMoveNumber: Int = 1
+    ): RetryChallengeSetup? {
+        if (targetMoveIndex < 0 || fenBeforeMove.isBlank()) return null
+
+        val analyzed = analyzedMoves.firstOrNull { it.moveIndex == targetMoveIndex }
+        val isWhite = if (firstMoveIsWhite) targetMoveIndex % 2 == 0 else targetMoveIndex % 2 != 0
+        val computedMoveNumber = startMoveNumber + ((targetMoveIndex + if (firstMoveIsWhite) 0 else 1) / 2)
+        val computedColor = if (isWhite) ChessColor.WHITE else ChessColor.BLACK
+
+        val moverColor = analyzed?.color ?: computedColor
+        val moveNumber = analyzed?.moveNumber ?: computedMoveNumber
+        val mistake = mistakes.firstOrNull { it.moveNumber == moveNumber && it.color == moverColor }
+        val isPlayerMistake = moverColor == playerColor
+
+        val isBadAnalyzed = analyzed != null && analyzed.isMistake()
+        if (!isBadAnalyzed && mistake == null) return null
+
+        if (isPlayerMistake) {
+            val rawBest = mistake?.bestMove?.takeIf { it.isNotBlank() && it != mistake.userMove }
+                ?: analyzed?.bestMove?.takeIf { it.isNotBlank() && it != analyzed.san }
+                ?: return null
+
+            val boardBefore = Board()
+            if (runCatching { boardBefore.loadFromFen(fenBeforeMove) }.isFailure) return null
+            if (boardBefore.isMated || boardBefore.isStaleMate || boardBefore.isDraw) return null
+            val expectedSide = if (playerColor == ChessColor.WHITE) Side.WHITE else Side.BLACK
+            if (boardBefore.sideToMove != expectedSide) return null
+
+            val bestUci = ChessMoveUtils.sanOrUciToUci(rawBest, fenBeforeMove) ?: return null
+            val resolvedPlayed = playedSan.ifBlank { analyzed?.san ?: mistake?.userMove.orEmpty() }
+            val playedUci = resolvedPlayed.takeIf { it.isNotBlank() }
+                ?.let { ChessMoveUtils.sanOrUciToUci(it, fenBeforeMove) }
+            if (playedUci != null && playedUci.equals(bestUci, ignoreCase = true)) return null
+
+            val bestSan = ChessMoveUtils.uciToSan(bestUci, fenBeforeMove)
+            return RetryChallengeSetup(
+                isPlayerMistake = true,
+                moverColor = moverColor,
+                moveNumber = moveNumber,
+                fenToPlay = fenBeforeMove,
+                playedSan = resolvedPlayed,
+                expectedBestUci = bestUci,
+                expectedBestSan = bestSan,
+                playedMistakeNotation = resolvedPlayed.takeIf { it.isNotBlank() },
+                sourceMistake = mistake,
+                sourceAnalyzedMove = analyzed
+            )
+        }
+
+        // Ошибка соперника: позиция строго ПОСЛЕ его ошибки, очередь хода у игрока
+        val afterFen = fenAfterMove?.takeIf { it.isNotBlank() } ?: return null
+        val boardAfter = Board()
+        if (runCatching { boardAfter.loadFromFen(afterFen) }.isFailure) return null
+        if (boardAfter.isMated || boardAfter.isStaleMate || boardAfter.isDraw) return null
+        val playerSide = if (playerColor == ChessColor.WHITE) Side.WHITE else Side.BLACK
+        if (boardAfter.sideToMove != playerSide) return null
+
+        val nextIdx = targetMoveIndex + 1
+        val nextMoveNumber = startMoveNumber + ((nextIdx + if (firstMoveIsWhite) 0 else 1) / 2)
+        val nextAnalyzed = analyzedMoves.firstOrNull { it.moveIndex == nextIdx && it.color == playerColor }
+        val nextMistake = mistakes.firstOrNull { it.moveNumber == nextMoveNumber && it.color == playerColor }
+
+        val candidateNotations = buildList {
+            parseMoveComment(analyzed?.comment).refutationLine
+                ?.let(::extractFirstMoveFromLine)
+                ?.let(::add)
+            parseMoveComment(mistake?.comment).refutationLine
+                ?.let(::extractFirstMoveFromLine)
+                ?.let(::add)
+            if (nextAnalyzed != null) {
+                nextAnalyzed.bestMove?.takeIf { it.isNotBlank() }?.let(::add)
+                if (nextAnalyzed.quality in setOf(
+                        MoveQuality.BRILLIANT,
+                        MoveQuality.GREAT_MOVE,
+                        MoveQuality.BEST_MOVE
+                    )
+                ) {
+                    nextAnalyzed.san.takeIf { it.isNotBlank() }?.let(::add)
+                }
+            }
+            nextMistake?.bestMove?.takeIf { it.isNotBlank() }?.let(::add)
+        }
+
+        val bestUci = candidateNotations.firstNotNullOfOrNull { candidate ->
+            ChessMoveUtils.sanOrUciToUci(candidate, afterFen)
+        } ?: return null
+
+        val bestSan = ChessMoveUtils.uciToSan(bestUci, afterFen)
+        val missedPlayerReply = when {
+            nextAnalyzed != null && nextAnalyzed.quality.isBad() ->
+                sanMoves.getOrNull(nextIdx)?.takeIf { it.isNotBlank() } ?: nextAnalyzed.san
+            nextMistake != null ->
+                sanMoves.getOrNull(nextIdx)?.takeIf { it.isNotBlank() } ?: nextMistake.userMove
+            else -> null
+        }?.takeIf { reply ->
+            val replyUci = ChessMoveUtils.sanOrUciToUci(reply, afterFen)
+            replyUci != null && !replyUci.equals(bestUci, ignoreCase = true)
+        }
+
+        val resolvedPlayed = playedSan.ifBlank { analyzed?.san ?: mistake?.userMove.orEmpty() }
+        return RetryChallengeSetup(
+            isPlayerMistake = false,
+            moverColor = moverColor,
+            moveNumber = moveNumber,
+            fenToPlay = afterFen,
+            playedSan = resolvedPlayed,
+            expectedBestUci = bestUci,
+            expectedBestSan = bestSan,
+            playedMistakeNotation = missedPlayerReply,
+            sourceMistake = mistake,
+            sourceAnalyzedMove = analyzed
+        )
+    }
+
     /**
      * Проверяет попытку пользователя исправить собственный ошибочный ход в позиции [fenBefore].
      * Корректно сопоставляет SAN и UCI, включая превращения пешек (`e8=Q+` ↔ `e7e8q`) и рокировки.
@@ -785,7 +951,7 @@ object GameReviewHelper {
                     theme = theme,
                     createdFrom = ExerciseSource.MISTAKE,
                     sourceGameId = gameId,
-                    sourceMoveNumber = moveNumber,
+                    sourceMoveNumber = if (isPlayerMistake) moveNumber else null,
                     createdAt = nowMs
                 )
             )

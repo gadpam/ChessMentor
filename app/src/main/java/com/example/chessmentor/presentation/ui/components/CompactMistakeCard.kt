@@ -47,10 +47,12 @@ fun CompactMistakeCard(
     onRevealAnswer: (() -> Unit)? = null,
     onRetryMove: (() -> Unit)? = null,
     onShowEngineLine: (() -> Unit)? = null,
-    onPracticeInTrainer: (() -> Unit)? = null
+    onPracticeInTrainer: (() -> Unit)? = null,
+    isPlayerMove: Boolean = true
 ) {
     val accentColor = LocalChessPalette.current.run { moveQuality?.let { accent(it) } ?: accent(mistake.mistakeType) }
-    val title = moveQuality?.getDisplayName() ?: mistake.mistakeType.getDisplayName()
+    val baseTitle = moveQuality?.getDisplayName() ?: mistake.mistakeType.getDisplayName()
+    val title = if (isPlayerMove) baseTitle else "$baseTitle соперника"
 
     val effectiveFen = fenBefore ?: mistake.fenBefore
     val playedSan = remember(mistake.userMove, effectiveFen) {
@@ -166,7 +168,13 @@ fun CompactMistakeCard(
                 answerConcealed = onRevealAnswer != null
             )
 
-            MistakeReviewActions(onRetryMove, onRevealAnswer, onShowEngineLine, onPracticeInTrainer)
+            MistakeReviewActions(
+                onRetryMove = onRetryMove,
+                onRevealAnswer = onRevealAnswer,
+                onShowEngineLine = onShowEngineLine,
+                onPracticeInTrainer = onPracticeInTrainer,
+                isPlayerMove = isPlayerMove
+            )
         }
     }
 }
@@ -257,11 +265,14 @@ internal fun MistakeReviewActions(
     onRetryMove: (() -> Unit)?,
     onRevealAnswer: (() -> Unit)?,
     onShowEngineLine: (() -> Unit)?,
-    onPracticeInTrainer: (() -> Unit)?
+    onPracticeInTrainer: (() -> Unit)?,
+    isPlayerMove: Boolean = true
 ) {
     val action = Modifier.fillMaxWidth().heightIn(min = 48.dp)
     if (onRetryMove != null) {
-        Button(onClick = onRetryMove, modifier = action) { Text("Попробовать снова") }
+        Button(onClick = onRetryMove, modifier = action) {
+            Text(if (isPlayerMove) "Попробовать снова" else "Найти ответ")
+        }
     }
     if (onRevealAnswer != null) {
         OutlinedButton(onClick = onRevealAnswer, modifier = action) { Text("Показать лучший ход") }
