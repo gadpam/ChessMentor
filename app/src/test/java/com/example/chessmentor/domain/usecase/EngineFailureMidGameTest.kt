@@ -324,17 +324,19 @@ class EngineFailureMidGameTest {
             override suspend fun findByMoveIndex(gameId: Long, moveIndex: Int) = null
             override suspend fun deleteByGameId(gameId: Long) { initialMoves.clear() }
         }
-        val rollbackRunner = TransactionRunner { block ->
-            val savedGame = currentGameState
-            val savedMoves = initialMoves.toList()
-            val savedMistakes = initialMistakes.toList()
-            try {
-                block()
-            } catch (t: Throwable) {
-                currentGameState = savedGame
-                initialMoves.clear(); initialMoves.addAll(savedMoves)
-                initialMistakes.clear(); initialMistakes.addAll(savedMistakes)
-                throw t
+        val rollbackRunner = object : TransactionRunner {
+            override suspend fun <T> run(block: suspend () -> T): T {
+                val savedGame = currentGameState
+                val savedMoves = initialMoves.toList()
+                val savedMistakes = initialMistakes.toList()
+                return try {
+                    block()
+                } catch (t: Throwable) {
+                    currentGameState = savedGame
+                    initialMoves.clear(); initialMoves.addAll(savedMoves)
+                    initialMistakes.clear(); initialMistakes.addAll(savedMistakes)
+                    throw t
+                }
             }
         }
         val readyEngine = object : ChessEngine {
