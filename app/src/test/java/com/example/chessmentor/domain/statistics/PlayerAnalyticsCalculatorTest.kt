@@ -548,14 +548,14 @@ class PlayerAnalyticsCalculatorTest {
                 com.example.chessmentor.domain.training.PatternMastery(
                     pattern = TacticalPattern.SKEWER,
                     totalAttempts = 6,
-                    solvedCount = 2,
-                    firstTrySolvedCount = 1,
+                    solvedAttempts = 2,
+                    uniqueExercisesAttempted = 4,
+                    uniqueExercisesSolved = 2,
+                    unresolvedCount = 2,
                     accuracyPercent = 33,
-                    firstTryAccuracyPercent = 17,
-                    averageTimeSeconds = 18.0,
-                    masteryPercent = 28,
                     level = com.example.chessmentor.domain.training.MasteryLevel.WEAK,
-                    unresolvedCount = 2
+                    masteryPercent = 28,
+                    firstTryAccuracyPercent = 17
                 )
             ),
             problemThemes = emptyList()
