@@ -19,6 +19,7 @@ import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.Mistake
+import com.example.chessmentor.domain.entity.MistakeType
 import com.example.chessmentor.domain.entity.MoveQuality
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.presentation.ui.components.screen.GameViewScreen
@@ -55,22 +56,23 @@ class NestedBackHandlerTest {
             evaluationsJson = "[20, 25, 20, -40, -35]"
         )
         val moves = listOf(
-            AnalyzedMove(gameId = 77L, moveNumber = 1, color = ChessColor.WHITE, san = "e4", uci = "e2e4", quality = MoveQuality.GOOD, evalBefore = 20, evalAfter = 25),
-            AnalyzedMove(gameId = 77L, moveNumber = 1, color = ChessColor.BLACK, san = "e5", uci = "e7e5", quality = MoveQuality.GOOD, evalBefore = 25, evalAfter = 20),
-            AnalyzedMove(gameId = 77L, moveNumber = 2, color = ChessColor.WHITE, san = "Nf3", uci = "g1f3", quality = MoveQuality.MISTAKE, evalBefore = 20, evalAfter = -40, bestMove = "f1c4", bestMoveSan = "Bc4"),
-            AnalyzedMove(gameId = 77L, moveNumber = 2, color = ChessColor.BLACK, san = "Nc6", uci = "b8c6", quality = MoveQuality.GOOD, evalBefore = -40, evalAfter = -35)
+            AnalyzedMove(gameId = 77L, moveIndex = 0, moveNumber = 1, color = ChessColor.WHITE, quality = MoveQuality.GOOD, san = "e4", evalBefore = 20, evalAfter = 25, evalLoss = 0),
+            AnalyzedMove(gameId = 77L, moveIndex = 1, moveNumber = 1, color = ChessColor.BLACK, quality = MoveQuality.GOOD, san = "e5", evalBefore = 25, evalAfter = 20, evalLoss = 0),
+            AnalyzedMove(gameId = 77L, moveIndex = 2, moveNumber = 2, color = ChessColor.WHITE, quality = MoveQuality.MISTAKE, san = "Nf3", bestMove = "Bc4", evalBefore = 20, evalAfter = -40, evalLoss = 60),
+            AnalyzedMove(gameId = 77L, moveIndex = 3, moveNumber = 2, color = ChessColor.BLACK, quality = MoveQuality.GOOD, san = "Nc6", evalBefore = -40, evalAfter = -35, evalLoss = 0)
         )
         val mistakes = listOf(
             Mistake(
                 id = 1L,
                 gameId = 77L,
+                themeId = 1L,
                 moveNumber = 2,
-                fen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
-                playedMove = "Nf3",
+                color = ChessColor.WHITE,
+                evaluationLoss = 60,
+                mistakeType = MistakeType.MISTAKE,
                 bestMove = "Bc4",
-                evalBefore = 20,
-                evalAfter = -40,
-                quality = MoveQuality.MISTAKE
+                userMove = "Nf3",
+                fenBefore = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
             )
         )
         val evaluations = listOf(20, 25, 20, -40, -35)
