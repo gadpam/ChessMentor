@@ -36,6 +36,8 @@ class StockfishEngine(
 
     private val netDownloader = NnueDownloader(context.applicationContext)
     private val mutex = Mutex()
+    private val nativeControlLock = Any()
+    private val stateLock = Any()
 
     @Volatile
     private var isInitialized = false
@@ -107,9 +109,13 @@ class StockfishEngine(
                 stop()
             }
             mutex.withLock {
-                if (forceRedownload && isInitialized && libraryLoadError == null) {
-                    isInitialized = false
-                    nativeDestroy()
+                if (forceRedownload && libraryLoadError == null) {
+                    synchronized(nativeControlLock) {
+                        if (isInitialized) {
+                            synchronized(stateLock) { isInitialized = false }
+                            nativeDestroy()
+                        }
+                    }
                 }
                 initLocked(forceRedownload = forceRedownload)
             }
@@ -117,22 +123,38 @@ class StockfishEngine(
 
     override suspend fun verifyNetwork(): Boolean = withContext(Dispatchers.Default) {
         mutex.withLock {
+            val startEpoch = lifecycleEpoch.get()
             val callerJob = coroutineContext[Job]
             activeInitJob = callerJob
             try {
                 val ok = netDownloader.verifyInstalledNet { progress ->
-                    _status.value = progress
+                    synchronized(stateLock) {
+                        if (lifecycleEpoch.get() == startEpoch) {
+                            _status.value = progress
+                        }
+                    }
+                }
+                if (lifecycleEpoch.get() != startEpoch) {
+                    return@withLock false
                 }
                 if (!ok) {
-                    if (isInitialized && libraryLoadError == null) {
-                        isInitialized = false
-                        nativeDestroy()
+                    if (libraryLoadError == null) {
+                        synchronized(nativeControlLock) {
+                            if (isInitialized) {
+                                synchronized(stateLock) { isInitialized = false }
+                                nativeDestroy()
+                            }
+                        }
                     }
-                    _status.value = EngineStatus.Error(
-                        reason = EngineErrorReason.INTEGRITY_MISMATCH,
-                        message = "Файл нейросети NNUE отсутствует или повреждён",
-                        canRetry = true
-                    )
+                    synchronized(stateLock) {
+                        if (lifecycleEpoch.get() == startEpoch) {
+                            _status.value = EngineStatus.Error(
+                                reason = EngineErrorReason.INTEGRITY_MISMATCH,
+                                message = "Файл нейросети NNUE отсутствует или повреждён",
+                                canRetry = true
+                            )
+                        }
+                    }
                     return@withLock false
                 }
 
@@ -141,11 +163,14 @@ class StockfishEngine(
                     return@withLock initLocked(forceRedownload = false)
                 }
 
-                _status.value = EngineStatus.Ready(
-                    netName = file.name,
-                    netSizeBytes = file.length(),
-                    hashPrefix = NnueIntegrity.EXPECTED_SHA256_PREFIX
-                )
+                synchronized(stateLock) {
+                    if (lifecycleEpoch.get() != startEpoch) return@withLock false
+                    _status.value = EngineStatus.Ready(
+                        netName = file.name,
+                        netSizeBytes = file.length(),
+                        hashPrefix = NnueIntegrity.EXPECTED_SHA256_PREFIX
+                    )
+                }
                 true
             } catch (e: CancellationException) {
                 // Отмена проверки — не ошибка целостности: статус не подменяем.
@@ -163,23 +188,35 @@ class StockfishEngine(
             val valid = settings.validate()
             mutex.withLock {
                 // Применяем сразу, если движок уже запущен; иначе настройки подхватятся в initLocked()
-                if (isInitialized && libraryLoadError == null) {
-                    nativeSetOption("Threads", valid.threads.toString())
-                    nativeSetOption("Hash", valid.hashSizeMb.toString())
+                if (libraryLoadError == null) {
+                    synchronized(nativeControlLock) {
+                        if (isInitialized) {
+                            nativeSetOption("Threads", valid.threads.toString())
+                            nativeSetOption("Hash", valid.hashSizeMb.toString())
+                        }
+                    }
                 }
             }
         }
 
     override fun cancelInit() {
+        cancelInitInternal(markCancelled = true)
+    }
+
+    private fun cancelInitInternal(markCancelled: Boolean) {
         val job = activeInitJob
         // Статус выставляется до отмены: отменённая корутина больше не пишет свой статус,
         // поэтому пауза видна пользователю и не перетирается следующим автостартом.
-        if (job != null && job.isActive && !isInitialized) {
-            _status.value = EngineStatus.Error(
-                reason = EngineErrorReason.CANCELLED,
-                message = EngineErrorReason.CANCELLED.title,
-                canRetry = true
-            )
+        if (markCancelled && job != null && job.isActive) {
+            synchronized(stateLock) {
+                if (!isInitialized) {
+                    _status.value = EngineStatus.Error(
+                        reason = EngineErrorReason.CANCELLED,
+                        message = EngineErrorReason.CANCELLED.title,
+                        canRetry = true
+                    )
+                }
+            }
         }
         if (job != null && job.isActive) {
             job.cancel(CancellationException("NNUE initialization cancelled by user"))
@@ -204,7 +241,12 @@ class StockfishEngine(
     override suspend fun setOption(name: String, value: String) = withContext(Dispatchers.Default) {
         mutex.withLock {
             ensureReadyLocked()
-            nativeSetOption(name, value)
+            synchronized(nativeControlLock) {
+                if (!isInitialized) {
+                    throw IllegalStateException("Шахматный движок Stockfish был остановлен")
+                }
+                nativeSetOption(name, value)
+            }
         }
     }
 
@@ -219,11 +261,16 @@ class StockfishEngine(
      */
     override fun destroy() {
         lifecycleEpoch.incrementAndGet()
-        cancelInit()
+        cancelInitInternal(markCancelled = false)
         if (libraryLoadError != null) return
-        isInitialized = false
-        nativeDestroy()
-        _status.value = EngineStatus.Idle
+        nativeStop()
+        synchronized(nativeControlLock) {
+            nativeDestroy()
+            synchronized(stateLock) {
+                isInitialized = false
+                _status.value = EngineStatus.Idle
+            }
+        }
     }
 
     private suspend fun <T> runCancellableSearch(block: () -> T): T =
@@ -256,25 +303,31 @@ class StockfishEngine(
 
     /** Вызывать только под [mutex]. */
     private suspend fun initLocked(forceRedownload: Boolean): Boolean {
+        val startEpoch = lifecycleEpoch.get()
         if (isInitialized && !forceRedownload) {
-            if (_status.value !is EngineStatus.Ready) {
-                val file = netDownloader.netFile()
-                _status.value = EngineStatus.Ready(
-                    netName = file.name,
-                    netSizeBytes = file.takeIf { it.isFile }?.length() ?: 0L,
-                    hashPrefix = NnueIntegrity.EXPECTED_SHA256_PREFIX
-                )
+            synchronized(stateLock) {
+                if (lifecycleEpoch.get() != startEpoch || !isInitialized) return false
+                if (_status.value !is EngineStatus.Ready) {
+                    val file = netDownloader.netFile()
+                    _status.value = EngineStatus.Ready(
+                        netName = file.name,
+                        netSizeBytes = file.takeIf { it.isFile }?.length() ?: 0L,
+                        hashPrefix = NnueIntegrity.EXPECTED_SHA256_PREFIX
+                    )
+                }
             }
             return true
         }
 
         libraryLoadError?.let {
             Log.e(TAG, "Native library stockfish-lib is not available", it)
-            _status.value = EngineStatus.Error(
-                reason = EngineErrorReason.NATIVE_LIBRARY_MISSING,
-                message = EngineErrorReason.NATIVE_LIBRARY_MISSING.title,
-                canRetry = false
-            )
+            synchronized(stateLock) {
+                _status.value = EngineStatus.Error(
+                    reason = EngineErrorReason.NATIVE_LIBRARY_MISSING,
+                    message = EngineErrorReason.NATIVE_LIBRARY_MISSING.title,
+                    canRetry = false
+                )
+            }
             return false
         }
 
@@ -283,58 +336,90 @@ class StockfishEngine(
         try {
             val netResult = netDownloader.ensureNetWithStatus(
                 forceRedownload = forceRedownload,
-                onStatus = { progress -> _status.value = progress }
+                onStatus = { progress ->
+                    synchronized(stateLock) {
+                        if (lifecycleEpoch.get() == startEpoch) {
+                            _status.value = progress
+                        }
+                    }
+                }
             )
+
+            if (lifecycleEpoch.get() != startEpoch) return false
 
             val net = when (netResult) {
                 is NnueDownloader.EnsureResult.Ready -> netResult.file
                 is NnueDownloader.EnsureResult.Failed -> {
                     Log.e(TAG, "Neural network unavailable: ${netResult.reason} (${netResult.message})")
-                    _status.value = EngineStatus.Error(
-                        reason = netResult.reason,
-                        message = netResult.message,
-                        canRetry = true
-                    )
+                    synchronized(stateLock) {
+                        if (lifecycleEpoch.get() == startEpoch) {
+                            _status.value = EngineStatus.Error(
+                                reason = netResult.reason,
+                                message = netResult.message,
+                                canRetry = true
+                            )
+                        }
+                    }
                     return false
                 }
             }
 
             coroutineContext.ensureActive()
-            val startEpoch = lifecycleEpoch.get()
             val netBytes = net.length()
-            _status.value = EngineStatus.InitializingEngine(netSizeBytes = netBytes)
-
-            val ok = nativeInit(net.absolutePath)
-            if (lifecycleEpoch.get() != startEpoch) {
-                if (ok) {
-                    nativeDestroy()
-                }
-                isInitialized = false
-                return false
+            synchronized(stateLock) {
+                if (lifecycleEpoch.get() != startEpoch) return false
+                _status.value = EngineStatus.InitializingEngine(netSizeBytes = netBytes)
             }
-            isInitialized = ok
-            if (ok) {
-                engineSettingsRepository?.let { repo ->
-                    runCatching {
-                        val settings = repo.getSettings().validate()
-                        nativeSetOption("Threads", settings.threads.toString())
-                        nativeSetOption("Hash", settings.hashSizeMb.toString())
-                    }.onFailure { err ->
-                        Log.w(TAG, "Failed to apply initial UCI settings", err)
+
+            val ok = synchronized(nativeControlLock) {
+                if (lifecycleEpoch.get() != startEpoch) return@synchronized false
+                val initOk = nativeInit(net.absolutePath)
+                if (lifecycleEpoch.get() != startEpoch) {
+                    if (initOk) {
+                        nativeDestroy()
+                    }
+                    synchronized(stateLock) { isInitialized = false }
+                    return@synchronized false
+                }
+                if (initOk) {
+                    engineSettingsRepository?.let { repo ->
+                        runCatching {
+                            val settings = repo.getSettings().validate()
+                            nativeSetOption("Threads", settings.threads.toString())
+                            nativeSetOption("Hash", settings.hashSizeMb.toString())
+                        }.onFailure { err ->
+                            Log.w(TAG, "Failed to apply initial UCI settings", err)
+                        }
                     }
                 }
-                _status.value = EngineStatus.Ready(
-                    netName = net.name,
-                    netSizeBytes = netBytes,
-                    hashPrefix = NnueIntegrity.EXPECTED_SHA256_PREFIX
-                )
-            } else {
-                _status.value = EngineStatus.Error(
-                    reason = EngineErrorReason.ENGINE_INIT_FAILED,
-                    message = EngineErrorReason.ENGINE_INIT_FAILED.title,
-                    canRetry = true
-                )
+                var committed = false
+                synchronized(stateLock) {
+                    if (lifecycleEpoch.get() != startEpoch) {
+                        isInitialized = false
+                    } else {
+                        isInitialized = initOk
+                        committed = initOk
+                        _status.value = if (initOk) {
+                            EngineStatus.Ready(
+                                netName = net.name,
+                                netSizeBytes = netBytes,
+                                hashPrefix = NnueIntegrity.EXPECTED_SHA256_PREFIX
+                            )
+                        } else {
+                            EngineStatus.Error(
+                                reason = EngineErrorReason.ENGINE_INIT_FAILED,
+                                message = EngineErrorReason.ENGINE_INIT_FAILED.title,
+                                canRetry = true
+                            )
+                        }
+                    }
+                }
+                if (!committed && initOk && lifecycleEpoch.get() != startEpoch) {
+                    nativeDestroy()
+                }
+                committed
             }
+            if (lifecycleEpoch.get() != startEpoch) return false
             Log.i(TAG, "Stockfish initialized: $ok")
             return ok
         } catch (e: CancellationException) {
@@ -344,11 +429,15 @@ class StockfishEngine(
         } catch (e: Exception) {
             Log.e(TAG, "Unexpected error during Stockfish initialization", e)
             val reason = NnueIntegrity.classifyError(e)
-            _status.value = EngineStatus.Error(
-                reason = reason,
-                message = e.message ?: reason.title,
-                canRetry = true
-            )
+            synchronized(stateLock) {
+                if (lifecycleEpoch.get() == startEpoch) {
+                    _status.value = EngineStatus.Error(
+                        reason = reason,
+                        message = e.message ?: reason.title,
+                        canRetry = true
+                    )
+                }
+            }
             return false
         } finally {
             if (activeInitJob === callerJob) {

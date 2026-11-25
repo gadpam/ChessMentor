@@ -67,6 +67,9 @@ fun UploadGameScreen(
     val importPreview by gameViewModel.importPreview
     val pendingChessComRetry = gameViewModel.pendingChessComRetry
     val chessComPartialSavedCount by gameViewModel.chessComPartialSavedCount
+    val libraryRefreshError by gameViewModel.libraryRefreshError
+    val pendingLibraryRefresh by gameViewModel.pendingLibraryRefresh
+    val isLoadingLibrary by gameViewModel.isLoadingLibrary
     val message by gameViewModel.message
     val isLoading by gameViewModel.isImporting
     val isAnalyzing by gameViewModel.isAnalyzing
@@ -79,6 +82,11 @@ fun UploadGameScreen(
     val currentOnAnalysisComplete by rememberUpdatedState(onAnalysisComplete)
     val currentOnGameUploaded by rememberUpdatedState(onGameUploaded)
     val currentOnNavigateToLibrary by rememberUpdatedState(onNavigateToLibrary)
+    var isUploadScreenActive by remember { mutableStateOf(true) }
+    DisposableEffect(Unit) {
+        isUploadScreenActive = true
+        onDispose { isUploadScreenActive = false }
+    }
 
     // Системный выбор файла .pgn / .txt без лишних разрешений хранилища (SAF)
     val pgnFileLauncher = rememberLauncherForActivityResult(
@@ -136,7 +144,7 @@ fun UploadGameScreen(
             onImport = { selected ->
                 showChessCom = false
                 gameViewModel.importChessComGames(userId, selected) {
-                    currentOnNavigateToLibrary()
+                    if (isUploadScreenActive) currentOnNavigateToLibrary()
                 }
             },
             onClose = { showChessCom = false }
@@ -228,7 +236,7 @@ fun UploadGameScreen(
                             FilledTonalButton(
                                 onClick = {
                                     gameViewModel.retryPendingChessComImport {
-                                        currentOnNavigateToLibrary()
+                                        if (isUploadScreenActive) currentOnNavigateToLibrary()
                                     }
                                 },
                                 enabled = !isLoading,
@@ -243,6 +251,46 @@ fun UploadGameScreen(
                             ) {
                                 Text("Скрыть")
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (pendingLibraryRefresh || libraryRefreshError) {
+            item(key = "library-refresh-retry") {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = if (pendingLibraryRefresh) {
+                                "Партии сохранены, но список библиотеки ещё не обновился"
+                            } else {
+                                "Не удалось обновить список библиотеки"
+                            },
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        FilledTonalButton(
+                            onClick = {
+                                gameViewModel.refreshLibrary {
+                                    if (isUploadScreenActive) currentOnNavigateToLibrary()
+                                }
+                            },
+                            enabled = !isLoadingLibrary && !isLoading,
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Text("Обновить список")
                         }
                     }
                 }

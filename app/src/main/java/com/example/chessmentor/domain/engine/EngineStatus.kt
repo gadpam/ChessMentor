@@ -5,6 +5,7 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.InterruptedIOException
+import java.io.OutputStream
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
@@ -185,6 +186,12 @@ object NnueIntegrity {
     /** Минимальный допустимый размер валидной сети (1 МиБ). */
     const val MIN_NET_BYTES = 1L shl 20
 
+    /** Верхняя граница размера загружаемого файла нейросети (256 МиБ). */
+    const val MAX_NET_BYTES = 256L shl 20
+
+    /** Максимальное число безопасных HTTPS-редиректов при скачивании сети. */
+    const val MAX_REDIRECTS = 5
+
     /** Запас свободного места сверх размера файла сети (16 МиБ). */
     const val SAFETY_HEADROOM_BYTES = 16L shl 20
 
@@ -270,6 +277,54 @@ object NnueIntegrity {
     fun extractHost(url: String): String =
         runCatching { URI(url.trim()).host.orEmpty() }.getOrDefault("")
 
+    /**
+     * Проверяет HTTP-редирект [locationHeader] относительно [currentUrl]:
+     * разрешены только валидные `https://`-адреса с хостом, без учётных данных в URL
+     * и без самозацикливания. Возвращает нормализованный URL или `null`.
+     */
+    fun resolveSafeRedirectUrl(currentUrl: String, locationHeader: String?): String? {
+        val rawLocation = locationHeader?.trim().orEmpty()
+        if (rawLocation.isEmpty()) return null
+        val currentUri = runCatching { URI(currentUrl.trim()).normalize() }.getOrNull() ?: return null
+        val resolved = runCatching { currentUri.resolve(rawLocation).normalize() }.getOrNull() ?: return null
+        val scheme = resolved.scheme?.lowercase(Locale.ROOT) ?: return null
+        if (scheme != "https") return null
+        if (resolved.host.isNullOrBlank()) return null
+        if (!resolved.rawUserInfo.isNullOrEmpty()) return null
+        val target = resolved.toASCIIString()
+        if (target == currentUri.toASCIIString()) return null
+        return target
+    }
+
+    /**
+     * Копирует поток в [output] с жёстким ограничением [maxBytes],
+     * предотвращая переполнение диска при повреждённом `Content-Length` или бесконечном потоке.
+     */
+    fun copyStreamWithLimit(
+        input: InputStream,
+        output: OutputStream,
+        maxBytes: Long = MAX_NET_BYTES,
+        onChunk: () -> Unit = {},
+        onProgress: (Long) -> Unit = {}
+    ): Long {
+        require(maxBytes > 0L) { "maxBytes must be positive" }
+        val buffer = ByteArray(64 * 1024)
+        var downloaded = 0L
+        while (true) {
+            onChunk()
+            val read = input.read(buffer)
+            if (read <= 0) break
+            if (downloaded + read > maxBytes) {
+                throw IOException("Download exceeds maximum allowed NNUE size ($maxBytes bytes)")
+            }
+            output.write(buffer, 0, read)
+            downloaded += read
+            onProgress(downloaded)
+        }
+        output.flush()
+        return downloaded
+    }
+
     /** Классифицирует исключение загрузки в понятную пользователю причину [EngineErrorReason]. */
     fun classifyError(error: Throwable, httpCode: Int? = null): EngineErrorReason {
         if (httpCode != null && httpCode >= 400) {
@@ -287,7 +342,11 @@ object NnueIntegrity {
             is NoRouteToHostException,
             is SSLException -> EngineErrorReason.NETWORK_UNAVAILABLE
             is IOException -> {
-                if ("http " in msg) EngineErrorReason.HTTP_ERROR else EngineErrorReason.NETWORK_UNAVAILABLE
+                if ("http " in msg || "redirect" in msg || "exceeds maximum" in msg) {
+                    EngineErrorReason.HTTP_ERROR
+                } else {
+                    EngineErrorReason.NETWORK_UNAVAILABLE
+                }
             }
             else -> EngineErrorReason.ENGINE_INIT_FAILED
         }

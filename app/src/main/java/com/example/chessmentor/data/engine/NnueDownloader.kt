@@ -40,9 +40,19 @@ class NnueDownloader(context: Context) {
         const val EXPECTED_HASH_PREFIX: String = NnueIntegrity.EXPECTED_SHA256_PREFIX
 
         private const val MIN_NET_BYTES: Long = NnueIntegrity.MIN_NET_BYTES
+        private const val MAX_NET_BYTES: Long = NnueIntegrity.MAX_NET_BYTES
+        private const val MAX_REDIRECTS: Int = NnueIntegrity.MAX_REDIRECTS
         private const val CONNECT_TIMEOUT_MS = 15_000
         private const val READ_TIMEOUT_MS = 60_000
         private const val PROGRESS_EMIT_INTERVAL_MS = 120L
+
+        private val REDIRECT_CODES = setOf(
+            HttpURLConnection.HTTP_MOVED_PERM,
+            HttpURLConnection.HTTP_MOVED_TEMP,
+            HttpURLConnection.HTTP_SEE_OTHER,
+            307,
+            308
+        )
 
         /** Те же официальные зеркала, что использует `scripts/net.sh` из Stockfish. */
         private val SOURCES = listOf(
@@ -279,49 +289,78 @@ class NnueDownloader(context: Context) {
         onContentLength: (Long) -> Unit,
         onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit
     ) {
-        val connection = URL(source).openConnection() as HttpURLConnection
-        try {
-            connection.connectTimeout = CONNECT_TIMEOUT_MS
-            connection.readTimeout = READ_TIMEOUT_MS
-            connection.instanceFollowRedirects = true
-            connection.setRequestProperty("Accept-Encoding", "identity")
+        var currentUrl = source
+        val visitedUrls = mutableSetOf(currentUrl)
 
-            val code = connection.responseCode
-            if (code != HttpURLConnection.HTTP_OK) {
-                onHttpError(code)
-                throw IOException("HTTP $code for $source")
+        for (hop in 0..MAX_REDIRECTS) {
+            coroutineContext.ensureActive()
+            val url = URL(currentUrl)
+            if (!url.protocol.equals("https", ignoreCase = true)) {
+                throw IOException("Unsafe non-HTTPS NNUE source: $currentUrl")
             }
 
-            val totalBytes = connection.contentLengthLong
-            onContentLength(totalBytes)
-            onProgress(0L, totalBytes)
+            val connection = url.openConnection() as HttpURLConnection
+            try {
+                connection.connectTimeout = CONNECT_TIMEOUT_MS
+                connection.readTimeout = READ_TIMEOUT_MS
+                connection.instanceFollowRedirects = false
+                connection.setRequestProperty("Accept-Encoding", "identity")
 
-            var downloaded = 0L
-            var lastEmitMs = SystemClock.elapsedRealtime()
-
-            connection.inputStream.use { input ->
-                destination.outputStream().use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    while (true) {
-                        coroutineContext.ensureActive()
-                        val read = input.read(buffer)
-                        if (read <= 0) break
-                        output.write(buffer, 0, read)
-                        downloaded += read
-
-                        val nowMs = SystemClock.elapsedRealtime()
-                        if (nowMs - lastEmitMs >= PROGRESS_EMIT_INTERVAL_MS) {
-                            lastEmitMs = nowMs
-                            onProgress(downloaded, totalBytes)
-                        }
+                val code = connection.responseCode
+                if (code in REDIRECT_CODES) {
+                    if (hop == MAX_REDIRECTS) {
+                        onHttpError(code)
+                        throw IOException("HTTP $code: too many redirects ($MAX_REDIRECTS) for $source")
                     }
-                    output.flush()
+                    val nextUrl = NnueIntegrity.resolveSafeRedirectUrl(
+                        currentUrl = currentUrl,
+                        locationHeader = connection.getHeaderField("Location")
+                    )
+                    if (nextUrl == null || !visitedUrls.add(nextUrl)) {
+                        onHttpError(code)
+                        throw IOException("Unsafe or cyclic redirect from $currentUrl")
+                    }
+                    currentUrl = nextUrl
+                    continue
                 }
+
+                if (code != HttpURLConnection.HTTP_OK) {
+                    onHttpError(code)
+                    throw IOException("HTTP $code for $currentUrl")
+                }
+
+                val totalBytes = connection.contentLengthLong
+                if (totalBytes > MAX_NET_BYTES) {
+                    throw IOException("Download exceeds maximum allowed NNUE size ($totalBytes > $MAX_NET_BYTES bytes)")
+                }
+                onContentLength(totalBytes)
+                onProgress(0L, totalBytes)
+
+                var lastEmitMs = SystemClock.elapsedRealtime()
+                val downloaded = connection.inputStream.use { input ->
+                    destination.outputStream().use { output ->
+                        NnueIntegrity.copyStreamWithLimit(
+                            input = input,
+                            output = output,
+                            maxBytes = MAX_NET_BYTES,
+                            onChunk = { coroutineContext.ensureActive() },
+                            onProgress = { bytes ->
+                                val nowMs = SystemClock.elapsedRealtime()
+                                if (nowMs - lastEmitMs >= PROGRESS_EMIT_INTERVAL_MS) {
+                                    lastEmitMs = nowMs
+                                    onProgress(bytes, totalBytes)
+                                }
+                            }
+                        )
+                    }
+                }
+                onProgress(downloaded, if (totalBytes > 0L) totalBytes else downloaded)
+                return
+            } finally {
+                connection.disconnect()
             }
-            onProgress(downloaded, if (totalBytes > 0L) totalBytes else downloaded)
-        } finally {
-            connection.disconnect()
         }
+        throw IOException("Too many redirects ($MAX_REDIRECTS) for $source")
     }
 
     private class InsufficientStorageException(message: String) : IOException(message)

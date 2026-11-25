@@ -2,6 +2,7 @@ package com.example.chessmentor.data.engine
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.example.chessmentor.domain.engine.EngineStatus
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.github.bhlangonijr.chesslib.Board
 import kotlinx.coroutines.Dispatchers
@@ -57,6 +58,32 @@ class StockfishSearchTest {
 
             val followUp = engine.getBestMoveWithLine(fen, 3)
             assertNotNull("Subsequent search after stop() must succeed", followUp)
+        } finally {
+            engine.destroy()
+        }
+    }
+
+    @Test fun destroyDuringSearchInterruptsAndAllowsCleanReinit() = runBlocking {
+        val engine = StockfishEngine(InstrumentationRegistry.getInstrumentation().targetContext)
+        try {
+            assertTrue("Stockfish init: ${engine.status.value}", engine.init())
+            val fen = Board().fen
+            val deepSearch = async(Dispatchers.IO) {
+                engine.getBestMoveWithLine(fen, 30)
+            }
+            delay(250)
+
+            // destroy() сам вызывает stop() и безопасно сбрасывает статус в Idle
+            withTimeout(10_000L) {
+                engine.destroy()
+                deepSearch.await()
+            }
+            assertEquals(EngineStatus.Idle, engine.status.value)
+
+            // Последующий init() должен повторно поднять рабочий движок
+            assertTrue("Stockfish re-init: ${engine.status.value}", engine.init())
+            val followUp = engine.getBestMoveWithLine(fen, 3)
+            assertNotNull("Search after destroy() + re-init() must succeed", followUp)
         } finally {
             engine.destroy()
         }

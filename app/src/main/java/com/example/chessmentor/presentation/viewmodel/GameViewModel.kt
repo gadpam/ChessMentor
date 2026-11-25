@@ -25,12 +25,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 
 /**
  * Сбойная запись внутри мульти-PGN архива с исходным текстом для восстановления в редакторе.
@@ -73,7 +75,9 @@ data class PgnImportPreview(
  */
 class GameViewModel(
     private val container: AppContainer,
-    private val analyzeGame: AnalyzeGameUseCase = container.analyzeGameUseCase
+    private val analyzeGame: AnalyzeGameUseCase = container.analyzeGameUseCase,
+    private val observeGames: (Long) -> Flow<List<Game>> = container::observeUserGames,
+    private val uploadGames: UploadGameUseCase = container.uploadGameUseCase
 ) : ViewModel() {
 
     companion object {
@@ -120,6 +124,8 @@ class GameViewModel(
     var isImporting = mutableStateOf(false)
     var isAnalyzing = mutableStateOf(false)
     var isLoadingLibrary = mutableStateOf(false)
+    var libraryRefreshError = mutableStateOf(false)
+    var pendingLibraryRefresh = mutableStateOf(false)
     val isLoading: State<Boolean> = derivedStateOf {
         isImporting.value || isAnalyzing.value || isLoadingLibrary.value
     }
@@ -144,6 +150,8 @@ class GameViewModel(
     private var manualTimeControl = false
     private var lastSourceFileName: String? = null
     private var sessionRestoreStarted = false
+    private var libraryRevision = 0L
+    private var unconfirmedLibraryWrite = false
 
     // ==================== ПУБЛИЧНЫЕ МЕТОДЫ ====================
 
@@ -214,19 +222,46 @@ class GameViewModel(
             chessUsernameHint.value = savedHint ?: user.nickname
         }
         if (previousId != uid || libraryJob?.isActive != true) {
-            libraryJob?.cancel()
-            userGames.clear()
-            if (uid != null) libraryJob = viewModelScope.launch {
-                container.observeUserGames(uid).catch { e ->
-                    message.value = "Ошибка загрузки партий: ${e.message}"
-                }.collect { games ->
-                    userGames.clear()
-                    userGames.addAll(games)
-                }
+            if (previousId != uid) {
+                libraryJob?.cancel()
+                libraryJob = null
+                userGames.clear()
+                libraryRefreshError.value = false
+                pendingLibraryRefresh.value = false
+                unconfirmedLibraryWrite = false
+                libraryRevision = 0L
+            }
+            if (uid != null) {
+                ensureLibraryObserver(uid)
             }
         }
         if (previousId != uid || userGames.isEmpty()) {
             loadUserData()
+        }
+    }
+
+    private fun ensureLibraryObserver(userId: Long) {
+        if (libraryJob?.isActive == true) return
+        libraryJob = viewModelScope.launch {
+            observeGames(userId)
+                .catch { e ->
+                    libraryRefreshError.value = true
+                    if (unconfirmedLibraryWrite) {
+                        pendingLibraryRefresh.value = true
+                    }
+                    isLoadingLibrary.value = false
+                    message.value = "Ошибка загрузки партий: ${e.message ?: "сбой чтения базы данных"}"
+                    Log.e(TAG, "Error observing user games", e)
+                }
+                .collect { games ->
+                    if (currentUser.value?.id != userId) return@collect
+                    userGames.clear()
+                    userGames.addAll(games)
+                    libraryRevision++
+                    libraryRefreshError.value = false
+                    unconfirmedLibraryWrite = false
+                    pendingLibraryRefresh.value = false
+                }
         }
     }
 
@@ -269,6 +304,10 @@ class GameViewModel(
         isImporting.value = false
         isAnalyzing.value = false
         isLoadingLibrary.value = false
+        libraryRefreshError.value = false
+        pendingLibraryRefresh.value = false
+        unconfirmedLibraryWrite = false
+        libraryRevision = 0L
     }
 
     internal fun savedChessComSource(userId: Long) = container.sessionRepository.getChessComSource(userId)
@@ -299,6 +338,7 @@ class GameViewModel(
         if (isImporting.value || currentUser.value?.id != userId || selection.isEmpty()) return
         isImporting.value = true
         message.value = "Сохраняем выбранные партии…"
+        val startRevision = libraryRevision
         val priorPartialSaved = if (pendingChessComRetry.isNotEmpty() && selection == pendingChessComRetry.toList()) {
             chessComPartialSavedCount.value
         } else {
@@ -318,7 +358,7 @@ class GameViewModel(
                 for ((side, games) in selection.groupBy { it.side }) {
                     for (chunk in games.chunked(UploadGameUseCase.MAX_BATCH_GAMES)) {
                         val result = withContext(Dispatchers.IO) {
-                            container.uploadGameUseCase.executeBatch(
+                            uploadGames.executeBatch(
                                 UploadGameUseCase.BatchInput(
                                     userId = userId,
                                     rawPgnArchive = chunk.joinToString("\n\n") { it.pgn },
@@ -358,8 +398,30 @@ class GameViewModel(
             } finally {
                 isImporting.value = false
                 if (currentUser.value?.id == userId) {
-                    loadUserData()
-                    if (succeeded && (priorPartialSaved + saved > 0 || duplicates > 0)) {
+                    val confirmedCount = priorPartialSaved + saved + duplicates
+                    val alreadyDelivered = confirmedCount > 0 &&
+                        libraryRevision > startRevision &&
+                        !libraryRefreshError.value &&
+                        libraryJob?.isActive == true
+                    if (confirmedCount > 0 && !alreadyDelivered) {
+                        unconfirmedLibraryWrite = true
+                        pendingLibraryRefresh.value = true
+                    }
+                    val refreshed = refreshLibraryDataInternal(userId)
+                    if (!refreshed || libraryRefreshError.value) {
+                        if (confirmedCount > 0) {
+                            unconfirmedLibraryWrite = true
+                            pendingLibraryRefresh.value = true
+                            val savedNotice = priorPartialSaved + saved
+                            if (!message.value.startsWith("Ошибка: Частичный импорт")) {
+                                message.value = if (savedNotice > 0) {
+                                    "Ошибка: Партии сохранены ($savedNotice), но не удалось обновить список библиотеки."
+                                } else {
+                                    "Ошибка: Не удалось обновить список библиотеки."
+                                }
+                            }
+                        }
+                    } else if (succeeded && confirmedCount > 0) {
                         onImportedToLibrary()
                     }
                 }
@@ -652,34 +714,80 @@ class GameViewModel(
      */
     fun loadUserData() {
         val userId = currentUser.value?.id ?: return
-
         isLoadingLibrary.value = true
         viewModelScope.launch {
-            try {
-                val userFromDb = container.userRepository.findById(userId)
-                if (currentUser.value?.id != userId) return@launch
-                if (userFromDb != null) {
-                    currentUser.value = userFromDb
+            refreshLibraryDataInternal(userId)
+        }
+    }
+
+    /**
+     * Повторить только чтение библиотеки (без повторной записи партий и без запуска движка).
+     */
+    fun refreshLibrary(onRefreshed: () -> Unit = {}) {
+        val userId = currentUser.value?.id ?: return
+        if (isLoadingLibrary.value) return
+        isLoadingLibrary.value = true
+        viewModelScope.launch {
+            val ok = refreshLibraryDataInternal(userId)
+            if (ok && !libraryRefreshError.value) {
+                unconfirmedLibraryWrite = false
+                pendingLibraryRefresh.value = false
+                if (message.value.startsWith("Ошибка загрузки") ||
+                    message.value.contains("не удалось обновить список", ignoreCase = true)
+                ) {
+                    message.value = ""
                 }
-
-                val mistakes = container.mistakeRepository.findByUserId(userId)
-                if (currentUser.value?.id != userId) return@launch
-                _userMistakes.clear()
-                _userMistakes.addAll(mistakes)
-                _mistakesByGameId.value = mistakes.groupBy { it.gameId }
-
-                Log.d(
-                    TAG,
-                    "Loaded ${mistakes.size} mistakes for user $userId"
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                message.value = "Ошибка загрузки данных: ${e.message}"
-                Log.e(TAG, "Error loading user data", e)
-            } finally {
-                isLoadingLibrary.value = false
+                onRefreshed()
             }
+        }
+    }
+
+    private suspend fun refreshLibraryDataInternal(userId: Long): Boolean {
+        isLoadingLibrary.value = true
+        libraryRefreshError.value = false
+        ensureLibraryObserver(userId)
+        return try {
+            val userFromDb = withContext(Dispatchers.IO) {
+                container.userRepository.findById(userId)
+            }
+            if (currentUser.value?.id != userId) return false
+            if (userFromDb != null) {
+                currentUser.value = userFromDb
+            }
+
+            val mistakes = withContext(Dispatchers.IO) {
+                container.mistakeRepository.findByUserId(userId)
+            }
+            if (currentUser.value?.id != userId) return false
+            _userMistakes.clear()
+            _userMistakes.addAll(mistakes)
+            _mistakesByGameId.value = mistakes.groupBy { it.gameId }
+
+            yield()
+            val ok = !libraryRefreshError.value && libraryJob?.isActive == true
+            if (!ok) {
+                libraryRefreshError.value = true
+            } else if (!unconfirmedLibraryWrite) {
+                pendingLibraryRefresh.value = false
+            }
+
+            Log.d(
+                TAG,
+                "Loaded ${mistakes.size} mistakes for user $userId"
+            )
+            ok
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            libraryRefreshError.value = true
+            if (unconfirmedLibraryWrite) {
+                pendingLibraryRefresh.value = true
+            }
+            message.value = "Ошибка загрузки данных: ${e.message}"
+            Log.e(TAG, "Error loading user data", e)
+            false
+        } finally {
+            isLoadingLibrary.value = false
         }
     }
 

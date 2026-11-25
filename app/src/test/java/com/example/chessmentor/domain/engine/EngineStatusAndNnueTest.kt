@@ -1,6 +1,7 @@
 package com.example.chessmentor.domain.engine
 
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.net.ConnectException
@@ -165,5 +166,66 @@ class EngineStatusAndNnueTest {
         assertTrue(ready.isReady && !ready.isBusy && !ready.isError)
         assertTrue(ready.formattedSummary().contains("68.0 МБ"))
         assertTrue(ready.formattedSummary().contains("SHA-256 ✓"))
+    }
+
+    @Test
+    fun resolveSafeRedirectUrl_andCopyStreamWithLimit_enforceSecurityAndSizeBounds() {
+        val origin = "https://tests.stockfishchess.org/api/nn/${NnueIntegrity.NET_NAME}"
+
+        // Допустимые HTTPS-редиректы (абсолютный и относительный)
+        assertEquals(
+            "https://cdn.stockfishchess.org/nn/${NnueIntegrity.NET_NAME}",
+            NnueIntegrity.resolveSafeRedirectUrl(
+                origin,
+                "https://cdn.stockfishchess.org/nn/${NnueIntegrity.NET_NAME}"
+            )
+        )
+        assertEquals(
+            "https://tests.stockfishchess.org/mirrors/${NnueIntegrity.NET_NAME}",
+            NnueIntegrity.resolveSafeRedirectUrl(origin, "/mirrors/${NnueIntegrity.NET_NAME}")
+        )
+
+        // Запрещаем downgrade на HTTP, опасные схемы, учётные данные и циклы
+        assertNull(NnueIntegrity.resolveSafeRedirectUrl(origin, "http://tests.stockfishchess.org/nn"))
+        assertNull(NnueIntegrity.resolveSafeRedirectUrl(origin, "file:///etc/passwd"))
+        assertNull(NnueIntegrity.resolveSafeRedirectUrl(origin, "https://user:pass@example.com/nn"))
+        assertNull(NnueIntegrity.resolveSafeRedirectUrl(origin, origin))
+        assertNull(NnueIntegrity.resolveSafeRedirectUrl(origin, "   "))
+        assertNull(NnueIntegrity.resolveSafeRedirectUrl(origin, null))
+
+        // Граница MAX_NET_BYTES и MAX_REDIRECTS
+        assertEquals(256L * 1024L * 1024L, NnueIntegrity.MAX_NET_BYTES)
+        assertEquals(5, NnueIntegrity.MAX_REDIRECTS)
+
+        // Ровно на границе maxBytes — проходит без ошибок
+        val exact = ByteArray(1024) { 0x2A }
+        val exactOut = ByteArrayOutputStream()
+        val copied = NnueIntegrity.copyStreamWithLimit(
+            input = ByteArrayInputStream(exact),
+            output = exactOut,
+            maxBytes = 1024L
+        )
+        assertEquals(1024L, copied)
+        assertEquals(1024, exactOut.size())
+
+        // Превышение лимита на 1 байт прерывается исключением и классифицируется как HTTP_ERROR
+        val overflow = ByteArray(1025) { 0x2A }
+        val overflowOut = ByteArrayOutputStream()
+        var thrown: IOException? = null
+        try {
+            NnueIntegrity.copyStreamWithLimit(
+                input = ByteArrayInputStream(overflow),
+                output = overflowOut,
+                maxBytes = 1024L
+            )
+        } catch (e: IOException) {
+            thrown = e
+        }
+        assertNotNull(thrown)
+        assertEquals(EngineErrorReason.HTTP_ERROR, NnueIntegrity.classifyError(thrown!!))
+        assertEquals(
+            EngineErrorReason.HTTP_ERROR,
+            NnueIntegrity.classifyError(IOException("Unsafe or cyclic redirect from $origin"))
+        )
     }
 }

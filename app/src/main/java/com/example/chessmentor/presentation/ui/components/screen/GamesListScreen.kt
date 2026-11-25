@@ -113,6 +113,8 @@ fun GamesListScreen(
     val games = gameViewModel.userGames.toList()
     val message by gameViewModel.message
     val isLoadingLibrary by gameViewModel.isLoadingLibrary
+    val libraryRefreshError by gameViewModel.libraryRefreshError
+    val pendingLibraryRefresh by gameViewModel.pendingLibraryRefresh
     val isAnalyzing by gameViewModel.isAnalyzing
 
     val engineStatus by container.chessEngine.status.collectAsState()
@@ -297,11 +299,47 @@ fun GamesListScreen(
             }
         }
 
+        if (libraryRefreshError || pendingLibraryRefresh) {
+            item(key = "library-refresh-banner") {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = if (pendingLibraryRefresh) {
+                                "Новые партии сохранены, но список ещё не обновился"
+                            } else {
+                                "Не удалось загрузить список партий"
+                            },
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        FilledTonalButton(
+                            onClick = { gameViewModel.refreshLibrary() },
+                            enabled = !isLoadingLibrary,
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Text("Обновить список")
+                        }
+                    }
+                }
+            }
+        }
+
         if (isLoadingLibrary && indexedGames.isEmpty()) {
             item {
                 ListSkeleton(itemCount = 3)
             }
-        } else if (indexedGames.isEmpty()) {
+        } else if (indexedGames.isEmpty() && !libraryRefreshError && !pendingLibraryRefresh) {
             item {
                 BrandEmptyState(
                     painter = painterResource(R.drawable.ic_empty_games),
@@ -311,7 +349,7 @@ fun GamesListScreen(
                     actionLabel = "Импортировать партии"
                 )
             }
-        } else {
+        } else if (indexedGames.isNotEmpty()) {
             // Поиск + сортировка + быстрые фильтры
             if (searchOpen) item {
                 LibrarySearchAndFilters(
