@@ -11,6 +11,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
@@ -172,10 +173,19 @@ class NestedBackHandlerTest {
             }
             ui.onNodeWithText("Помощь").performClick()
             ui.onNodeWithText("Показать всю линию").performClick()
+            ui.waitUntil(timeoutMillis = 15_000) {
+                ui.onAllNodes(hasText("Анализ") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+            }
             ui.onNodeWithText("Анализ").assertIsDisplayed().performClick()
+            ui.waitUntil(timeoutMillis = 15_000) {
+                ui.onAllNodesWithText("К линии").fetchSemanticsNodes().isNotEmpty()
+            }
             ui.onNodeWithText("К линии").assertIsDisplayed()
 
             ui.runOnIdle { pressBackAction?.invoke() }
+            ui.waitUntil(timeoutMillis = 15_000) {
+                ui.onAllNodesWithText("Анализ").fetchSemanticsNodes().isNotEmpty()
+            }
             ui.onNodeWithText("Анализ").assertIsDisplayed()
             ui.runOnIdle { assertEquals(0, outerBackCalls.intValue) }
 
