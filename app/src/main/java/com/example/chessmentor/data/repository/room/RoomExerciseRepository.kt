@@ -6,6 +6,7 @@ import com.example.chessmentor.domain.entity.Exercise
 import com.example.chessmentor.domain.entity.ExerciseAttempt
 import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.repository.ExerciseRepository
+import com.example.chessmentor.domain.training.AttemptMetadata
 import com.example.chessmentor.domain.training.TrainingRatingCalculator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -146,7 +147,8 @@ class RoomExerciseRepository(private val exerciseDao: ExerciseDao) : ExerciseRep
 
     override suspend fun hasUserSolvedExercise(userId: Long, exerciseId: Long): Boolean =
         withContext(Dispatchers.IO) {
-            exerciseDao.hasUserSolvedExercise(userId = userId, exerciseId = exerciseId)
+            exerciseDao.getSolvedAttemptsForExercise(userId = userId, exerciseId = exerciseId)
+                .any(AttemptMetadata::isIndependentSolve)
         }
 
     override suspend fun saveExercise(exercise: Exercise): Exercise = withContext(Dispatchers.IO) {

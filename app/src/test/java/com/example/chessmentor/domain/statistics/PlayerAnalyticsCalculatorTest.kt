@@ -22,10 +22,13 @@ import com.example.chessmentor.domain.repository.UserRepository
 import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.GamePhaseKind
 import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.StatsPeriod
 import com.example.chessmentor.domain.statistics.PlayerAnalyticsCalculator.TrendDirection
+import com.example.chessmentor.domain.training.AttemptMetadata
+import com.example.chessmentor.domain.training.HintUsage
 import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.usecase.GetUserStatisticsUseCase
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -613,6 +616,50 @@ class PlayerAnalyticsCalculatorTest {
         assertTrue(skewerAction.description.contains("Связка и рентген"))
     }
 
+    @Test
+    fun computeDailyActivity_excludesRevealedAndFullHintAttemptsFromSolvedAndStreak() {
+        val now = 1_730_000_000_000L
+        val revealedSolvedTrue = ExerciseAttempt(
+            id = 1L,
+            userId = 1L,
+            exerciseId = 10L,
+            solved = true,
+            timeSpentSeconds = 2,
+            movesMade = AttemptMetadata.buildTaggedMoves(listOf("d1d8"), solutionRevealed = true),
+            attemptedAt = now
+        )
+        val fullHintSolvedTrue = ExerciseAttempt(
+            id = 2L,
+            userId = 1L,
+            exerciseId = 11L,
+            solved = true,
+            timeSpentSeconds = 4,
+            movesMade = AttemptMetadata.buildTaggedMoves(listOf("e2e4"), hintUsage = HintUsage.FULL_SOLUTION),
+            attemptedAt = now - dayMs
+        )
+        val pieceHintSolved = ExerciseAttempt(
+            id = 3L,
+            userId = 1L,
+            exerciseId = 12L,
+            solved = true,
+            timeSpentSeconds = 11,
+            movesMade = AttemptMetadata.buildTaggedMoves(listOf("g1f3"), hintUsage = HintUsage.PIECE_HIGHLIGHT),
+            attemptedAt = now - 2 * dayMs
+        )
+
+        val (series, streak) = PlayerAnalyticsCalculator.computeDailyActivity(
+            games = emptyList(),
+            attempts = listOf(revealedSolvedTrue, fullHintSolvedTrue, pieceHintSolved),
+            nowMs = now,
+            zoneId = ZoneOffset.UTC,
+            daysCount = 4
+        )
+        assertEquals(0, series.last().puzzlesSolved)
+        assertEquals(0, series[series.lastIndex - 1].puzzlesSolved)
+        assertEquals(1, series[series.lastIndex - 2].puzzlesSolved)
+        assertEquals(0, streak)
+    }
+
     // ==================== ТЕСТОВЫЕ ХЕЛПЕРЫ ====================
 
     private fun sampleGame(
@@ -778,7 +825,7 @@ class PlayerAnalyticsCalculatorTest {
             override suspend fun countExercises(): Int = stored.size
             override suspend fun countGlobalExercises(): Int = stored.count { it.sourceGameId == null }
             override suspend fun hasUserSolvedExercise(userId: Long, exerciseId: Long): Boolean =
-                attempts.any { it.userId == userId && it.exerciseId == exerciseId && it.solved }
+                attempts.any { it.userId == userId && it.exerciseId == exerciseId && AttemptMetadata.isIndependentSolve(it) }
             override suspend fun saveExercise(exercise: Exercise): Exercise {
                 val saved = if (exercise.id == null) exercise.copy(id = nextId++) else exercise
                 stored.removeAll { it.id == saved.id }

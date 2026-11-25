@@ -15,6 +15,7 @@ import com.example.chessmentor.domain.entity.*
 import com.example.chessmentor.presentation.ui.components.CompactMistakeCard
 import com.example.chessmentor.presentation.ui.components.screen.AnalyzedMoveInfoCard
 import com.example.chessmentor.presentation.ui.components.screen.RetryMistakePanel
+import com.example.chessmentor.presentation.ui.components.screen.ReviewTopHeaderBar
 import com.example.chessmentor.presentation.viewmodel.RetryMistakeUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -237,5 +238,22 @@ class MistakeDisclosureTest {
             .assertIsDisplayed()
             .performClick()
         ui.runOnIdle { assertEquals(1, verifyClicks) }
+    }
+
+    @Test fun reviewTopHeaderBar_hidesStockfishToggleWhenConcealed() {
+        var concealed by mutableStateOf(true)
+        ui.setContent {
+            ReviewTopHeaderBar(
+                isLiveEngineEnabled = false,
+                showEngineToggle = !concealed,
+                onNavigateBack = {},
+                onFlipBoard = {},
+                onToggleEngine = {},
+                onOpenSummary = null
+            )
+        }
+        ui.onNodeWithContentDescription("Анализ Stockfish").assertDoesNotExist()
+        ui.runOnIdle { concealed = false }
+        ui.onNodeWithContentDescription("Анализ Stockfish").assertIsDisplayed()
     }
 }

@@ -188,4 +188,82 @@ class SpacedRepetitionSchedulerTest {
         assertFalse(card.isMastered)
         assertEquals(SpacedRepetitionScheduler.FAILURE_COOLDOWN_MS, card.intervalMs)
     }
+
+    @Test
+    fun attemptMetadata_isIndependentSolve_excludesRevealedAndFullHintEvenIfSolvedTrue() {
+        val clean = ExerciseAttempt(1L, 1L, 42L, solved = true, timeSpentSeconds = 8, movesMade = listOf("d1d8"))
+        val pieceHint = ExerciseAttempt(
+            2L, 1L, 42L, solved = true, timeSpentSeconds = 12,
+            movesMade = AttemptMetadata.buildTaggedMoves(listOf("d1d8"), hintUsage = HintUsage.PIECE_HIGHLIGHT)
+        )
+        val fullHint = ExerciseAttempt(
+            3L, 1L, 42L, solved = true, timeSpentSeconds = 4,
+            movesMade = AttemptMetadata.buildTaggedMoves(listOf("d1d8"), hintUsage = HintUsage.FULL_SOLUTION)
+        )
+        val revealed = ExerciseAttempt(
+            4L, 1L, 42L, solved = true, timeSpentSeconds = 2,
+            movesMade = AttemptMetadata.buildTaggedMoves(listOf("d1d8"), solutionRevealed = true)
+        )
+
+        assertTrue(AttemptMetadata.isIndependentSolve(clean))
+        assertTrue(AttemptMetadata.isIndependentSolve(pieceHint))
+        assertFalse(AttemptMetadata.isIndependentSolve(fullHint))
+        assertFalse(AttemptMetadata.isIndependentSolve(revealed))
+    }
+
+    @Test
+    fun slowSolveOverTenMinutes_isClassifiedAsSlowCleanSolve_notFast() {
+        val attempt = ExerciseAttempt(
+            id = 1L, userId = 1L, exerciseId = 42L, solved = true,
+            timeSpentSeconds = 900, movesMade = listOf("d1d8"), attemptedAt = 1_000_000L
+        )
+        val card = SpacedRepetitionScheduler.computeCardState(42L, listOf(attempt), sampleExercise)!!
+        assertEquals(AttemptQuality.SLOW_CLEAN_SOLVE, card.lastQuality)
+        assertEquals(1, card.box)
+    }
+
+    @Test
+    fun earlyReviewBeforeScheduledTime_doesNotAdvanceBoxOrMastery() {
+        val t0 = 1_000_000L
+        val first = ExerciseAttempt(1L, 1L, 42L, solved = true, timeSpentSeconds = 6, movesMade = listOf("d1d8"), attemptedAt = t0)
+        // Повтор через 2 часа (раньше 3-дневного интервала!) не должен поднимать коробку до 3 и затем 4 (isMastered)
+        val early1 = ExerciseAttempt(
+            2L, 1L, 42L, solved = true, timeSpentSeconds = 5, movesMade = listOf("d1d8"),
+            attemptedAt = t0 + 2L * SpacedRepetitionScheduler.HOUR_MS
+        )
+        val early2 = ExerciseAttempt(
+            3L, 1L, 42L, solved = true, timeSpentSeconds = 5, movesMade = listOf("d1d8"),
+            attemptedAt = t0 + 4L * SpacedRepetitionScheduler.HOUR_MS
+        )
+
+        val card = SpacedRepetitionScheduler.computeCardState(42L, listOf(first, early1, early2), sampleExercise)!!
+        assertEquals(2, card.box)
+        assertFalse(card.isMastered)
+    }
+
+    @Test
+    fun leechAfterThreeLapses_receivesExtendedCooldownAndGuidance() {
+        var now = 1_000_000L
+        val attempts = mutableListOf<ExerciseAttempt>()
+        for (i in 1..3) {
+            attempts += ExerciseAttempt(
+                id = i.toLong(),
+                userId = 1L,
+                exerciseId = 42L,
+                solved = false,
+                timeSpentSeconds = 15,
+                movesMade = listOf("a2a3"),
+                attemptedAt = now
+            )
+            now += 2L * SpacedRepetitionScheduler.HOUR_MS
+        }
+
+        val card = SpacedRepetitionScheduler.computeCardState(42L, attempts, sampleExercise)!!
+        assertEquals(3, card.lapses)
+        assertTrue(card.isLeech)
+        assertEquals(SpacedRepetitionScheduler.LEECH_COOLDOWN_MS, card.intervalMs)
+        assertFalse(card.isDue(attempts.last().attemptedAt + SpacedRepetitionScheduler.FAILURE_COOLDOWN_MS))
+        assertTrue(SpacedRepetitionScheduler.formatReviewBanner(card).contains("Сложный для вас мотив"))
+        assertTrue(SpacedRepetitionScheduler.formatNextIntervalNote(card).contains("Трудный мотив"))
+    }
 }

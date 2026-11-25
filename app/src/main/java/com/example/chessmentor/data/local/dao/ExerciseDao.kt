@@ -343,6 +343,12 @@ interface ExerciseDao {
     suspend fun hasUserSolvedExercise(userId: Long, exerciseId: Long): Boolean
 
     @Query("""
+        SELECT * FROM exercise_attempts
+        WHERE userId = :userId AND exerciseId = :exerciseId AND solved = 1
+    """)
+    suspend fun getSolvedAttemptsForExercise(userId: Long, exerciseId: Long): List<ExerciseAttempt>
+
+    @Query("""
         SELECT e.tacticalPattern AS tacticalPattern, COUNT(*) AS count
         FROM exercises e
         WHERE e.sourceGameId IS NULL OR e.sourceGameId IN (SELECT id FROM games WHERE userId = :userId)

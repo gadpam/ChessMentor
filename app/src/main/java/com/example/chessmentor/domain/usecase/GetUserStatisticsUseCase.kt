@@ -302,10 +302,10 @@ class GetUserStatisticsUseCase(
 
         val uniqueSolvedAll = allAttempts.groupBy { it.exerciseId }
             .values
-            .count { list -> list.any { it.solved } }
+            .count { list -> list.any(AttemptMetadata::isIndependentSolve) }
         val unresolvedFailedAll = allAttempts.groupBy { it.exerciseId }
             .values
-            .count { list -> list.any { !it.solved } && list.none { it.solved } }
+            .count { list -> list.any { !AttemptMetadata.isIndependentSolve(it) } && list.none(AttemptMetadata::isIndependentSolve) }
 
         val allHistorySittingsCount = allAttempts.groupBy { it.exerciseId }
             .values
@@ -340,7 +340,7 @@ class GetUserStatisticsUseCase(
         }
 
         val totalAttempts = scopedAttempts.size
-        val solvedAttempts = scopedAttempts.count { it.solved }
+        val solvedAttempts = scopedAttempts.count(AttemptMetadata::isIndependentSolve)
         val solveAccuracy = ((solvedAttempts * 100.0) / totalAttempts).roundToInt().coerceIn(0, 100)
 
         val scopedSittings = scopedAttempts
@@ -374,7 +374,7 @@ class GetUserStatisticsUseCase(
         val (currentStreak, bestStreak) = calculateCleanStreaks(scopedSittings)
 
         val solvedDurations = scopedAttempts
-            .filter { it.solved && it.timeSpentSeconds > 0 }
+            .filter { AttemptMetadata.isIndependentSolve(it) && it.timeSpentSeconds > 0 }
             .map { it.timeSpentSeconds.coerceAtMost(MAX_SOLVE_SECONDS_FOR_AVG) }
         val avgSolveSeconds = if (solvedDurations.isNotEmpty()) {
             solvedDurations.average().roundToInt()

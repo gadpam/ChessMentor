@@ -46,6 +46,29 @@ object GameReviewHelper {
     /** Допуск в сантипешках для засчитывания равноценного альтернативного хода при исправлении ошибки. */
     const val EQUIVALENT_BEST_TOLERANCE_CP = 25
 
+    /**
+     * Проверяет, не уступает ли ход игрока ([moverScoreAttempt]) ожидаемому лучшему ходу ([moverScoreBest]),
+     * корректно разделяя матовые и сантипешечные оценки (с точки зрения стороны, сделавшей ход).
+     */
+    fun areEngineScoresEquivalent(moverScoreBest: Int, moverScoreAttempt: Int): Boolean {
+        val bestIsWinMate = ChessEngine.isMateScore(moverScoreBest) && moverScoreBest > 0
+        val attemptIsWinMate = ChessEngine.isMateScore(moverScoreAttempt) && moverScoreAttempt > 0
+        if (bestIsWinMate) {
+            if (!attemptIsWinMate) return false
+            return ChessEngine.getMateInMoves(moverScoreAttempt) <= ChessEngine.getMateInMoves(moverScoreBest)
+        }
+        if (attemptIsWinMate) return true
+
+        val bestIsLoseMate = ChessEngine.isMateScore(moverScoreBest) && moverScoreBest < 0
+        val attemptIsLoseMate = ChessEngine.isMateScore(moverScoreAttempt) && moverScoreAttempt < 0
+        if (attemptIsLoseMate) {
+            return bestIsLoseMate && moverScoreAttempt >= moverScoreBest
+        }
+        if (bestIsLoseMate) return true
+
+        return (moverScoreBest - moverScoreAttempt) <= EQUIVALENT_BEST_TOLERANCE_CP
+    }
+
     private val BETTER_MARKER_REGEX = Regex("""(?:^|\s)Сильнее:\s*""")
     private val REFUTATION_MARKER_REGEX = Regex("""(?:^|\s)Опровержение:\s*""")
 
@@ -1092,7 +1115,7 @@ object GameReviewHelper {
                 ExerciseAttempt(
                     userId = userId,
                     exerciseId = savedId,
-                    solved = true,
+                    solved = !solutionWasShown,
                     timeSpentSeconds = 2,
                     movesMade = taggedMoves,
                     attemptedAt = nowMs

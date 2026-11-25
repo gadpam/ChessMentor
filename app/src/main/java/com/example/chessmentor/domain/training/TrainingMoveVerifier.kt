@@ -43,16 +43,39 @@ internal suspend fun verifyTrainingMove(
         val playerEvalAfterUser = -opponentEvalAfterUser
         val playerEvalBest = bestLine.score
 
-        if (ChessEngine.isMateScore(playerEvalAfterUser) && playerEvalAfterUser > 0) {
-            return if (playerEvalAfterUser >= playerEvalBest) {
-                TrainingMoveQuality.BEST
-            } else {
-                TrainingMoveQuality.EXCELLENT
+        val bestIsWinMate = ChessEngine.isMateScore(playerEvalBest) && playerEvalBest > 0
+        val afterIsWinMate = ChessEngine.isMateScore(playerEvalAfterUser) && playerEvalAfterUser > 0
+
+        if (afterIsWinMate) {
+            if (!bestIsWinMate) {
+                return TrainingMoveQuality.BEST
+            }
+            val bestMateMoves = ChessEngine.getMateInMoves(playerEvalBest)
+            val afterMateMoves = ChessEngine.getMateInMoves(playerEvalAfterUser)
+            val expectedAfterMoves = (bestMateMoves - 1).coerceAtLeast(0)
+            return when {
+                bestMateMoves <= 1 -> TrainingMoveQuality.MISTAKE
+                afterMateMoves <= expectedAfterMoves -> TrainingMoveQuality.BEST
+                bestMateMoves >= 5 && afterMateMoves == bestMateMoves -> TrainingMoveQuality.EXCELLENT
+                else -> TrainingMoveQuality.MISTAKE
             }
         }
 
-        if (ChessEngine.isMateScore(playerEvalBest) && playerEvalBest > 0) {
+        if (bestIsWinMate) {
             return TrainingMoveQuality.MISTAKE
+        }
+
+        val bestIsLoseMate = ChessEngine.isMateScore(playerEvalBest) && playerEvalBest < 0
+        val afterIsLoseMate = ChessEngine.isMateScore(playerEvalAfterUser) && playerEvalAfterUser < 0
+        if (afterIsLoseMate) {
+            return if (bestIsLoseMate && playerEvalAfterUser >= playerEvalBest) {
+                TrainingMoveQuality.BEST
+            } else {
+                TrainingMoveQuality.MISTAKE
+            }
+        }
+        if (bestIsLoseMate) {
+            return TrainingMoveQuality.BEST
         }
 
         val cpLoss = playerEvalBest - playerEvalAfterUser
@@ -62,8 +85,8 @@ internal suspend fun verifyTrainingMove(
             // В защитной задаче любой ход, надёжно удерживающий равновесие без тактических потерь, корректен
             isDefensive && playerEvalAfterUser >= -140 && cpLoss <= 60 ->
                 TrainingMoveQuality.EXCELLENT
-            // При реализации уже подавляющего перевеса (+4 пешки) допускаем равноценный выигрывающий путь
-            playerEvalAfterUser >= 400 && cpLoss <= 65 ->
+            // При реализации уже подавляющего перевеса (+5 пешек) допускаем равноценный выигрывающий путь
+            playerEvalAfterUser >= 500 && cpLoss <= 55 ->
                 TrainingMoveQuality.EXCELLENT
             else -> TrainingMoveQuality.MISTAKE
         }

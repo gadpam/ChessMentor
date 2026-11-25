@@ -247,7 +247,7 @@ class TrainingUseCasesTest {
         override suspend fun countExercises(): Int = exercises.size
         override suspend fun countGlobalExercises(): Int = exercises.values.count { it.sourceGameId == null }
         override suspend fun hasUserSolvedExercise(userId: Long, exerciseId: Long): Boolean =
-            attempts.any { it.userId == userId && it.exerciseId == exerciseId && it.solved }
+            attempts.any { it.userId == userId && it.exerciseId == exerciseId && AttemptMetadata.isIndependentSolve(it) }
 
         override suspend fun saveExercise(exercise: Exercise): Exercise {
             val id = exercise.id ?: nextExId++
@@ -615,6 +615,73 @@ class TrainingUseCasesTest {
         assertEquals(10, training.averageSolveTimeSeconds)
         assertEquals(TacticalPattern.FORK_KNIGHT, training.weakPatterns.first().pattern)
         assertEquals(TacticalPattern.BACK_RANK_MATE, training.strongPatterns.first().pattern)
+    }
+
+    @Test
+    fun getUserStatistics_excludesRevealedAndFullHintAttemptsFromSolvedStats() = runBlocking {
+        val userRepo = FakeUserRepo()
+        val gameRepo = FakeGameRepo()
+        val mistakeRepo = FakeMistakeRepo(gameRepo)
+        val exerciseRepo = FakeExerciseRepo(gameRepo)
+
+        val player = userRepo.save(User(nickname = "Honest", email = "honest@test.com", passwordHash = "h", rating = 1500))
+        val ex1 = exerciseRepo.saveExercise(
+            Exercise(
+                fenPosition = "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+                solutionMoves = listOf("d1d8"),
+                tacticalPattern = TacticalPattern.BACK_RANK_MATE,
+                patternClusterId = "BACK_RANK_MATE_EASY",
+                difficultyRating = 30,
+                theme = TacticalTheme.MATE
+            )
+        )
+        val ex2 = exerciseRepo.saveExercise(
+            Exercise(
+                fenPosition = "6k1/5ppp/8/8/8/8/5PPP/2R3K1 w - - 0 1",
+                solutionMoves = listOf("c1c8"),
+                tacticalPattern = TacticalPattern.BACK_RANK_MATE,
+                patternClusterId = "BACK_RANK_MATE_EASY",
+                difficultyRating = 30,
+                theme = TacticalTheme.MATE
+            )
+        )
+
+        // Даже если в старой БД лежит solved=true с @REVEALED или @HINT:FULL — это не считается решением
+        exerciseRepo.saveAttempt(
+            ExerciseAttempt(
+                userId = player.id!!,
+                exerciseId = ex1.id!!,
+                solved = true,
+                timeSpentSeconds = 2,
+                movesMade = AttemptMetadata.buildTaggedMoves(listOf("d1d8"), solutionRevealed = true),
+                attemptedAt = 100L
+            )
+        )
+        exerciseRepo.saveAttempt(
+            ExerciseAttempt(
+                userId = player.id!!,
+                exerciseId = ex2.id!!,
+                solved = true,
+                timeSpentSeconds = 5,
+                movesMade = AttemptMetadata.buildTaggedMoves(listOf("c1c8"), hintUsage = HintUsage.FULL_SOLUTION),
+                attemptedAt = 200L
+            )
+        )
+
+        assertFalse(exerciseRepo.hasUserSolvedExercise(player.id!!, ex1.id!!))
+        assertFalse(exerciseRepo.hasUserSolvedExercise(player.id!!, ex2.id!!))
+
+        val statsUseCase = GetUserStatisticsUseCase(userRepo, gameRepo, mistakeRepo, exerciseRepo)
+        val statsRes = statsUseCase.execute(GetUserStatisticsUseCase.Input(player.id!!))
+            as GetUserStatisticsUseCase.Result.Success
+        val training = statsRes.statistics.training
+
+        assertEquals(2, training.totalAttempts)
+        assertEquals(0, training.solvedAttempts)
+        assertEquals(0, training.solveAccuracyPercent)
+        assertEquals(0, training.uniqueExercisesSolved)
+        assertEquals(2, training.unresolvedFailedCount)
+        assertEquals(0, training.averageSolveTimeSeconds)
     }
 
     @Test

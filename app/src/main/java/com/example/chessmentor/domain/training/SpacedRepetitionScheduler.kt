@@ -59,6 +59,15 @@ object AttemptMetadata {
     fun isSolutionRevealed(attempt: ExerciseAttempt): Boolean =
         attempt.movesMade.any { it == TAG_REVEALED }
 
+    /**
+     * Возвращает `true`, только если задача решена самостоятельно (допускается подсказка фигуры,
+     * но НЕ показ полного ответа `@REVEALED` и НЕ стрелка готового хода `@HINT:FULL`).
+     */
+    fun isIndependentSolve(attempt: ExerciseAttempt): Boolean {
+        if (!attempt.solved) return false
+        return !isSolutionRevealed(attempt) && extractHintUsage(attempt) != HintUsage.FULL_SOLUTION
+    }
+
     fun extractRetryCount(attempt: ExerciseAttempt): Int =
         attempt.movesMade
             .firstOrNull { it.startsWith(PREFIX_RETRY) }
@@ -191,6 +200,9 @@ object SpacedRepetitionScheduler {
 
     /** Охлаждение после провала / показа ответа (коробка 0). */
     const val FAILURE_COOLDOWN_MS: Long = 10L * MINUTE_MS
+
+    /** Удлинённое охлаждение для «пиявок» (3+ срыва на одной задаче), чтобы не застревать в одном шаблоне. */
+    const val LEECH_COOLDOWN_MS: Long = 24L * HOUR_MS
 
     /** Интервал пересдачи после решения со 2-й+ попытки (коробка 1). */
     const val RETRY_CONSOLIDATION_MS: Long = 4L * HOUR_MS
@@ -341,8 +353,8 @@ object SpacedRepetitionScheduler {
         val revealed = AttemptMetadata.isSolutionRevealed(attempt)
         val retries = maxOf(extraFailures, AttemptMetadata.extractRetryCount(attempt))
         val spent = attempt.timeSpentSeconds.coerceAtLeast(0)
-        // Игнорируем свёрнутое в фон приложение (> 10 минут) при проверке беглости
-        val isSlow = spent in (fluencySec + 1)..600
+        // Таймер паузы уже исключает простой; долгое решение (> порога беглости) не считается быстрым.
+        val isSlow = spent > fluencySec
 
         val quality = when {
             revealed || hint == HintUsage.FULL_SOLUTION -> AttemptQuality.FAILED
@@ -379,6 +391,7 @@ object SpacedRepetitionScheduler {
         var box = 0
         var ef = INITIAL_EASE_FACTOR
         var intervalMs = 0L
+        var nextReviewAt = 0L
         var consecutiveClean = 0
         var lapses = 0
         var cleanFirstTry = 0
@@ -387,13 +400,19 @@ object SpacedRepetitionScheduler {
         for (sitting in sittings) {
             val q = sitting.quality
             ef = updateEaseFactor(ef, q.sm2Score)
+            val isEarlyReview = hadPriorAttempt && box > 0 && sitting.finishedAt < nextReviewAt
+            val overdueLagRatio = if (hadPriorAttempt && nextReviewAt > 0L && intervalMs > 0L && sitting.finishedAt > nextReviewAt) {
+                (sitting.finishedAt - nextReviewAt).toDouble() / intervalMs.toDouble()
+            } else {
+                0.0
+            }
 
             when (q) {
                 AttemptQuality.FAILED -> {
                     box = 0
                     consecutiveClean = 0
                     lapses++
-                    intervalMs = FAILURE_COOLDOWN_MS
+                    intervalMs = if (lapses >= 3) LEECH_COOLDOWN_MS else FAILURE_COOLDOWN_MS
                 }
 
                 AttemptQuality.RETRY_SOLVE -> {
@@ -414,42 +433,62 @@ object SpacedRepetitionScheduler {
                 AttemptQuality.SLOW_CLEAN_SOLVE -> {
                     cleanFirstTry++
                     consecutiveClean++
-                    val nextBox = if (!hadPriorAttempt) {
+                    if (!hadPriorAttempt) {
                         // Новая задача решена чисто, но долго -> коробка 1 (повтор через 1 день)
-                        1
+                        box = 1
+                        intervalMs = computeCleanIntervalMs(
+                            newBox = box,
+                            prevIntervalMs = intervalMs,
+                            easeFactor = ef,
+                            isSlow = true,
+                            lapses = lapses
+                        )
+                    } else if (isEarlyReview) {
+                        // Раннее внеочередное повторение: подтверждаем текущий уровень без досрочного перехода
+                        intervalMs = intervalMs.coerceAtLeast(BOX_1_INTERVAL_MS)
                     } else {
-                        (box + 1).coerceAtMost(MAX_BOX)
+                        box = (box + 1).coerceAtMost(MAX_BOX)
+                        intervalMs = computeCleanIntervalMs(
+                            newBox = box,
+                            prevIntervalMs = intervalMs,
+                            easeFactor = ef,
+                            isSlow = true,
+                            lapses = lapses
+                        )
                     }
-                    box = nextBox
-                    intervalMs = computeCleanIntervalMs(
-                        newBox = box,
-                        prevIntervalMs = intervalMs,
-                        easeFactor = ef,
-                        isSlow = true,
-                        lapses = lapses
-                    )
                 }
 
                 AttemptQuality.CLEAN_FAST_SOLVE -> {
                     cleanFirstTry++
                     consecutiveClean++
-                    val nextBox = if (!hadPriorAttempt) {
+                    if (!hadPriorAttempt) {
                         // С первой попытки и быстро: сразу коробка 2 (проверка через 3 дня)
-                        2
+                        box = 2
+                        intervalMs = computeCleanIntervalMs(
+                            newBox = box,
+                            prevIntervalMs = intervalMs,
+                            easeFactor = ef,
+                            isSlow = false,
+                            lapses = lapses
+                        )
+                    } else if (isEarlyReview) {
+                        // Раннее внеочередное повторение: не продвигаем коробку и не раздуваем интервал
+                        intervalMs = intervalMs.coerceAtLeast(BOX_1_INTERVAL_MS)
                     } else {
-                        (box + 1).coerceAtMost(MAX_BOX)
+                        box = (box + 1).coerceAtMost(MAX_BOX)
+                        intervalMs = computeCleanIntervalMs(
+                            newBox = box,
+                            prevIntervalMs = intervalMs,
+                            easeFactor = ef,
+                            isSlow = false,
+                            lapses = lapses,
+                            overdueLagRatio = overdueLagRatio
+                        )
                     }
-                    box = nextBox
-                    intervalMs = computeCleanIntervalMs(
-                        newBox = box,
-                        prevIntervalMs = intervalMs,
-                        easeFactor = ef,
-                        isSlow = false,
-                        lapses = lapses
-                    )
                 }
             }
 
+            nextReviewAt = sitting.finishedAt + intervalMs
             hadPriorAttempt = true
         }
 
@@ -514,6 +553,7 @@ object SpacedRepetitionScheduler {
             }
             .sortedWith(
                 compareBy<Pair<Exercise, ReviewCardState>> { (_, st) -> st.box }
+                    .thenBy { (_, st) -> if (st.isLeech) 1 else 0 }
                     .thenBy { (ex, _) -> if (ex.sourceGameId != null) 0 else 1 }
                     .thenByDescending { (_, st) ->
                         val denom = st.intervalMs.coerceAtLeast(MINUTE_MS).toDouble()
@@ -550,7 +590,8 @@ object SpacedRepetitionScheduler {
         val pool = rested.ifEmpty { candidates }
 
         return pool.minWithOrNull(
-            compareBy<Pair<Exercise, ReviewCardState>> { (_, st) -> st.box }
+            compareBy<Pair<Exercise, ReviewCardState>> { (_, st) -> if (st.isLeech) 1 else 0 }
+                .thenBy { (_, st) -> st.box }
                 .thenBy { (_, st) -> st.nextReviewAt }
         )
     }
@@ -558,25 +599,26 @@ object SpacedRepetitionScheduler {
     /**
      * Краткий баннер при открытии задачи, пришедшей по расписанию интервального повторения.
      */
-    fun formatReviewBanner(state: ReviewCardState): String = when (state.lastQuality) {
-        AttemptQuality.FAILED ->
-            if (state.isLeech) {
-                "Сложный для вас мотив (срывов: ${state.lapses}) — посчитайте до конца"
-            } else {
+    fun formatReviewBanner(state: ReviewCardState): String {
+        if (state.isLeech && !state.lastQuality.isCleanFirstTry) {
+            return "Сложный для вас мотив (срывов: ${state.lapses}) — посчитайте варианты до конца"
+        }
+        return when (state.lastQuality) {
+            AttemptQuality.FAILED ->
                 "Повтор задачи после ошибки — найдите решение с 1-й попытки"
-            }
 
-        AttemptQuality.RETRY_SOLVE ->
-            "Закрепление: в прошлый раз решено со 2-й попытки — теперь с первого хода"
+            AttemptQuality.RETRY_SOLVE ->
+                "Закрепление: в прошлый раз решено со 2-й попытки — теперь с первого хода"
 
-        AttemptQuality.HINT_SOLVE ->
-            "Закрепление: решите эту позицию самостоятельно без подсказки"
+            AttemptQuality.HINT_SOLVE ->
+                "Закрепление: решите эту позицию самостоятельно без подсказки"
 
-        AttemptQuality.SLOW_CLEAN_SOLVE ->
-            "Повтор на скорость распознавания (уровень ${state.box}/$MAX_BOX)"
+            AttemptQuality.SLOW_CLEAN_SOLVE ->
+                "Повтор на скорость распознавания (уровень ${state.box}/$MAX_BOX)"
 
-        AttemptQuality.CLEAN_FAST_SOLVE ->
-            "Интервальное повторение (уровень ${state.box}/$MAX_BOX)"
+            AttemptQuality.CLEAN_FAST_SOLVE ->
+                "Интервальное повторение (уровень ${state.box}/$MAX_BOX)"
+        }
     }
 
     /**
@@ -584,6 +626,9 @@ object SpacedRepetitionScheduler {
      */
     fun formatNextIntervalNote(state: ReviewCardState): String {
         val intervalText = formatDurationShort(state.intervalMs)
+        if (state.isLeech && !state.lastQuality.isCleanFirstTry) {
+            return "Трудный мотив (срывов: ${state.lapses}) • вернёмся через $intervalText после практики похожих задач"
+        }
         return when (state.lastQuality) {
             AttemptQuality.FAILED ->
                 "Вернёмся к задаче через $intervalText"
@@ -634,7 +679,8 @@ object SpacedRepetitionScheduler {
         prevIntervalMs: Long,
         easeFactor: Double,
         isSlow: Boolean,
-        lapses: Int
+        lapses: Int,
+        overdueLagRatio: Double = 0.0
     ): Long {
         val base = when (newBox) {
             1 -> BOX_1_INTERVAL_MS
@@ -654,14 +700,23 @@ object SpacedRepetitionScheduler {
             }
         }
 
-        // Медленное решение и частые срывы укорачивают интервал, чтобы прочнее закрепить мотив
+        // Медленное решение и частые срывы укорачивают интервал, чтобы прочнее закрепить мотив.
+        // Чистое решение с сильным запозданием (overdue) подтверждает прочность памяти и добавляет умеренный бонус.
         var adjusted = base.toDouble()
+        if (!isSlow && newBox >= 4 && overdueLagRatio >= 0.25) {
+            adjusted *= (1.0 + minOf(overdueLagRatio, 1.0) * 0.20)
+        }
         if (isSlow && newBox >= 2) {
             adjusted *= 0.72
         }
         if (lapses >= 2 && newBox >= 2) {
             adjusted *= 0.85
         }
-        return adjusted.roundToLong().coerceIn(BOX_1_INTERVAL_MS, MAX_INTERVAL_MS)
+        val clamped = adjusted.roundToLong()
+        return if (newBox == 4 && !isSlow && lapses < 2) {
+            clamped.coerceIn(14L * DAY_MS, 30L * DAY_MS)
+        } else {
+            clamped.coerceIn(BOX_1_INTERVAL_MS, MAX_INTERVAL_MS)
+        }
     }
 }

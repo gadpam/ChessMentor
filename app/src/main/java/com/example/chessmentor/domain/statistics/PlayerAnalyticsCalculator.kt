@@ -15,6 +15,7 @@ import com.example.chessmentor.domain.entity.ProblemTheme
 import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.opening.OpeningDatabase
 import com.example.chessmentor.domain.pgn.PgnParser
+import com.example.chessmentor.domain.training.AttemptMetadata
 import com.example.chessmentor.domain.training.AttemptQuality
 import com.example.chessmentor.domain.training.HintUsage
 import com.example.chessmentor.domain.training.PatternMastery
@@ -1276,7 +1277,7 @@ object PlayerAnalyticsCalculator {
             }.eachCount()
 
         val solvedByDay = attempts
-            .filter { it.solved }
+            .filter(AttemptMetadata::isIndependentSolve)
             .groupingBy { a ->
                 Instant.ofEpochMilli(a.attemptedAt).atZone(zoneId).toLocalDate().toEpochDay()
             }

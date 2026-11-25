@@ -5,10 +5,13 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.example.chessmentor.data.engine.AnalysisLine
 import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.di.AppContainer
+import com.example.chessmentor.domain.entity.AnalysisStatus
+import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Exercise
 import com.example.chessmentor.domain.entity.ExerciseSource
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.domain.entity.MoveQuality
 import com.example.chessmentor.domain.entity.TacticalPattern
 import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.entity.User
@@ -27,6 +30,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -542,6 +548,183 @@ class TrainingRetryTest {
             container.gameRepository.deleteById(sourceGid)
             container.gameRepository.deleteById(otherGid)
             container.userRepository.deleteById(uid)
+        }
+    }
+
+    @Test fun threeWrongMoves_capsZeroPenaltyGuessingAndRevealsSolution() = runBlocking {
+        val container = AppContainer.getInstance(InstrumentationRegistry.getInstrumentation().targetContext)
+        val user = container.userRepository.save(User(nickname = "CapGuess", email = "capguess${System.nanoTime()}@test.local", passwordHash = "test"))
+        val uid = requireNotNull(user.id)
+        val game = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.WHITE, playedAt = 1L, pgnData = "1. e4 *"))
+        val gid = requireNotNull(game.id)
+        val puzzle = CuratedExerciseBank.puzzles.single { it.id == "back_rank_mate_1" }
+        val repo = container.exerciseRepository
+        val wrongEngine = object : ChessEngine by container.chessEngine {
+            override suspend fun init() = true
+            override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int): AnalysisLine? =
+                if (fen == puzzle.fen) {
+                    AnalysisLine("d1d8", ChessEngine.MATE_VALUE - 100, 1, listOf("d1d8"))
+                } else {
+                    AnalysisLine("a7d7", 50, null, emptyList())
+                }
+            override suspend fun getBestMove(fen: String, depthLimit: Int): String? = "a7d7"
+        }
+        val vm = TrainingViewModel(container, wrongEngine)
+        suspend fun awaitState(predicate: (TrainingUiState) -> Boolean) = withTimeout(25_000L) {
+            while (!withContext(Dispatchers.Main) { predicate(vm.uiState.value) }) delay(20)
+        }
+        try {
+            repo.saveExercise(puzzle.toExercise().copy(createdFrom = ExerciseSource.MISTAKE, sourceGameId = gid, sourceMoveNumber = 1))
+            withContext(Dispatchers.Main) { vm.init(user, TrainingMode.FromGame(gid, 1)) }
+            awaitState { it.hasActiveExercise && !it.isInputLocked }
+
+            // 1-я и 2-я ошибки оставляют доску открытой для повторного расчёта
+            withContext(Dispatchers.Main) { vm.onMoveMade(Move(Square.A2, Square.A3)) }
+            awaitState { !it.isAnimatingPunishment && !it.isInputLocked }
+            withContext(Dispatchers.Main) { vm.onMoveMade(Move(Square.A2, Square.A4)) }
+            awaitState { !it.isAnimatingPunishment && !it.isInputLocked }
+
+            // 3-я ошибка останавливает бесконечный перебор и раскрывает решение с блокировкой доски
+            withContext(Dispatchers.Main) { vm.onMoveMade(Move(Square.H2, Square.H3)) }
+            awaitState { it.isSolutionRevealed && !it.isAnimatingPunishment }
+
+            val capped = withContext(Dispatchers.Main) { vm.uiState.value }
+            assertTrue(capped.isSolutionRevealed)
+            assertTrue(capped.isInputLocked)
+            assertFalse(capped.isSolved)
+            assertEquals(3, capped.sessionStats.failed)
+            assertEquals(0, capped.sessionStats.solved)
+            // Попытка сыграть 4-й ход после раскрытия игнорируется
+            val boardFenBeforeExtra = capped.board.fen
+            withContext(Dispatchers.Main) { vm.onMoveMade(Move(Square.D1, Square.D8)) }
+            assertEquals(boardFenBeforeExtra, withContext(Dispatchers.Main) { vm.uiState.value.board.fen })
+            assertFalse(withContext(Dispatchers.Main) { vm.uiState.value.isSolved })
+        } finally {
+            vm.viewModelScope.cancel()
+            repo.deleteBySourceGameId(gid)
+            container.gameRepository.deleteById(gid)
+            container.userRepository.deleteById(uid)
+        }
+    }
+
+    @Test fun fullHintCompletion_doesNotIncrementSolvedOrEmitSolvedSound() = runBlocking {
+        val container = AppContainer.getInstance(InstrumentationRegistry.getInstrumentation().targetContext)
+        val user = container.userRepository.save(User(nickname = "FullHintHonest", email = "fhh${System.nanoTime()}@test.local", passwordHash = "test"))
+        val uid = requireNotNull(user.id)
+        val game = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.WHITE, playedAt = 1L, pgnData = "1. e4 *"))
+        val gid = requireNotNull(game.id)
+        val puzzle = CuratedExerciseBank.puzzles.single { it.id == "back_rank_mate_1" }
+        val repo = container.exerciseRepository
+        val vm = TrainingViewModel(container)
+        suspend fun awaitState(predicate: (TrainingUiState) -> Boolean) = withTimeout(15_000L) {
+            while (!withContext(Dispatchers.Main) { predicate(vm.uiState.value) }) delay(15)
+        }
+        try {
+            repo.saveExercise(puzzle.toExercise().copy(createdFrom = ExerciseSource.MISTAKE, sourceGameId = gid, sourceMoveNumber = 1))
+            withContext(Dispatchers.Main) { vm.init(user, TrainingMode.FromGame(gid, 1)) }
+            awaitState { it.hasActiveExercise && !it.isInputLocked }
+
+            withContext(Dispatchers.Main) {
+                vm.onHintClicked()
+                vm.onHintClicked() // FULL_SOLUTION arrow
+                vm.onMoveMade(Move(Square.D1, Square.D8))
+            }
+            awaitState { it.isSolved }
+
+            val state = withContext(Dispatchers.Main) { vm.uiState.value }
+            assertEquals(0, state.sessionStats.solved)
+            assertEquals(1, state.sessionStats.failed)
+            assertNotEquals(TrainingSoundEvent.SOLVED, state.soundEvent)
+
+            withTimeout(10_000L) {
+                while (repo.getAttemptsByUserId(uid).isEmpty()) delay(20)
+            }
+            val saved = repo.getAttemptsByUserId(uid).single()
+            assertFalse(saved.solved)
+            assertFalse(AttemptMetadata.isIndependentSolve(saved))
+        } finally {
+            vm.viewModelScope.cancel()
+            repo.deleteBySourceGameId(gid)
+            container.gameRepository.deleteById(gid)
+            container.userRepository.deleteById(uid)
+        }
+    }
+
+    @Test fun boardViewModel_engineFailureDoesNotIncrementAttempts_andRejectsSlowerMateAlternative() = runBlocking {
+        val vm = BoardViewModel()
+        val pgn = "1. e4 e5 2. Nf3 Nc6 3. a3 Bc5 *"
+        val analyzed = AnalyzedMove(
+            gameId = 1L,
+            moveIndex = 4,
+            moveNumber = 3,
+            color = ChessColor.WHITE,
+            quality = MoveQuality.MISTAKE,
+            san = "a3",
+            bestMove = "Bb5",
+            evalBefore = 30,
+            evalAfter = -20,
+            evalLoss = 50,
+            comment = "Неточность. Сильнее: 3. Bb5."
+        )
+        val game = Game(
+            id = 1L,
+            userId = 1L,
+            pgnData = pgn,
+            playerColor = ChessColor.WHITE,
+            playedAt = 1L,
+            analysisStatus = AnalysisStatus.COMPLETED
+        )
+
+        suspend fun awaitIdleRetry() = withTimeout(10_000L) {
+            while (withContext(Dispatchers.Main) { vm.retryState.value?.isCheckingEngine == true }) {
+                delay(15)
+            }
+        }
+
+        val unavailableEngine = object : ChessEngine {
+            override suspend fun init() = false
+            override suspend fun evaluate(fen: String, depthLimit: Int) = 0
+            override suspend fun getBestMove(fen: String, depthLimit: Int): String? = null
+            override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int): AnalysisLine? = null
+            override suspend fun setOption(name: String, value: String) = Unit
+            override fun stop() = Unit
+            override fun destroy() = Unit
+        }
+        val slowerMateEngine = object : ChessEngine by unavailableEngine {
+            override suspend fun init() = true
+            override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int): AnalysisLine {
+                // Лучший оставляет сопернику -М1 (-99900), альтернатива оставляет -М2 (-99800)
+                return if (fen.contains("1B5")) {
+                    AnalysisLine("a7a6", -(ChessEngine.MATE_VALUE - 100), -1, listOf("a7a6"))
+                } else {
+                    AnalysisLine("a7a6", -(ChessEngine.MATE_VALUE - 200), -2, listOf("a7a6"))
+                }
+            }
+        }
+
+        try {
+            withContext(Dispatchers.Main) {
+                vm.loadGame(game, emptyList(), listOf(analyzed), listOf(20, 20, 25, 25, 30, -20, -20))
+                vm.goToMove(4)
+                vm.startRetryCurrentMove()
+                vm.submitRetryMove(Move(Square.F1, Square.C4), engine = unavailableEngine)
+            }
+            awaitIdleRetry()
+            val afterUnavailable = withContext(Dispatchers.Main) { vm.retryState.value!! }
+            assertEquals(0, afterUnavailable.attemptsCount)
+            assertFalse(afterUnavailable.isSolved)
+            assertTrue(afterUnavailable.feedback.contains("попытка не засчитана"))
+
+            withContext(Dispatchers.Main) {
+                vm.submitRetryMove(Move(Square.F1, Square.C4), engine = slowerMateEngine)
+            }
+            awaitIdleRetry()
+            val afterSlowerMate = withContext(Dispatchers.Main) { vm.retryState.value!! }
+            assertEquals(1, afterSlowerMate.attemptsCount)
+            assertFalse(afterSlowerMate.isSolved)
+            assertNotNull(afterSlowerMate.feedback)
+        } finally {
+            vm.viewModelScope.cancel()
         }
     }
 }

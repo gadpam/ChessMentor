@@ -171,9 +171,9 @@ object TrainingRatingCalculator {
      * Небольшой дисциплинирующий штраф за повторное «угадывание ходом» (2-я и 3-я ошибка подряд
      * в одной и той же задаче), чтобы отучать от бездумного перебора клеток.
      */
-    fun calculateRepeatedGuessPenalty(mistakeNumber: Int): Int = when (mistakeNumber) {
-        2 -> -3
-        3 -> -2
+    fun calculateRepeatedGuessPenalty(mistakeNumber: Int): Int = when {
+        mistakeNumber == 2 -> -3
+        mistakeNumber >= 3 -> -2
         else -> 0
     }
 
@@ -247,10 +247,10 @@ object TrainingRatingCalculator {
 
         return groupedRaw.map { (pattern, patternAttempts) ->
             val total = patternAttempts.size
-            val solved = patternAttempts.count { it.solved }
+            val solved = patternAttempts.count(AttemptMetadata::isIndependentSolve)
             val byExercise = patternAttempts.groupBy { it.exerciseId }
             val uniqueAttempted = byExercise.size
-            val uniqueSolved = byExercise.values.count { list -> list.any { it.solved } }
+            val uniqueSolved = byExercise.values.count { list -> list.any(AttemptMetadata::isIndependentSolve) }
             val unresolved = uniqueAttempted - uniqueSolved
             val rawAccuracy = if (total > 0) ((solved * 100.0) / total).roundToInt().coerceIn(0, 100) else 0
 

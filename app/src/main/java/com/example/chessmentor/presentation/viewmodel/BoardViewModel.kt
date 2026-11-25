@@ -655,6 +655,8 @@ class BoardViewModel : ViewModel() {
         return eval.verdict
     }
 
+    private enum class EngineEquivVerdict { EQUIVALENT, NOT_EQUIVALENT, UNAVAILABLE }
+
     private fun checkEquivalentRetryMoveWithEngine(
         state: RetryMistakeUiState,
         eval: GameReviewHelper.RetryEvaluation,
@@ -688,53 +690,71 @@ class BoardViewModel : ViewModel() {
 
         retryState.value = state.copy(
             isCheckingEngine = true,
-            attemptsCount = nextAttempts,
             feedback = "Проверяем ход ${eval.attemptedSan} движком Stockfish..."
         )
 
         retryCheckJob?.cancel()
         retryCheckJob = viewModelScope.launch {
             try {
-                val equivalent = withContext(Dispatchers.IO) {
-                    if (!engine.init()) return@withContext false
+                val verdict = withContext(Dispatchers.IO) {
+                    if (!engine.init()) return@withContext EngineEquivVerdict.UNAVAILABLE
                     val oppAfterAttempt = engine.getBestMoveWithLine(fenAfterAttempt, RETRY_EQUIV_CHECK_DEPTH)
-                        ?: return@withContext false
+                        ?: return@withContext EngineEquivVerdict.UNAVAILABLE
                     val oppAfterBest = engine.getBestMoveWithLine(fenAfterBest, RETRY_EQUIV_CHECK_DEPTH)
-                        ?: return@withContext false
+                        ?: return@withContext EngineEquivVerdict.UNAVAILABLE
                     val moverScoreAttempt = -oppAfterAttempt.score
                     val moverScoreBest = -oppAfterBest.score
-                    (moverScoreBest - moverScoreAttempt) <= GameReviewHelper.EQUIVALENT_BEST_TOLERANCE_CP
+                    if (GameReviewHelper.areEngineScoresEquivalent(moverScoreBest, moverScoreAttempt)) {
+                        EngineEquivVerdict.EQUIVALENT
+                    } else {
+                        EngineEquivVerdict.NOT_EQUIVALENT
+                    }
                 }
 
                 val current = retryState.value ?: return@launch
                 if (current.targetMoveIndex != state.targetMoveIndex) return@launch
 
-                if (equivalent) {
-                    board.value = boardAttempt
-                    lastMove.value = attemptMove.from to attemptMove.to
-                    highlightedSquares.value = emptySet()
-                    retryState.value = current.copy(
-                        isSolved = true,
-                        isCheckingEngine = false,
-                        hintArrowUci = null,
-                        feedback = "Засчитано! ${eval.attemptedSan} не уступает ходу движка (${eval.expectedBestSan})."
-                    )
-                } else {
-                    board.value = boardFromFen(state.fenBefore)
-                    retryState.value = current.copy(
-                        isCheckingEngine = false,
-                        feedback = "${eval.message}"
-                    )
+                when (verdict) {
+                    EngineEquivVerdict.EQUIVALENT -> {
+                        board.value = boardAttempt
+                        lastMove.value = attemptMove.from to attemptMove.to
+                        highlightedSquares.value = emptySet()
+                        retryState.value = current.copy(
+                            isSolved = true,
+                            isCheckingEngine = false,
+                            hintArrowUci = null,
+                            attemptsCount = nextAttempts,
+                            feedback = "Засчитано! ${eval.attemptedSan} не уступает ходу движка (${eval.expectedBestSan})."
+                        )
+                    }
+
+                    EngineEquivVerdict.NOT_EQUIVALENT -> {
+                        board.value = boardFromFen(state.fenBefore)
+                        retryState.value = current.copy(
+                            isCheckingEngine = false,
+                            attemptsCount = nextAttempts,
+                            feedback = "${eval.message}"
+                        )
+                    }
+
+                    EngineEquivVerdict.UNAVAILABLE -> {
+                        board.value = boardFromFen(state.fenBefore)
+                        retryState.value = current.copy(
+                            isCheckingEngine = false,
+                            feedback = "Не удалось проверить ход движком Stockfish — попытка не засчитана"
+                        )
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Equivalent retry check failed", e)
                 val current = retryState.value ?: return@launch
+                if (current.targetMoveIndex != state.targetMoveIndex) return@launch
                 board.value = boardFromFen(state.fenBefore)
                 retryState.value = current.copy(
                     isCheckingEngine = false,
-                    feedback = "${eval.message}"
+                    feedback = "Не удалось проверить ход движком Stockfish — попытка не засчитана"
                 )
             }
         }

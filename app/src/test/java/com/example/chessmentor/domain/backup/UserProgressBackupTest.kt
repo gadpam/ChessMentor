@@ -681,7 +681,7 @@ class UserProgressBackupTest {
             override suspend fun countExercises(): Int = exMap.size
             override suspend fun countGlobalExercises(): Int = exMap.values.count { it.sourceGameId == null }
             override suspend fun hasUserSolvedExercise(userId: Long, exerciseId: Long): Boolean =
-                attemptList.any { it.userId == userId && it.exerciseId == exerciseId && it.solved }
+                attemptList.any { it.userId == userId && it.exerciseId == exerciseId && AttemptMetadata.isIndependentSolve(it) }
             override suspend fun saveExercise(exercise: Exercise): Exercise {
                 val id = exercise.id ?: nextExId++
                 return exercise.copy(id = id).also { exMap[id] = it }

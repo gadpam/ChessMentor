@@ -190,6 +190,7 @@ class TrainingViewModel(
         private const val HUMAN_REACTION_DELAY_MS = 650L
         private const val ANIMATION_DELAY_MS = 600L
         private const val PUNISHMENT_DISPLAY_MS = 2200L
+        internal const val MAX_WRONG_ATTEMPTS_PER_PUZZLE = 3
         private const val MAX_SOLUTION_PLIES = PuzzleQualityEvaluator.MAX_QUIESCENCE_PLIES
         private const val FREE_ANALYSIS_DEPTH = EngineAnalysisProfile.INTERACTIVE_ANALYSIS_DEPTH
         private const val VERIFICATION_DEPTH = EngineAnalysisProfile.MOVE_VERIFICATION_DEPTH
@@ -767,85 +768,103 @@ class TrainingViewModel(
         }
 
         currentJob = viewModelScope.launch {
-            val startFen = positionBeforePlayerMove.ifBlank { state.board.fen }
-            val simBoard = Board().apply { loadFromFen(startFen) }
-
-            // Формируем читаемую запись решения в SAN
-            val sanNotation = buildSanLine(startFen, remainingMoves)
-
-            _uiState.value = _uiState.value.copy(
-                board = Board().apply { loadFromFen(startFen) },
-                isInputLocked = true,
-                isPaused = false,
-                checkUnavailable = false,
-                isErrorShake = false,
-                hintLevel = HintLevel.FULL_SOLUTION,
-                highlights = emptyList(),
-                currentMistakeAnalysis = null,
-                showBetterMoveHint = false,
-                lastRatingDelta = 0,
-                sessionStats = stats.copy(
-                    failed = if (shouldRecordFail) stats.failed + 1 else stats.failed,
-                    currentStreak = 0
-                ),
-                feedbackMessage = "Показываем решение"
-            )
-
-            if (shouldRecordFail) {
-                runCatching {
-                    saveAttempt(solved = false, solutionRevealed = true)
-                    completedRatedSittings++
-                }.onFailure { e ->
-                    if (e is CancellationException) throw e
-                    Log.w(TAG, "Failed to save revealed attempt", e)
-                    _uiState.value = _uiState.value.copy(
-                        saveWarningMessage = "Не удалось сохранить результат в локальную базу — проверьте свободную память."
-                    )
-                }
-                scheduleInterleavedReinforcement(null)
-            }
-
-            // Пошагово разыгрываем оставшуюся линию решения
-            var lastPlayedMove = _uiState.value.lastMove
-            for ((idx, uci) in remainingMoves.withIndex()) {
-                val isPlayerPly = idx % 2 == 0
-                val arrowColor = if (isPlayerPly) Color(0xCC4CAF50) else Color(0xAA2196F3)
-                createArrowFromUci(uci, arrowColor)?.let { arrow ->
-                    _uiState.value = _uiState.value.copy(arrows = listOf(arrow))
-                }
-                delay(ANIMATION_DELAY_MS)
-
-                val parsed = ChessMoveUtils.parseUciMove(simBoard, uci) ?: break
-                val wasCapture = isCaptureMove(simBoard, parsed)
-                if (!simBoard.doMove(parsed)) break
-                lastPlayedMove = parsed.from to parsed.to
-
-                emitBoardWithSound(
-                    newBoard = Board().apply { loadFromFen(simBoard.fen) },
-                    movePair = lastPlayedMove,
-                    wasCapture = wasCapture
-                )
-                delay(ANIMATION_DELAY_MS / 2)
-            }
-
-            val card = refreshCardAndDueCount()
-
-            val postReview = buildPostSolveReviewState()
-            val fullSan = postReview.second.ifBlank { sanNotation }
-
-            _uiState.value = _uiState.value.copy(
-                isSolutionRevealed = true,
-                isInputLocked = true,
-                isFreeAnalysisMode = false,
-                arrows = emptyList(),
-                reviewSteps = postReview.first,
-                reviewStepIndex = (postReview.first.size - 1).coerceAtLeast(0),
-                solutionSanLine = fullSan,
-                postSolveExplanation = postReview.third,
-                feedbackMessage = "Решение показано",
-                nextReviewNote = card?.takeUnless { isCurrentDailyAlreadySolved }?.let(SpacedRepetitionScheduler::formatNextIntervalNote)
+            revealRemainingSolutionSuspend(
+                headerMessage = "Показываем решение",
+                finalMessage = "Решение показано",
+                saveFailRecord = shouldRecordFail
             )
         }
+    }
+
+    private suspend fun revealRemainingSolutionSuspend(
+        headerMessage: String,
+        finalMessage: String,
+        saveFailRecord: Boolean
+    ) {
+        val state = _uiState.value
+        val remainingMoves = targetSequence.drop(currentMoveIndex)
+        val startFen = positionBeforePlayerMove.ifBlank { state.board.fen }
+        val simBoard = Board().apply { loadFromFen(startFen) }
+        val sanNotation = buildSanLine(startFen, remainingMoves)
+        val stats = state.sessionStats
+
+        _uiState.value = state.copy(
+            board = Board().apply { loadFromFen(startFen) },
+            lastMove = lastMoveBeforePlayerMove,
+            isInputLocked = true,
+            isPaused = false,
+            isAnimatingPunishment = false,
+            punishmentAnimationStep = 0,
+            checkUnavailable = false,
+            isErrorShake = false,
+            hintLevel = HintLevel.FULL_SOLUTION,
+            highlights = emptyList(),
+            arrows = emptyList(),
+            currentMistakeAnalysis = null,
+            showBetterMoveHint = false,
+            lastRatingDelta = if (saveFailRecord) 0 else state.lastRatingDelta,
+            sessionStats = stats.copy(
+                failed = if (saveFailRecord) stats.failed + 1 else stats.failed,
+                currentStreak = 0
+            ),
+            feedbackMessage = headerMessage
+        )
+
+        if (saveFailRecord) {
+            runCatching {
+                saveAttempt(solved = false, solutionRevealed = true)
+                completedRatedSittings++
+            }.onFailure { e ->
+                if (e is CancellationException) throw e
+                Log.w(TAG, "Failed to save revealed attempt", e)
+                _uiState.value = _uiState.value.copy(
+                    saveWarningMessage = "Не удалось сохранить результат в локальную базу — проверьте свободную память."
+                )
+            }
+            scheduleInterleavedReinforcement(null)
+        }
+
+        // Пошагово разыгрываем оставшуюся линию решения
+        var lastPlayedMove = _uiState.value.lastMove
+        for ((idx, uci) in remainingMoves.withIndex()) {
+            val isPlayerPly = idx % 2 == 0
+            val arrowColor = if (isPlayerPly) Color(0xCC4CAF50) else Color(0xAA2196F3)
+            createArrowFromUci(uci, arrowColor)?.let { arrow ->
+                _uiState.value = _uiState.value.copy(arrows = listOf(arrow))
+            }
+            delay(ANIMATION_DELAY_MS)
+
+            val parsed = ChessMoveUtils.parseUciMove(simBoard, uci) ?: break
+            val wasCapture = isCaptureMove(simBoard, parsed)
+            if (!simBoard.doMove(parsed)) break
+            lastPlayedMove = parsed.from to parsed.to
+
+            emitBoardWithSound(
+                newBoard = Board().apply { loadFromFen(simBoard.fen) },
+                movePair = lastPlayedMove,
+                wasCapture = wasCapture
+            )
+            delay(ANIMATION_DELAY_MS / 2)
+        }
+
+        val card = refreshCardAndDueCount()
+
+        val postReview = buildPostSolveReviewState()
+        val fullSan = postReview.second.ifBlank { sanNotation }
+
+        _uiState.value = _uiState.value.copy(
+            isSolutionRevealed = true,
+            isInputLocked = true,
+            isAnimatingPunishment = false,
+            isFreeAnalysisMode = false,
+            arrows = emptyList(),
+            reviewSteps = postReview.first,
+            reviewStepIndex = (postReview.first.size - 1).coerceAtLeast(0),
+            solutionSanLine = fullSan,
+            postSolveExplanation = postReview.third,
+            feedbackMessage = finalMessage,
+            nextReviewNote = card?.takeUnless { isCurrentDailyAlreadySolved }?.let(SpacedRepetitionScheduler::formatNextIntervalNote)
+        )
     }
 
     private fun buildSanLine(startFen: String, uciMoves: List<String>): String {
@@ -1809,7 +1828,19 @@ class TrainingViewModel(
         }
 
         delay(PUNISHMENT_DISPLAY_MS)
-        resetToPosition(positionBeforePlayerMove, keepAnalysis = true)
+        if (attemptMistakeCount >= MAX_WRONG_ATTEMPTS_PER_PUZZLE) {
+            val shouldSaveFail = !failedAttemptSaved && !isCurrentDailyAlreadySolved
+            if (shouldSaveFail) {
+                failedAttemptSaved = true
+            }
+            revealRemainingSolutionSuspend(
+                headerMessage = "Попытки исчерпаны ($MAX_WRONG_ATTEMPTS_PER_PUZZLE) — показываем решение",
+                finalMessage = "Превышен лимит попыток ($MAX_WRONG_ATTEMPTS_PER_PUZZLE) — разберите решение и закрепите задачу позже",
+                saveFailRecord = shouldSaveFail
+            )
+        } else {
+            resetToPosition(positionBeforePlayerMove, keepAnalysis = true)
+        }
     }
 
     private suspend fun animatePunishmentLine(startBoard: Board, moves: List<String>) {
@@ -1882,7 +1913,19 @@ class TrainingViewModel(
         }
 
         delay(PUNISHMENT_DISPLAY_MS)
-        resetToPosition(fenBefore, keepAnalysis = false)
+        if (attemptMistakeCount >= MAX_WRONG_ATTEMPTS_PER_PUZZLE) {
+            val shouldSaveFail = !failedAttemptSaved && !isCurrentDailyAlreadySolved
+            if (shouldSaveFail) {
+                failedAttemptSaved = true
+            }
+            revealRemainingSolutionSuspend(
+                headerMessage = "Попытки исчерпаны ($MAX_WRONG_ATTEMPTS_PER_PUZZLE) — показываем решение",
+                finalMessage = "Превышен лимит попыток ($MAX_WRONG_ATTEMPTS_PER_PUZZLE) — разберите решение и закрепите задачу позже",
+                saveFailRecord = shouldSaveFail
+            )
+        } else {
+            resetToPosition(fenBefore, keepAnalysis = false)
+        }
     }
 
     private fun resetToPosition(fen: String, keepAnalysis: Boolean) {
@@ -2172,6 +2215,7 @@ class TrainingViewModel(
         val countsForStreak = !attemptFailed && !usedFullHint && !isCurrentDailyAlreadySolved
         val newStreak = if (countsForStreak) stats.currentStreak + 1 else stats.currentStreak
         val newBestStreak = maxOf(stats.bestStreak, newStreak)
+        val countFullHintAsFailInStats = usedFullHint && !failedAttemptSaved && !isCurrentDailyAlreadySolved
 
         val cognitiveNote = if (exercise != null) {
             TrainingSessionPlanner.formatCognitiveModeFeedback(
@@ -2204,7 +2248,8 @@ class TrainingViewModel(
             solutionSanLine = postReview.second.ifBlank { null },
             postSolveExplanation = postReview.third,
             sessionStats = stats.copy(
-                solved = stats.solved + 1,
+                solved = if (usedFullHint) stats.solved else stats.solved + 1,
+                failed = if (countFullHintAsFailInStats) stats.failed + 1 else stats.failed,
                 cleanFirstTrySolved = if (isCleanFirstTry) stats.cleanFirstTrySolved + 1 else stats.cleanFirstTrySolved,
                 currentStreak = newStreak,
                 bestStreak = newBestStreak,
@@ -2212,7 +2257,7 @@ class TrainingViewModel(
             ),
             currentMistakeAnalysis = null,
             showBetterMoveHint = false,
-            soundEvent = TrainingSoundEvent.SOLVED,
+            soundEvent = if (usedFullHint) TrainingSoundEvent.MOVE else TrainingSoundEvent.SOLVED,
             soundEventId = soundCounter
         )
 

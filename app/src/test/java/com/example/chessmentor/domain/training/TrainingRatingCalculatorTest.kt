@@ -267,11 +267,40 @@ class TrainingRatingCalculatorTest {
 
         val pm = TrainingRatingCalculator.computePatternMastery(exercises, attempts, playerElo = 1600).single()
         assertEquals(67, pm.accuracyPercent)
-        assertTrue(
-            "Recency-weighted mastery (${pm.masteryPercent}%) should exceed raw lifetime average (${pm.accuracyPercent}%)",
+        assertTrue("Recency-weighted mastery (${pm.masteryPercent}%) should exceed raw lifetime average (${pm.accuracyPercent}%)",
             pm.masteryPercent > pm.accuracyPercent
         )
         assertEquals(MasteryLevel.STRONG, pm.level)
+    }
+
+    @Test
+    fun computePatternMastery_excludesRevealedAndFullHintFromSolvedCounts() {
+        val ex = makeExercise(id = 1L, pattern = TacticalPattern.FORK_KNIGHT)
+        val attempts = listOf(
+            ExerciseAttempt(
+                userId = 1L,
+                exerciseId = 1L,
+                solved = true,
+                timeSpentSeconds = 2,
+                movesMade = AttemptMetadata.buildTaggedMoves(listOf("d5c7"), solutionRevealed = true),
+                attemptedAt = 1000L
+            ),
+            ExerciseAttempt(
+                userId = 1L,
+                exerciseId = 1L,
+                solved = true,
+                timeSpentSeconds = 3,
+                movesMade = AttemptMetadata.buildTaggedMoves(listOf("d5c7"), hintUsage = HintUsage.FULL_SOLUTION),
+                attemptedAt = 2000L
+            )
+        )
+
+        val pm = TrainingRatingCalculator.computePatternMastery(mapOf(1L to ex), attempts).single()
+        assertEquals(0, pm.solvedAttempts)
+        assertEquals(0, pm.uniqueExercisesSolved)
+        assertEquals(1, pm.unresolvedCount)
+        assertEquals(0, pm.accuracyPercent)
+        assertEquals(MasteryLevel.WEAK, pm.level)
     }
 
     @Test

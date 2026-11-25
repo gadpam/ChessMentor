@@ -281,6 +281,8 @@ private fun GameViewScreenContent(
             return@remember listOfNotNull(arrow)
         }
 
+        if (concealAnswer) return@remember emptyList()
+
         val liveLine = engineLine
         if (liveLine != null && !liveLine.bestMoveUci.isNullOrBlank()) {
             val boardKey = board.fen.split(' ').take(4).joinToString(" ")
@@ -297,7 +299,7 @@ private fun GameViewScreenContent(
             }
         }
 
-        if (isInVariation || concealAnswer) return@remember emptyList()
+        if (isInVariation) return@remember emptyList()
 
         val bestRaw = currentAnalyzedMove?.bestMove?.takeIf {
             currentAnalyzedMove.isMistake() && it.isNotBlank() && it != currentAnalyzedMove.san
@@ -623,7 +625,7 @@ private fun GameViewScreenContent(
         }
 
         val activeEngineLine = engineLine
-        if (activeEngineLine != null && activeRetry == null) {
+        if (activeEngineLine != null && activeRetry == null && !concealAnswer) {
             EngineLineCard(
                 state = activeEngineLine,
                 onPlayBestMove = if (chessEngine != null && activeEngineLine.pvSteps.isNotEmpty()) {
@@ -647,7 +649,7 @@ private fun GameViewScreenContent(
     ) {
         ReviewTopHeaderBar(
             isLiveEngineEnabled = isLiveEngine,
-            showEngineToggle = chessEngine != null,
+            showEngineToggle = chessEngine != null && !concealAnswer && retryState == null,
             onNavigateBack = onNavigateBack,
             onFlipBoard = { boardViewModel.toggleFlipBoard() },
             onToggleEngine = {
@@ -964,7 +966,7 @@ private fun GameViewScreenContent(
 }
 
 @Composable
-private fun ReviewTopHeaderBar(
+internal fun ReviewTopHeaderBar(
     isLiveEngineEnabled: Boolean,
     showEngineToggle: Boolean,
     onNavigateBack: (() -> Unit)?,

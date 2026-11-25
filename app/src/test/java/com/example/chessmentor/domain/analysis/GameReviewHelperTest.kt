@@ -1,5 +1,6 @@
 package com.example.chessmentor.domain.analysis
 
+import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Exercise
@@ -375,6 +376,7 @@ class GameReviewHelperTest {
         assertTrue(assisted.recordedAssistedAttempt)
         assertEquals(1, repo.stored.size)
         assertEquals(1, repo.attempts.size)
+        assertFalse(repo.attempts.single().solved)
 
         val schedule = SpacedRepetitionScheduler.buildSchedule(
             attempts = repo.attempts,
@@ -609,6 +611,28 @@ class GameReviewHelperTest {
             assertNotNull(savedDefense)
             assertTrue(ExerciseMetadata.isDefensiveGoal(savedDefense!!.exercise))
         }
+
+    @Test
+    fun areEngineScoresEquivalent_comparesMateTempoAndCentipawnsSeparately() {
+        val winMate1 = ChessEngine.MATE_VALUE - 100
+        val winMate2 = ChessEngine.MATE_VALUE - 200
+        val winMate4 = ChessEngine.MATE_VALUE - 400
+        val loseMate2 = -(ChessEngine.MATE_VALUE - 200)
+        val loseMate4 = -(ChessEngine.MATE_VALUE - 400)
+
+        assertTrue(GameReviewHelper.areEngineScoresEquivalent(winMate2, winMate2))
+        assertTrue(GameReviewHelper.areEngineScoresEquivalent(winMate2, winMate1))
+        assertFalse(GameReviewHelper.areEngineScoresEquivalent(winMate2, winMate4))
+        assertFalse(GameReviewHelper.areEngineScoresEquivalent(winMate2, 950))
+        assertTrue(GameReviewHelper.areEngineScoresEquivalent(800, winMate4))
+
+        assertFalse(GameReviewHelper.areEngineScoresEquivalent(-120, loseMate4))
+        assertFalse(GameReviewHelper.areEngineScoresEquivalent(loseMate4, loseMate2))
+        assertTrue(GameReviewHelper.areEngineScoresEquivalent(loseMate2, loseMate4))
+
+        assertTrue(GameReviewHelper.areEngineScoresEquivalent(100, 80))
+        assertFalse(GameReviewHelper.areEngineScoresEquivalent(100, 60))
+    }
 
     private class InMemoryExerciseRepo : ExerciseRepository {
         val stored = mutableListOf<Exercise>()
