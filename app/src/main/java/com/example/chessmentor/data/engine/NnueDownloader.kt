@@ -289,11 +289,12 @@ class NnueDownloader(context: Context) {
         onContentLength: (Long) -> Unit,
         onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit
     ) {
+        val callerContext = coroutineContext
         var currentUrl = source
         val visitedUrls = mutableSetOf(currentUrl)
 
         for (hop in 0..MAX_REDIRECTS) {
-            coroutineContext.ensureActive()
+            callerContext.ensureActive()
             val url = URL(currentUrl)
             if (!url.protocol.equals("https", ignoreCase = true)) {
                 throw IOException("Unsafe non-HTTPS NNUE source: $currentUrl")
@@ -343,7 +344,7 @@ class NnueDownloader(context: Context) {
                             input = input,
                             output = output,
                             maxBytes = MAX_NET_BYTES,
-                            onChunk = { coroutineContext.ensureActive() },
+                            onChunk = { callerContext.ensureActive() },
                             onProgress = { bytes ->
                                 val nowMs = SystemClock.elapsedRealtime()
                                 if (nowMs - lastEmitMs >= PROGRESS_EMIT_INTERVAL_MS) {
