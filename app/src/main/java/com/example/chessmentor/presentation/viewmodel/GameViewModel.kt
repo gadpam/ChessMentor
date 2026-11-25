@@ -240,8 +240,8 @@ class GameViewModel(
         }
     }
 
-    private fun ensureLibraryObserver(userId: Long) {
-        if (libraryJob?.isActive == true) return
+    private fun ensureLibraryObserver(userId: Long): Boolean {
+        if (libraryJob?.isActive == true) return false
         libraryJob = viewModelScope.launch {
             observeGames(userId)
                 .catch { e ->
@@ -263,6 +263,7 @@ class GameViewModel(
                     pendingLibraryRefresh.value = false
                 }
         }
+        return true
     }
 
     /**
@@ -745,25 +746,23 @@ class GameViewModel(
     private suspend fun refreshLibraryDataInternal(userId: Long): Boolean {
         isLoadingLibrary.value = true
         libraryRefreshError.value = false
-        ensureLibraryObserver(userId)
+        val startedObserver = ensureLibraryObserver(userId)
         return try {
-            val userFromDb = withContext(Dispatchers.IO) {
-                container.userRepository.findById(userId)
-            }
+            val userFromDb = container.userRepository.findById(userId)
             if (currentUser.value?.id != userId) return false
             if (userFromDb != null) {
                 currentUser.value = userFromDb
             }
 
-            val mistakes = withContext(Dispatchers.IO) {
-                container.mistakeRepository.findByUserId(userId)
-            }
+            val mistakes = container.mistakeRepository.findByUserId(userId)
             if (currentUser.value?.id != userId) return false
             _userMistakes.clear()
             _userMistakes.addAll(mistakes)
             _mistakesByGameId.value = mistakes.groupBy { it.gameId }
 
-            yield()
+            if (startedObserver) {
+                yield()
+            }
             val ok = !libraryRefreshError.value && libraryJob?.isActive == true
             if (!ok) {
                 libraryRefreshError.value = true

@@ -129,7 +129,9 @@ class InterruptedGameAnalysisTest {
                 vm.saveGameWithoutAnalysis()
             }
             withTimeout(15_000L) {
-                while (withContext(Dispatchers.Main) { vm.userGames.size < 2 || vm.isImporting.value }) delay(20)
+                while (withContext(Dispatchers.Main) {
+                    vm.userGames.size < 2 || vm.isImporting.value || vm.isLoadingLibrary.value
+                }) delay(20)
             }
             withContext(Dispatchers.Main) {
                 gid2 = vm.userGames.firstOrNull { it.id != gid1 }?.id
