@@ -321,6 +321,7 @@ class TrainingViewModel(
         val modeChangedByNavigation = initialMode != null &&
             (initialMode != _uiState.value.mode ||
                 initialMode is TrainingMode.FromGame ||
+                initialMode is TrainingMode.SkillTransfer ||
                 _uiState.value.sessionSummary != null)
 
         if (isNewUser) {
@@ -380,6 +381,7 @@ class TrainingViewModel(
         }
         if (_uiState.value.mode == mode &&
             mode !is TrainingMode.FromGame &&
+            mode !is TrainingMode.SkillTransfer &&
             currentExercise != null &&
             !_uiState.value.isLoading
         ) {
@@ -878,7 +880,11 @@ class TrainingViewModel(
             } else {
                 null
             }
-            val avoidRepeatedPattern = interleavedQueue.lastServedPattern
+            val avoidRepeatedPattern = if (mode is TrainingMode.SkillTransfer) {
+                null
+            } else {
+                interleavedQueue.lastServedPattern
+            }
             val sessionExclusions = if (isSmart) smartSessionSeenIds.toSet() else emptySet()
 
             val result = container.getTrainingExerciseUseCase.execute(
@@ -894,7 +900,9 @@ class TrainingViewModel(
             )
 
             // Если кроме только что решённых задач других в этом режиме нет — мягкий откат
-            val finalResult = if (result is GetTrainingExerciseUseCase.Result.NoSuitableExercises &&
+            // (для SkillTransfer откат запрещён: повторно показывать пройденные/отфильтрованные позиции нельзя)
+            val finalResult = if (mode !is TrainingMode.SkillTransfer &&
+                result is GetTrainingExerciseUseCase.Result.NoSuitableExercises &&
                 (excludeId != -1L || sessionExclusions.isNotEmpty())
             ) {
                 container.getTrainingExerciseUseCase.execute(
@@ -957,6 +965,10 @@ class TrainingViewModel(
                     }
                     val missingPersonalSources = isMistakesMode && !hasAnalyzedGames
                     val emptyMessage = when {
+                        mode is TrainingMode.SkillTransfer && excludeId > 0L ->
+                            "Отлично! Вы проверили навык «${mode.displayName}» на всех доступных незнакомых позициях. Можно вернуться к разбору партии или открыть общий тактический банк."
+                        mode is TrainingMode.SkillTransfer ->
+                            "Для навыка «${mode.displayName}» пока нет новых незнакомых позиций. Вернитесь к разбору партии или откройте общий тактический банк."
                         mode is TrainingMode.FromGame && excludeId > 0L ->
                             "Отлично! Все ключевые ошибки этой партии отработаны. Можно вернуться к разбору партии или продолжить тренировку в общем режиме."
                         mode is TrainingMode.FromGame ->
@@ -1087,6 +1099,7 @@ class TrainingViewModel(
         val initialBanner = when {
             isAlreadySolvedDaily -> "Повтор без изменения рейтинга"
             mode is TrainingMode.DeepCalculation -> "Досчитайте весь форсированный вариант до первого хода"
+            mode is TrainingMode.SkillTransfer -> "Незнакомая позиция — проверьте навык без подсказки хода"
             else -> null
         }
 

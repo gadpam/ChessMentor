@@ -47,6 +47,7 @@ import com.example.chessmentor.domain.entity.MoveQuality
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.repository.ExerciseRepository
+import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.example.chessmentor.presentation.ui.components.*
@@ -75,6 +76,7 @@ fun GameViewScreen(
     chessEngine: ChessEngine? = null,
     onOpenSummary: (() -> Unit)? = null,
     onPracticeMistake: ((gameId: Long, moveNumber: Int?) -> Unit)? = null,
+    onPracticeSimilarSkill: ((TrainingMode.SkillTransfer) -> Unit)? = null,
     onNavigateBack: (() -> Unit)? = null,
     exerciseRepository: ExerciseRepository? = null
 ) {
@@ -102,6 +104,7 @@ fun GameViewScreen(
             chessEngine = chessEngine,
             onOpenSummary = onOpenSummary,
             onPracticeMistake = onPracticeMistake,
+            onPracticeSimilarSkill = onPracticeSimilarSkill,
             onNavigateBack = onNavigateBack,
             exerciseRepository = exerciseRepository
         )
@@ -118,6 +121,7 @@ private fun GameViewScreenContent(
     chessEngine: ChessEngine?,
     onOpenSummary: (() -> Unit)?,
     onPracticeMistake: ((gameId: Long, moveNumber: Int?) -> Unit)?,
+    onPracticeSimilarSkill: ((TrainingMode.SkillTransfer) -> Unit)?,
     onNavigateBack: (() -> Unit)?,
     exerciseRepository: ExerciseRepository?
 ) {
@@ -473,6 +477,28 @@ private fun GameViewScreenContent(
                     },
                     onSaveToRepetition = if (activeRetry.isSolved && user?.id != null && exerciseRepository != null) {
                         { boardViewModel.saveSolvedRetryToRepetition(user.id, exerciseRepository) }
+                    } else {
+                        null
+                    },
+                    onVerifyOnAnotherPosition = if (activeRetry.isSolved && onPracticeSimilarSkill != null) {
+                        {
+                            val profile = activeRetry.skillProfile
+                                ?: GameReviewHelper.resolveRetrySkillProfile(
+                                    mistake = null,
+                                    analyzedMove = null,
+                                    moveNumber = activeRetry.moveNumber,
+                                    isPlayerMistake = activeRetry.isPlayerMistake
+                                )
+                            onPracticeSimilarSkill(
+                                TrainingMode.SkillTransfer(
+                                    pattern = profile.pattern,
+                                    theme = profile.theme,
+                                    isDefensive = profile.isDefensive,
+                                    excludeSourceGameId = gameId,
+                                    excludeExerciseId = activeRetry.savedExerciseId
+                                )
+                            )
+                        }
                     } else {
                         null
                     }
@@ -1208,7 +1234,8 @@ internal fun RetryMistakePanel(
     onPracticeInTrainer: (() -> Unit)?,
     onContinueGame: () -> Unit,
     onCancel: () -> Unit,
-    onSaveToRepetition: (() -> Unit)? = null
+    onSaveToRepetition: (() -> Unit)? = null,
+    onVerifyOnAnotherPosition: (() -> Unit)? = null
 ) {
     val containerColor = if (state.isSolved) {
         LocalChessPalette.current.positive.copy(alpha = 0.14f)
@@ -1299,6 +1326,21 @@ internal fun RetryMistakePanel(
                                 )
                             }
                         }
+                    }
+                }
+                if (onVerifyOnAnotherPosition != null) {
+                    OutlinedButton(
+                        onClick = onVerifyOnAnotherPosition,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                    ) {
+                        Text(
+                            text = "Проверить на другой позиции",
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }

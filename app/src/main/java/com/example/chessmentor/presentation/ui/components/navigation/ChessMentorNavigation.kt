@@ -228,7 +228,7 @@ fun ChessMentorApp(
                     ?: "upload"
             },
             onOpenTrainingWithMode = { mode ->
-                if (mode !is TrainingMode.FromGame) {
+                if (mode !is TrainingMode.FromGame && mode !is TrainingMode.SkillTransfer) {
                     trainingReturnScreen = null
                 }
                 pendingTrainingModeKey = mode.routeKey
@@ -244,6 +244,13 @@ fun ChessMentorApp(
                 ).routeKey
                 currentScreen = "training"
                 Log.d(TAG, "Open game mistake training: game=$gameId move=$focusMoveNumber from=$fromScreen")
+            },
+            onOpenGameSkillTransfer = { fromScreen, transferMode ->
+                boardViewModel.dismissEngineLine()
+                trainingReturnScreen = fromScreen
+                pendingTrainingModeKey = transferMode.routeKey
+                currentScreen = "training"
+                Log.d(TAG, "Open skill transfer training: mode=${transferMode.routeKey} from=$fromScreen")
             },
             onLeaveTraining = ::handleNavigateBack,
             onNavigateBack = ::handleNavigateBack,
@@ -599,6 +606,7 @@ private fun NavigationHost(
     onCloseEngineSettings: () -> Unit,
     onOpenTrainingWithMode: (TrainingMode) -> Unit,
     onOpenGameMistakeTraining: (fromScreen: String, gameId: Long, focusMoveNumber: Int?) -> Unit,
+    onOpenGameSkillTransfer: (fromScreen: String, TrainingMode.SkillTransfer) -> Unit,
     onLeaveTraining: () -> Unit,
     onNavigateBack: () -> Unit,
     onReturnToGameFromTraining: (() -> Unit)?,
@@ -737,6 +745,9 @@ private fun NavigationHost(
                     },
                     onPracticeMistake = { gameId, moveNumber ->
                         onOpenGameMistakeTraining("game_view", gameId, moveNumber)
+                    },
+                    onPracticeSimilarSkill = { transferMode ->
+                        onOpenGameSkillTransfer("game_view", transferMode)
                     },
                     onNavigateBack = onNavigateBack,
                     exerciseRepository = container.exerciseRepository

@@ -146,6 +146,12 @@ class GetTrainingExerciseUseCase(
                 nowMs = input.nowMs,
                 snapshot = snapshot
             )
+            is TrainingMode.SkillTransfer -> selectSkillTransferExercise(
+                user = user,
+                mode = mode,
+                excludeId = input.excludeExerciseId,
+                snapshot = snapshot
+            )
             TrainingMode.WeakPatterns -> selectWeakPatternExercise(user, userId, input.excludeExerciseId, input.avoidPattern, input.nowMs, snapshot)
             TrainingMode.Defense -> selectDefenseExercise(user, input.excludeExerciseId, input.avoidPattern, input.nowMs, snapshot)
             is TrainingMode.ByTheme -> selectThemeExercise(user, input.excludeExerciseId, mode.theme, input.avoidPattern, input.nowMs, snapshot)
@@ -672,6 +678,86 @@ class GetTrainingExerciseUseCase(
         }
 
         return Result.NoSuitableExercises
+    }
+
+    /**
+     * Подбор **незнакомой** позиции того же навыка и той же роли («Проверить на другой позиции»)
+     * после исправления ошибки: исключает уже встречавшиеся карточки (`id in snapshot.schedule`),
+     * исходную позицию/партию и никогда не подменяет выборку общей очередью или чужой ролью.
+     */
+    private fun selectSkillTransferExercise(
+        user: User,
+        mode: TrainingMode.SkillTransfer,
+        excludeId: Long,
+        snapshot: LearningSnapshot
+    ): Result {
+        val targetDiff = TrainingRatingCalculator.eloToDifficulty(user.rating)
+        val unseenPool = snapshot.accessible.filter { ex ->
+            val id = ex.id ?: return@filter false
+            id != excludeId &&
+                (mode.excludeExerciseId == null || id != mode.excludeExerciseId) &&
+                (mode.excludeSourceGameId == null || ex.sourceGameId != mode.excludeSourceGameId) &&
+                id !in snapshot.schedule
+        }
+        if (unseenPool.isEmpty()) return Result.NoSuitableExercises
+
+        val rolePool = unseenPool.filter { ex ->
+            val exIsDefensive = ExerciseMetadata.isDefensiveGoal(ex) || ex.theme == TacticalTheme.KING_SAFETY
+            exIsDefensive == mode.isDefensive
+        }
+        if (rolePool.isEmpty()) return Result.NoSuitableExercises
+
+        // 1. Точное совпадение паттерна и роли среди незнакомых позиций
+        val exactPatternCandidates = rolePool.filter { it.tacticalPattern == mode.pattern }
+        if (exactPatternCandidates.isNotEmpty()) {
+            pickSkillTransferCandidate(exactPatternCandidates, targetDiff)?.let { ex ->
+                return buildNewSuccess(ex, snapshot)
+            }
+        }
+
+        // 2. Семейство того же навыка и той же роли (без выхода в общую очередь)
+        val sameFamilyCandidates = rolePool.filter { ex ->
+            matchesSkillTransferFamily(ex, mode)
+        }
+        if (sameFamilyCandidates.isNotEmpty()) {
+            pickSkillTransferCandidate(sameFamilyCandidates, targetDiff)?.let { ex ->
+                return buildNewSuccess(ex, snapshot)
+            }
+        }
+
+        return Result.NoSuitableExercises
+    }
+
+    private fun matchesSkillTransferFamily(ex: Exercise, mode: TrainingMode.SkillTransfer): Boolean {
+        if (ex.tacticalPattern == mode.pattern) return true
+        if (mode.isDefensive) {
+            return true // rolePool уже строго отфильтрован по защитной роли
+        }
+        return when {
+            mode.pattern == TacticalPattern.ENDGAME_TECHNIQUE ||
+                mode.pattern == TacticalPattern.PAWN_BREAKTHROUGH ->
+                ex.tacticalPattern == TacticalPattern.ENDGAME_TECHNIQUE ||
+                    ex.tacticalPattern == TacticalPattern.PAWN_BREAKTHROUGH
+            mode.theme == TacticalTheme.TACTIC ->
+                ex.theme == TacticalTheme.TACTIC && ex.tacticalPattern != TacticalPattern.ENDGAME_TECHNIQUE
+            mode.theme != TacticalTheme.UNKNOWN ->
+                ex.theme == mode.theme
+            else -> false
+        }
+    }
+
+    private fun pickSkillTransferCandidate(
+        candidates: List<Exercise>,
+        targetDifficulty: Int
+    ): Exercise? {
+        if (candidates.isEmpty()) return null
+        val zpd = candidates.filter {
+            abs(it.getEffectiveDifficulty() - targetDifficulty) <= ZPD_HALF_WINDOW
+        }
+        val pool = zpd.ifEmpty { candidates }
+        val otherGameMistakes = pool.filter { it.sourceGameId != null }
+        val preferred = otherGameMistakes.ifEmpty { pool }
+        return pickNearDifficulty(preferred, targetDifficulty)
     }
 
     private fun selectThemeExercise(

@@ -14,6 +14,7 @@ import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.training.AttemptMetadata
 import com.example.chessmentor.domain.training.CuratedExerciseBank
+import com.example.chessmentor.domain.training.ExerciseMetadata
 import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.github.bhlangonijr.chesslib.Board
@@ -467,6 +468,79 @@ class TrainingRetryTest {
             vm.viewModelScope.cancel()
             repo.deleteBySourceGameId(gid)
             container.gameRepository.deleteById(gid)
+            container.userRepository.deleteById(uid)
+        }
+    }
+
+    @Test fun skillTransferExhaustedUnseenPoolDoesNotFallbackToGeneralQueue() = runBlocking {
+        val container = AppContainer.getInstance(InstrumentationRegistry.getInstrumentation().targetContext)
+        val user = container.userRepository.save(User(nickname = "TransferVM", email = "transfervm${System.nanoTime()}@test.local", passwordHash = "test"))
+        val uid = requireNotNull(user.id)
+        val sourceGame = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.WHITE, playedAt = 1L, pgnData = "1. e4 *"))
+        val otherGame = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.WHITE, playedAt = 2L, pgnData = "1. d4 *"))
+        val sourceGid = requireNotNull(sourceGame.id)
+        val otherGid = requireNotNull(otherGame.id)
+        val repo = container.exerciseRepository
+        val vm = TrainingViewModel(container)
+        suspend fun awaitState(predicate: (TrainingUiState) -> Boolean) = withTimeout(15_000L) {
+            while (!withContext(Dispatchers.Main) { predicate(vm.uiState.value) }) delay(20)
+        }
+        try {
+            CuratedExerciseBank.ensureSeeded(repo)
+            val allAccessible = repo.findAccessibleByUserId(uid)
+            for (ex in allAccessible.filter { it.theme == TacticalTheme.FORK }) {
+                val id = ex.id ?: continue
+                repo.saveAttempt(
+                    com.example.chessmentor.domain.entity.ExerciseAttempt(
+                        userId = uid,
+                        exerciseId = id,
+                        solved = true,
+                        timeSpentSeconds = 4,
+                        movesMade = listOf(ex.solutionMoves.firstOrNull() ?: "a1a2"),
+                        attemptedAt = 10_000L
+                    )
+                )
+            }
+            val unseenOtherFork = repo.saveExercise(
+                Exercise(
+                    fenPosition = "r5k1/5ppp/8/8/8/8/4RPPP/6K1 w - - 0 1",
+                    solutionMoves = listOf("e2e8"),
+                    tacticalPattern = TacticalPattern.FORK_KNIGHT,
+                    patternClusterId = "FORK_KNIGHT_EASY",
+                    difficultyRating = 35,
+                    theme = TacticalTheme.FORK,
+                    createdFrom = ExerciseSource.MISTAKE,
+                    sourceGameId = otherGid,
+                    sourceMoveNumber = 4
+                )
+            )
+            // Даже при наличии нетронутых задач в общем банке (MATE/PIN/DEFENSE) перенос должен
+            // отдать только незнакомую задачу этого навыка (unseenOtherFork), а при next — завершиться честно.
+            val mode = TrainingMode.SkillTransfer(
+                pattern = TacticalPattern.FORK_KNIGHT,
+                theme = TacticalTheme.FORK,
+                isDefensive = false,
+                excludeSourceGameId = sourceGid
+            )
+            withContext(Dispatchers.Main) { vm.init(user, mode) }
+            awaitState { !it.isLoading && it.hasActiveExercise && !it.isInputLocked }
+
+            val loaded = withContext(Dispatchers.Main) { vm.uiState.value }
+            assertEquals(mode, loaded.mode)
+            assertEquals(unseenOtherFork.fenPosition, loaded.board.fen)
+
+            withContext(Dispatchers.Main) { vm.loadNextExercise() }
+            awaitState { !it.isLoading }
+
+            val afterExhausted = withContext(Dispatchers.Main) { vm.uiState.value }
+            assertTrue(!afterExhausted.hasActiveExercise)
+            assertTrue(afterExhausted.feedbackMessage?.contains("проверили навык") == true)
+        } finally {
+            vm.viewModelScope.cancel()
+            repo.deleteBySourceGameId(sourceGid)
+            repo.deleteBySourceGameId(otherGid)
+            container.gameRepository.deleteById(sourceGid)
+            container.gameRepository.deleteById(otherGid)
             container.userRepository.deleteById(uid)
         }
     }

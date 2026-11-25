@@ -7,10 +7,12 @@ import com.example.chessmentor.domain.entity.ExerciseAttempt
 import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.MistakeType
 import com.example.chessmentor.domain.entity.MoveQuality
+import com.example.chessmentor.domain.entity.TacticalPattern
 import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.repository.ExerciseRepository
 import com.example.chessmentor.domain.training.AttemptQuality
+import com.example.chessmentor.domain.training.ExerciseMetadata
 import com.example.chessmentor.domain.training.SpacedRepetitionScheduler
 import com.example.chessmentor.domain.training.TrainingMode
 import kotlinx.coroutines.runBlocking
@@ -516,6 +518,96 @@ class GameReviewHelperTest {
             assertEquals(25L, saved.exercise.sourceGameId)
             assertNull(saved.exercise.sourceMoveNumber)
             assertNull(repo.findBySourceGameAndMove(25L, 3))
+        }
+
+    @Test
+    fun resolveRetrySkillProfile_separatesAttackingDefensiveAndOpponentRefutation_andTagsSavedDefense() =
+        runBlocking {
+            val attackForkMistake = Mistake(
+                id = 1L, gameId = 5L, themeId = 1L, moveNumber = 12, color = ChessColor.WHITE,
+                evaluationLoss = 320, mistakeType = MistakeType.BLUNDER,
+                bestMove = "Nd5", userMove = "a3",
+                fenBefore = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 4 5"
+            )
+            val attackMove = AnalyzedMove(
+                gameId = 5L, moveIndex = 22, moveNumber = 12, color = ChessColor.WHITE,
+                quality = MoveQuality.BLUNDER, san = "a3", bestMove = "Nd5",
+                evalBefore = 190, evalAfter = -130, evalLoss = 320
+            )
+            val attackProfile = GameReviewHelper.resolveRetrySkillProfile(
+                mistake = attackForkMistake,
+                analyzedMove = attackMove,
+                moveNumber = 12,
+                isPlayerMistake = true
+            )
+            assertFalse(attackProfile.isDefensive)
+            assertEquals(TacticalPattern.FORK_KNIGHT, attackProfile.pattern)
+            assertEquals(TacticalTheme.FORK, attackProfile.theme)
+
+            val defenseMistake = Mistake(
+                id = 2L, gameId = 5L, themeId = 16L, moveNumber = 18, color = ChessColor.BLACK,
+                evaluationLoss = 340, mistakeType = MistakeType.BLUNDER,
+                bestMove = "Kg7", userMove = "h6",
+                fenBefore = "6k1/5ppp/8/8/8/8/5PPP/3R2K1 b - - 0 18"
+            )
+            val defenseMove = AnalyzedMove(
+                gameId = 5L, moveIndex = 35, moveNumber = 18, color = ChessColor.BLACK,
+                quality = MoveQuality.BLUNDER, san = "h6", bestMove = "Kg7",
+                // Для чёрных evalBefore = +80 означает -80 с их стороны (оборона)
+                evalBefore = 80, evalAfter = 420, evalLoss = 340
+            )
+            val defenseProfile = GameReviewHelper.resolveRetrySkillProfile(
+                mistake = defenseMistake,
+                analyzedMove = defenseMove,
+                moveNumber = 18,
+                isPlayerMistake = true
+            )
+            assertTrue(defenseProfile.isDefensive)
+            assertEquals(TacticalPattern.DEFENSIVE_MOVE, defenseProfile.pattern)
+            assertEquals(TacticalTheme.KING_SAFETY, defenseProfile.theme)
+
+            // Ответ на ошибку соперника в проигранной позиции сохраняет защитную роль,
+            // а в равной/выигранной — атакующую
+            val opponentSaving = GameReviewHelper.resolveRetrySkillProfile(
+                mistake = null,
+                analyzedMove = null,
+                moveNumber = 20,
+                isPlayerMistake = false,
+                evalWhiteAfterOpponentMistake = -260,
+                playerColor = ChessColor.WHITE
+            )
+            assertTrue(opponentSaving.isDefensive)
+            assertEquals(TacticalTheme.KING_SAFETY, opponentSaving.theme)
+
+            val opponentPunish = GameReviewHelper.resolveRetrySkillProfile(
+                mistake = null,
+                analyzedMove = null,
+                moveNumber = 20,
+                isPlayerMistake = false,
+                evalWhiteAfterOpponentMistake = 260,
+                playerColor = ChessColor.WHITE
+            )
+            assertFalse(opponentPunish.isDefensive)
+
+            // Сохранение оборонительной позиции добавляет тег GOAL:DEFENSE
+            val repo = InMemoryExerciseRepo()
+            val savedDefense = GameReviewHelper.saveRetryPositionToRepetition(
+                userId = 1L,
+                gameId = 5L,
+                moveNumber = 18,
+                fenBefore = "6k1/5ppp/8/8/8/8/5PPP/3R2K1 b - - 0 18",
+                expectedBestRaw = "g8g7",
+                hintLevel = 0,
+                answerRevealedBeforeRetry = false,
+                attemptsCount = 1,
+                isPlayerMistake = true,
+                analyzedMove = defenseMove,
+                mistake = defenseMistake,
+                exerciseRepository = repo,
+                nowMs = 1_700_000_000_000L
+            )
+            assertNotNull(savedDefense)
+            assertTrue(ExerciseMetadata.isDefensiveGoal(savedDefense!!.exercise))
         }
 
     private class InMemoryExerciseRepo : ExerciseRepository {

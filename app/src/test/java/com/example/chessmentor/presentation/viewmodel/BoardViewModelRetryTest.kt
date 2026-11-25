@@ -6,6 +6,8 @@ import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.MoveQuality
+import com.example.chessmentor.domain.entity.TacticalPattern
+import com.example.chessmentor.domain.entity.TacticalTheme
 import com.github.bhlangonijr.chesslib.Side
 import com.github.bhlangonijr.chesslib.Square
 import com.github.bhlangonijr.chesslib.move.Move
@@ -83,6 +85,10 @@ class BoardViewModelRetryTest {
         val retry = vm.retryState.value
         assertNotNull(retry)
         assertFalse(retry!!.isPlayerMistake)
+        assertNotNull(retry.skillProfile)
+        assertTrue(retry.skillProfile!!.isDefensive)
+        assertEquals(TacticalPattern.DEFENSIVE_MOVE, retry.skillProfile!!.pattern)
+        assertEquals(TacticalTheme.KING_SAFETY, retry.skillProfile!!.theme)
         assertEquals(4, retry.targetMoveIndex)
         assertEquals(3, retry.moveNumber)
         assertEquals("Kxf7", retry.expectedBestSan)

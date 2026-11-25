@@ -56,7 +56,8 @@ data class RetryMistakeUiState(
     val isSavingRepetition: Boolean = false,
     val savedRepetitionMessage: String? = null,
     val savedExerciseId: Long? = null,
-    val playedMistakeNotation: String? = if (isPlayerMistake) playedSan else null
+    val playedMistakeNotation: String? = if (isPlayerMistake) playedSan else null,
+    val skillProfile: GameReviewHelper.RetrySkillProfile? = null
 )
 
 /**
@@ -475,6 +476,24 @@ class BoardViewModel : ViewModel() {
             "Соперник ошибся ходом ${setup.playedSan}. Найдите лучший ответ за $sideText!"
         }
 
+        val analyzed = analyzedMoves.firstOrNull { it.moveIndex == idx }
+        val currentMistake = mistakes.firstOrNull {
+            it.moveNumber == setup.moveNumber && it.color == setup.moverColor
+        }
+        val evalAfterOpponent = if (!setup.isPlayerMistake) {
+            evaluations.getOrNull(idx + 1)
+        } else {
+            null
+        }
+        val skillProfile = GameReviewHelper.resolveRetrySkillProfile(
+            mistake = currentMistake,
+            analyzedMove = analyzed,
+            moveNumber = setup.moveNumber,
+            isPlayerMistake = setup.isPlayerMistake,
+            evalWhiteAfterOpponentMistake = evalAfterOpponent,
+            playerColor = playerColor
+        )
+
         retryState.value = RetryMistakeUiState(
             targetMoveIndex = idx,
             moveNumber = setup.moveNumber,
@@ -486,7 +505,8 @@ class BoardViewModel : ViewModel() {
             expectedBestSan = setup.expectedBestSan,
             feedback = prompt,
             answerRevealedBeforeRetry = answerWasRevealed,
-            playedMistakeNotation = setup.playedMistakeNotation
+            playedMistakeNotation = setup.playedMistakeNotation,
+            skillProfile = skillProfile
         )
     }
 

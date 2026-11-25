@@ -446,7 +446,8 @@ fun TrainingScreen(
             }
 
             !uiState.hasActiveExercise -> {
-                val isFromGame = uiState.mode is TrainingMode.FromGame && onReturnToGame != null
+                val isFromGame = (uiState.mode is TrainingMode.FromGame || uiState.mode is TrainingMode.SkillTransfer) &&
+                    onReturnToGame != null
                 val action = when {
                     uiState.isInitializationError -> Pair(onLeaveTraining, "Вернуться назад")
                     isFromGame -> Pair(onReturnToGame, "Вернуться к разбору партии")
@@ -718,13 +719,17 @@ internal fun ModePicker(
             val modes = if (choosingTheme) {
                 TrainingMode.selectableThemes.map { TrainingMode.ByTheme(it) }
             } else {
-                listOfNotNull((selectedMode as? TrainingMode.FromGame)?.copy(focusMoveNumber = null),
+                listOfNotNull(
+                    (selectedMode as? TrainingMode.FromGame)?.copy(focusMoveNumber = null),
+                    selectedMode as? TrainingMode.SkillTransfer,
                     TrainingMode.Daily, TrainingMode.SmartSession, TrainingMode.All, TrainingMode.MyMistakes,
-                    TrainingMode.WeakPatterns, TrainingMode.PatternVision, TrainingMode.DeepCalculation, TrainingMode.Defense)
+                    TrainingMode.WeakPatterns, TrainingMode.PatternVision, TrainingMode.DeepCalculation, TrainingMode.Defense
+                )
             }
             modes.forEach { mode ->
                 val isCurrentMode = mode == selectedMode ||
-                    (mode is TrainingMode.FromGame && selectedMode is TrainingMode.FromGame)
+                    (mode is TrainingMode.FromGame && selectedMode is TrainingMode.FromGame) ||
+                    (mode is TrainingMode.SkillTransfer && selectedMode is TrainingMode.SkillTransfer)
                 DropdownMenuItem(
                     modifier = Modifier.semantics {
                         selected = isCurrentMode

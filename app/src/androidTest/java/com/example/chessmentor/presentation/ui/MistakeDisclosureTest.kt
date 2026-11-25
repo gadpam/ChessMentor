@@ -195,4 +195,47 @@ class MistakeDisclosureTest {
         ui.runOnIdle { state = state.copy(isSolved = true, feedback = "Верно!") }
         ui.onNodeWithText("Ответ на 3-м ходу найден!").assertIsDisplayed()
     }
+
+    @Test fun solvedRetryPanelShowsVerifyOnAnotherPositionWithAccessibleTouchTarget() {
+        var verifyClicks = 0
+        var state by mutableStateOf(
+            RetryMistakeUiState(
+                targetMoveIndex = 4,
+                moveNumber = 3,
+                moverColor = ChessColor.WHITE,
+                isPlayerMistake = true,
+                fenBefore = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+                playedSan = "Qh5",
+                expectedBestRaw = "Nf3",
+                expectedBestSan = "Nf3",
+                isSolved = false,
+                feedback = "Найдите сильнейший ход"
+            )
+        )
+        ui.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 1.5f)) {
+                Box(Modifier.width(320.dp).verticalScroll(rememberScrollState())) {
+                    RetryMistakePanel(
+                        state = state,
+                        onHint = {},
+                        onShowLine = null,
+                        onPracticeInTrainer = null,
+                        onContinueGame = {},
+                        onCancel = {},
+                        onVerifyOnAnotherPosition = { verifyClicks++ }
+                    )
+                }
+            }
+        }
+        // До решения кнопка переноса навыка скрыта
+        ui.onNodeWithText("Проверить на другой позиции").assertDoesNotExist()
+
+        ui.runOnIdle { state = state.copy(isSolved = true, feedback = "Верно!") }
+        ui.onNodeWithText("Проверить на другой позиции")
+            .performScrollTo()
+            .assertHeightIsAtLeast(48.dp)
+            .assertIsDisplayed()
+            .performClick()
+        ui.runOnIdle { assertEquals(1, verifyClicks) }
+    }
 }

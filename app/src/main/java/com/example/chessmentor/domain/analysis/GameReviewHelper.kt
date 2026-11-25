@@ -16,7 +16,9 @@ import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.pgn.PgnParser
 import com.example.chessmentor.domain.repository.ExerciseRepository
 import com.example.chessmentor.domain.training.AttemptMetadata
+import com.example.chessmentor.domain.training.ExerciseMetadata
 import com.example.chessmentor.domain.training.HintUsage
+import com.example.chessmentor.domain.training.PuzzleKind
 import com.example.chessmentor.domain.training.PuzzleQualityEvaluator
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.github.bhlangonijr.chesslib.Board
@@ -901,6 +903,108 @@ object GameReviewHelper {
         val recordedAssistedAttempt: Boolean
     )
 
+    data class RetrySkillProfile(
+        val pattern: TacticalPattern,
+        val theme: TacticalTheme,
+        val isDefensive: Boolean
+    )
+
+    /**
+     * Определяет тактический навык ([pattern], [theme]) и игровую роль ([isDefensive]:
+     * защита/контрудар vs реализация преимущества/атака) для позиции интерактивного разбора,
+     * чтобы подобрать незнакомую проверочную позицию того же класса в «Проверить на другой позиции».
+     */
+    fun resolveRetrySkillProfile(
+        mistake: Mistake?,
+        analyzedMove: AnalyzedMove?,
+        moveNumber: Int,
+        isPlayerMistake: Boolean,
+        evalWhiteAfterOpponentMistake: Int? = null,
+        playerColor: ChessColor? = null
+    ): RetrySkillProfile {
+        val playerSign = when {
+            playerColor != null -> if (playerColor == ChessColor.WHITE) 1 else -1
+            analyzedMove != null -> if (analyzedMove.color == ChessColor.WHITE) 1 else -1
+            mistake != null -> if (mistake.color == ChessColor.WHITE) 1 else -1
+            else -> 1
+        }
+
+        val isDefensive = if (isPlayerMistake) {
+            when {
+                mistake != null && analyzedMove != null -> {
+                    val kind = PuzzleQualityEvaluator.classifyMistake(mistake, analyzedMove)
+                    if (kind != PuzzleKind.REJECTED) {
+                        kind == PuzzleKind.DEFENSIVE_RESOURCE
+                    } else {
+                        val evalBeforePlayer = analyzedMove.evalBefore * playerSign
+                        mistake.themeId in setOf(16L, 17L) ||
+                            (evalBeforePlayer <= 40 && !ChessEngine.isMateScore(evalBeforePlayer))
+                    }
+                }
+                mistake != null -> mistake.themeId in setOf(16L, 17L)
+                analyzedMove != null -> {
+                    val evalBeforePlayer = analyzedMove.evalBefore * playerSign
+                    val evalAfterPlayer = analyzedMove.evalAfter * playerSign
+                    evalBeforePlayer <= 40 && evalAfterPlayer <= -120
+                }
+                else -> false
+            }
+        } else {
+            if (evalWhiteAfterOpponentMistake != null && playerColor != null) {
+                val playerEvalAfter = evalWhiteAfterOpponentMistake * playerSign
+                playerEvalAfter <= -120
+            } else {
+                false
+            }
+        }
+
+        val rawPattern = when (mistake?.themeId) {
+            1L -> TacticalPattern.FORK_KNIGHT
+            2L -> TacticalPattern.PIN_RELATIVE
+            3L -> TacticalPattern.SKEWER
+            4L -> TacticalPattern.DISCOVERED_ATTACK
+            5L -> TacticalPattern.DOUBLE_CHECK
+            6L -> TacticalPattern.REMOVING_DEFENDER
+            7L -> TacticalPattern.BACK_RANK_MATE
+            14L, 15L -> TacticalPattern.ENDGAME_TECHNIQUE
+            16L, 17L -> TacticalPattern.DEFENSIVE_MOVE
+            else -> when {
+                isDefensive -> TacticalPattern.DEFENSIVE_MOVE
+                analyzedMove != null &&
+                    ChessEngine.isMateScore(analyzedMove.evalBefore * playerSign) &&
+                    analyzedMove.evalBefore * playerSign > 0 ->
+                    TacticalPattern.BACK_RANK_MATE
+                !isPlayerMistake &&
+                    evalWhiteAfterOpponentMistake != null &&
+                    ChessEngine.isMateScore(evalWhiteAfterOpponentMistake * playerSign) &&
+                    evalWhiteAfterOpponentMistake * playerSign > 0 ->
+                    TacticalPattern.BACK_RANK_MATE
+                moveNumber >= 35 -> TacticalPattern.ENDGAME_TECHNIQUE
+                else -> TacticalPattern.CALCULATION
+            }
+        }
+
+        val pattern = if (isDefensive &&
+            (rawPattern == TacticalPattern.CALCULATION || rawPattern == TacticalPattern.ENDGAME_TECHNIQUE)
+        ) {
+            TacticalPattern.DEFENSIVE_MOVE
+        } else {
+            rawPattern
+        }
+
+        val baseTheme = themeForPattern(pattern)
+        val theme = if (isDefensive && baseTheme != TacticalTheme.MATE) {
+            TacticalTheme.KING_SAFETY
+        } else {
+            baseTheme
+        }
+        return RetrySkillProfile(
+            pattern = pattern,
+            theme = theme,
+            isDefensive = isDefensive
+        )
+    }
+
     /**
      * Сохраняет позицию из интерактивного режима «Исправить ошибку» в персональную очередь
      * интервального повторения без дублирования уже существующего упражнения и с честным
@@ -933,8 +1037,17 @@ object GameReviewHelper {
         val exercise = if (existing != null) {
             existing
         } else {
-            val pattern = patternForRetryPosition(mistake, moveNumber)
-            val theme = themeForPattern(pattern)
+            val profile = resolveRetrySkillProfile(
+                mistake = mistake,
+                analyzedMove = analyzedMove,
+                moveNumber = moveNumber,
+                isPlayerMistake = isPlayerMistake
+            )
+            val features = if (profile.isDefensive) {
+                listOf(ExerciseMetadata.defensiveGoalTag())
+            } else {
+                emptyList()
+            }
             val loss = mistake?.evaluationLoss ?: analyzedMove?.evalLoss ?: 150
             val diff = when {
                 loss >= 400 -> 45
@@ -945,10 +1058,11 @@ object GameReviewHelper {
                 Exercise(
                     fenPosition = fenBefore,
                     solutionMoves = listOf(bestUci),
-                    tacticalPattern = pattern,
-                    patternClusterId = "${pattern.name}_MEDIUM",
+                    tacticalPattern = profile.pattern,
+                    patternClusterId = "${profile.pattern.name}_MEDIUM",
                     difficultyRating = diff,
-                    theme = theme,
+                    patternFeatures = features,
+                    theme = profile.theme,
                     createdFrom = ExerciseSource.MISTAKE,
                     sourceGameId = gameId,
                     sourceMoveNumber = if (isPlayerMistake) moveNumber else null,
@@ -993,24 +1107,18 @@ object GameReviewHelper {
         )
     }
 
-    private fun patternForRetryPosition(mistake: Mistake?, moveNumber: Int): TacticalPattern {
-        val themeId = mistake?.themeId
-        return when (themeId) {
-            1L -> TacticalPattern.FORK_KNIGHT
-            2L -> TacticalPattern.PIN_RELATIVE
-            3L -> TacticalPattern.SKEWER
-            4L -> TacticalPattern.DISCOVERED_ATTACK
-            5L, 7L -> TacticalPattern.BACK_RANK_MATE
-            14L, 15L -> TacticalPattern.ENDGAME_TECHNIQUE
-            16L, 17L -> TacticalPattern.DEFENSIVE_MOVE
-            else -> if (moveNumber >= 35) TacticalPattern.ENDGAME_TECHNIQUE else TacticalPattern.CALCULATION
-        }
-    }
-
     private fun themeForPattern(pattern: TacticalPattern): TacticalTheme = when {
-        pattern.name.startsWith("FORK") -> TacticalTheme.FORK
+        pattern.name.startsWith("FORK") || pattern == TacticalPattern.DECOY -> TacticalTheme.FORK
         pattern.name.startsWith("PIN") || pattern == TacticalPattern.SKEWER -> TacticalTheme.PIN
-        pattern.name.startsWith("DISCOVERED") -> TacticalTheme.DISCOVERED_ATTACK
+        pattern.name.startsWith("DISCOVERED") || pattern == TacticalPattern.DOUBLE_CHECK ->
+            TacticalTheme.DISCOVERED_ATTACK
+        pattern == TacticalPattern.HANGING_PIECE || pattern == TacticalPattern.TRAPPED_PIECE ->
+            TacticalTheme.MATERIAL_LOSS
+        pattern == TacticalPattern.DEFENSIVE_MOVE ||
+            pattern == TacticalPattern.COUNTER_ATTACK ||
+            pattern == TacticalPattern.STALEMATE_TRICK ||
+            pattern == TacticalPattern.PERPETUAL_CHECK ->
+            TacticalTheme.KING_SAFETY
         "MATE" in pattern.name -> TacticalTheme.MATE
         else -> TacticalTheme.TACTIC
     }

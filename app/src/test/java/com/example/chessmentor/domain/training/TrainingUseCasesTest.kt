@@ -7,6 +7,7 @@ import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Exercise
 import com.example.chessmentor.domain.entity.ExerciseAttempt
+import com.example.chessmentor.domain.entity.ExerciseSource
 import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.MistakeType
@@ -799,5 +800,191 @@ class TrainingUseCasesTest {
             )
         )
         assertTrue(bobAttempt is GetTrainingExerciseUseCase.Result.NoSuitableExercises)
+    }
+
+    @Test
+    fun skillTransfer_selectsUnseenSameSkillAndRole_andNeverFallsBackToGeneralQueue() = runBlocking {
+        val userRepo = FakeUserRepo()
+        val gameRepo = FakeGameRepo()
+        val mistakeRepo = FakeMistakeRepo(gameRepo)
+        val exerciseRepo = FakeExerciseRepo(gameRepo)
+
+        val user = userRepo.save(User(nickname = "Transfer", email = "transfer@test.local", passwordHash = "h", rating = 1400))
+        val uid = user.id!!
+        val sourceGame = gameRepo.save(
+            Game(userId = uid, pgnData = "1. e4 e5 *", playerColor = ChessColor.WHITE, playedAt = 1_000L)
+        )
+        val otherGame = gameRepo.save(
+            Game(userId = uid, pgnData = "1. d4 d5 *", playerColor = ChessColor.WHITE, playedAt = 2_000L)
+        )
+
+        // Предварительно засеваем банк и помечаем решёнными все встроенные вилки и защиты,
+        // чтобы изолированно контролировать пул незнакомых позиций для проверки переноса навыка.
+        CuratedExerciseBank.ensureSeeded(exerciseRepo)
+        val seeded = exerciseRepo.findAccessibleByUserId(uid)
+        val forkIds = seeded.filter { it.theme == TacticalTheme.FORK }.mapNotNull { it.id }
+        val defenseIds = seeded.filter {
+            ExerciseMetadata.isDefensiveGoal(it) || it.theme == TacticalTheme.KING_SAFETY
+        }.mapNotNull { it.id }
+        for (exId in forkIds + defenseIds) {
+            exerciseRepo.saveAttempt(
+                ExerciseAttempt(
+                    userId = uid,
+                    exerciseId = exId,
+                    solved = true,
+                    timeSpentSeconds = 5,
+                    movesMade = listOf("a1a2"),
+                    attemptedAt = 10_000L
+                )
+            )
+        }
+
+        // Оставляем в банке НЕЗНАКОМЫЕ задачи других тем (PIN, MATE) — перенос навыка FORK
+        // ни в коем случае не должен подменяться ими.
+        // Добавляем 4 контролируемые позиции:
+        // 1) вилка из исходной партии sourceGame (исключается excludeSourceGameId);
+        // 2) знакомая вилка из otherGame (исключается schedule);
+        // 3) незнакомая вилка (FORK_KNIGHT, атака) из otherGame — должна быть выбрана первой;
+        // 4) незнакомая родственная вилка (FORK_ROOK, тема FORK, атака) — второй.
+        val sameGameFork = exerciseRepo.saveExercise(
+            Exercise(
+                fenPosition = "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1",
+                solutionMoves = listOf("e1e8"),
+                tacticalPattern = TacticalPattern.FORK_KNIGHT,
+                patternClusterId = "FORK_KNIGHT_MEDIUM",
+                difficultyRating = 45,
+                theme = TacticalTheme.FORK,
+                createdFrom = ExerciseSource.MISTAKE,
+                sourceGameId = sourceGame.id,
+                sourceMoveNumber = 5
+            )
+        )
+        val alreadySeenFork = exerciseRepo.saveExercise(
+            Exercise(
+                fenPosition = "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+                solutionMoves = listOf("d1d8"),
+                tacticalPattern = TacticalPattern.FORK_KNIGHT,
+                patternClusterId = "FORK_KNIGHT_MEDIUM",
+                difficultyRating = 45,
+                theme = TacticalTheme.FORK,
+                createdFrom = ExerciseSource.MISTAKE,
+                sourceGameId = otherGame.id,
+                sourceMoveNumber = 7
+            )
+        )
+        exerciseRepo.saveAttempt(
+            ExerciseAttempt(
+                userId = uid,
+                exerciseId = alreadySeenFork.id!!,
+                solved = true,
+                timeSpentSeconds = 4,
+                movesMade = listOf("d1d8"),
+                attemptedAt = 20_000L
+            )
+        )
+        val unseenExactFork = exerciseRepo.saveExercise(
+            Exercise(
+                fenPosition = "4r1k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+                solutionMoves = listOf("d1d8"),
+                tacticalPattern = TacticalPattern.FORK_KNIGHT,
+                patternClusterId = "FORK_KNIGHT_MEDIUM",
+                difficultyRating = 45,
+                theme = TacticalTheme.FORK,
+                createdFrom = ExerciseSource.MISTAKE,
+                sourceGameId = otherGame.id,
+                sourceMoveNumber = 9
+            )
+        )
+        val unseenFamilyFork = exerciseRepo.saveExercise(
+            Exercise(
+                fenPosition = "2r3k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+                solutionMoves = listOf("d1d8"),
+                tacticalPattern = TacticalPattern.FORK_ROOK,
+                patternClusterId = "FORK_ROOK_MEDIUM",
+                difficultyRating = 45,
+                theme = TacticalTheme.FORK,
+                createdFrom = ExerciseSource.MISTAKE,
+                sourceGameId = otherGame.id,
+                sourceMoveNumber = 11
+            )
+        )
+        val unseenDefensive = exerciseRepo.saveExercise(
+            Exercise(
+                fenPosition = "1r4k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+                solutionMoves = listOf("d1d8"),
+                tacticalPattern = TacticalPattern.COUNTER_ATTACK,
+                patternClusterId = "COUNTER_ATTACK_MEDIUM",
+                difficultyRating = 45,
+                patternFeatures = listOf(ExerciseMetadata.defensiveGoalTag()),
+                theme = TacticalTheme.KING_SAFETY,
+                createdFrom = ExerciseSource.MISTAKE,
+                sourceGameId = otherGame.id,
+                sourceMoveNumber = 15
+            )
+        )
+
+        val selector = GetTrainingExerciseUseCase(userRepo, mistakeRepo, exerciseRepo)
+        val attackMode = TrainingMode.SkillTransfer(
+            pattern = TacticalPattern.FORK_KNIGHT,
+            theme = TacticalTheme.FORK,
+            isDefensive = false,
+            excludeSourceGameId = sourceGame.id,
+            excludeExerciseId = sameGameFork.id
+        )
+
+        // 1. Первым отдаётся именно незнакомая вилка того же паттерна (не из sourceGame, не alreadySeenFork и не защита)
+        val first = selector.execute(GetTrainingExerciseUseCase.Input(userId = uid, mode = attackMode))
+            as GetTrainingExerciseUseCase.Result.Success
+        assertEquals(unseenExactFork.id, first.exercise.id)
+
+        // Отмечаем как решённую и переходим дальше
+        exerciseRepo.saveAttempt(
+            ExerciseAttempt(
+                userId = uid, exerciseId = unseenExactFork.id!!, solved = true,
+                timeSpentSeconds = 3, movesMade = listOf("d1d8"), attemptedAt = 30_000L
+            )
+        )
+
+        // 2. Далее подбирается незнакомая позиция из семейства того же навыка (FORK_ROOK, атака)
+        val second = selector.execute(
+            GetTrainingExerciseUseCase.Input(userId = uid, excludeExerciseId = unseenExactFork.id!!, mode = attackMode)
+        ) as GetTrainingExerciseUseCase.Result.Success
+        assertEquals(unseenFamilyFork.id, second.exercise.id)
+
+        exerciseRepo.saveAttempt(
+            ExerciseAttempt(
+                userId = uid, exerciseId = unseenFamilyFork.id!!, solved = true,
+                timeSpentSeconds = 3, movesMade = listOf("d1d8"), attemptedAt = 40_000L
+            )
+        )
+
+        // 3. Когда незнакомые позиции этого навыка исчерпаны, возвращается NoSuitableExercises
+        // (без подмены задачами PIN/MATE/DEFENSIVE_MOVE из общей очереди)
+        val exhausted = selector.execute(
+            GetTrainingExerciseUseCase.Input(userId = uid, excludeExerciseId = unseenFamilyFork.id!!, mode = attackMode)
+        )
+        assertTrue(exhausted is GetTrainingExerciseUseCase.Result.NoSuitableExercises)
+
+        // 4. Защитный перенос выбирает строго незнакомую защитную задачу, не смешиваясь с атакующей очередью
+        val defenseMode = TrainingMode.SkillTransfer(
+            pattern = TacticalPattern.DEFENSIVE_MOVE,
+            theme = TacticalTheme.KING_SAFETY,
+            isDefensive = true,
+            excludeSourceGameId = sourceGame.id
+        )
+        val defFirst = selector.execute(GetTrainingExerciseUseCase.Input(userId = uid, mode = defenseMode))
+            as GetTrainingExerciseUseCase.Result.Success
+        assertEquals(unseenDefensive.id, defFirst.exercise.id)
+
+        exerciseRepo.saveAttempt(
+            ExerciseAttempt(
+                userId = uid, exerciseId = unseenDefensive.id!!, solved = true,
+                timeSpentSeconds = 3, movesMade = listOf("d1d8"), attemptedAt = 50_000L
+            )
+        )
+        val defExhausted = selector.execute(
+            GetTrainingExerciseUseCase.Input(userId = uid, excludeExerciseId = unseenDefensive.id!!, mode = defenseMode)
+        )
+        assertTrue(defExhausted is GetTrainingExerciseUseCase.Result.NoSuitableExercises)
     }
 }

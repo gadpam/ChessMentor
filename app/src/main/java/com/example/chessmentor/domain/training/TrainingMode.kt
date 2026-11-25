@@ -3,6 +3,7 @@ package com.example.chessmentor.domain.training
 
 import com.example.chessmentor.domain.entity.Exercise
 import com.example.chessmentor.domain.entity.ExerciseSource
+import com.example.chessmentor.domain.entity.TacticalPattern
 import com.example.chessmentor.domain.entity.TacticalTheme
 
 /**
@@ -46,6 +47,20 @@ sealed class TrainingMode {
         val focusMoveNumber: Int? = null
     ) : TrainingMode()
 
+    /**
+     * Проверка переноса навыка («Проверить на другой позиции»): подбирает **незнакомую**
+     * позицию с тем же тактическим мотивом [pattern] / темой [theme] и той же ролью
+     * ([isDefensive] = защита/контрудар vs выигрывающая тактика), исключая исходную партию
+     * [excludeSourceGameId] и карточку [excludeExerciseId] без подмены общей очередью.
+     */
+    data class SkillTransfer(
+        val pattern: TacticalPattern,
+        val theme: TacticalTheme,
+        val isDefensive: Boolean,
+        val excludeSourceGameId: Long? = null,
+        val excludeExerciseId: Long? = null
+    ) : TrainingMode()
+
     val displayName: String
         get() = when (this) {
             All -> "Все задачи"
@@ -61,6 +76,14 @@ sealed class TrainingMode {
                 "Из партии (ход $focusMoveNumber)"
             } else {
                 "Ошибки партии"
+            }
+            is SkillTransfer -> {
+                val skillLabel = if (pattern == TacticalPattern.CALCULATION || pattern == TacticalPattern.MIXED) {
+                    TrainingLabels.themeDisplayName(theme)
+                } else {
+                    pattern.displayName
+                }
+                "$skillLabel · ${if (isDefensive) "защита" else "атака"}"
             }
         }
 
@@ -80,10 +103,27 @@ sealed class TrainingMode {
             } else {
                 "game_${gameId}"
             }
+            is SkillTransfer -> buildString {
+                append("transfer_")
+                append(pattern.name)
+                append('_')
+                append(theme.name)
+                append('_')
+                append(if (isDefensive) "def" else "att")
+                if (excludeSourceGameId != null && excludeSourceGameId > 0L) {
+                    append("_g").append(excludeSourceGameId)
+                }
+                if (excludeExerciseId != null && excludeExerciseId > 0L) {
+                    append("_e").append(excludeExerciseId)
+                }
+            }
         }
 
     companion object {
         private val FROM_GAME_REGEX = Regex("""^game_(\d+)(?:_move_(\d+))?$""")
+        private val SKILL_TRANSFER_REGEX = Regex(
+            """^transfer_([A-Z0-9_]+?)_(MATE|FORK|PIN|DISCOVERED_ATTACK|MATERIAL_LOSS|KING_SAFETY|TACTIC|UNKNOWN)_(def|att)(?:_g(\d+))?(?:_e(\d+))?$"""
+        )
 
         fun fromRouteKey(key: String?): TrainingMode {
             if (key.isNullOrBlank()) return All
@@ -112,6 +152,33 @@ sealed class TrainingMode {
                                 ?.takeIf { it > 0 }
                             if (gameId != null && gameId > 0L) {
                                 FromGame(gameId = gameId, focusMoveNumber = moveNo)
+                            } else {
+                                All
+                            }
+                        }
+                        key.startsWith("transfer_") -> {
+                            val m = SKILL_TRANSFER_REGEX.matchEntire(key)
+                            val patName = m?.groupValues?.get(1)
+                            val themeName = m?.groupValues?.get(2)
+                            val roleTag = m?.groupValues?.get(3)
+                            val excludeGame = m?.groupValues?.getOrNull(4)
+                                ?.takeIf { it.isNotEmpty() }
+                                ?.toLongOrNull()
+                                ?.takeIf { it > 0L }
+                            val excludeExercise = m?.groupValues?.getOrNull(5)
+                                ?.takeIf { it.isNotEmpty() }
+                                ?.toLongOrNull()
+                                ?.takeIf { it > 0L }
+                            val pattern = TacticalPattern.entries.firstOrNull { it.name == patName }
+                            val theme = TacticalTheme.entries.firstOrNull { it.name == themeName }
+                            if (pattern != null && theme != null && roleTag != null) {
+                                SkillTransfer(
+                                    pattern = pattern,
+                                    theme = theme,
+                                    isDefensive = roleTag == "def",
+                                    excludeSourceGameId = excludeGame,
+                                    excludeExerciseId = excludeExercise
+                                )
                             } else {
                                 All
                             }
