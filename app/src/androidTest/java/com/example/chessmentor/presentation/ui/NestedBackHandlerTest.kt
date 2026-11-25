@@ -75,7 +75,7 @@ class NestedBackHandlerTest {
         )
         val evaluations = listOf(20, 25, 20, -40, -35)
 
-        ui.runOnIdle {
+        ui.runOnUiThread {
             gameViewModel.selectedGame.value = game
             gameViewModel.selectedGameMistakes.clear()
             gameViewModel.selectedGameMistakes.addAll(mistakes)

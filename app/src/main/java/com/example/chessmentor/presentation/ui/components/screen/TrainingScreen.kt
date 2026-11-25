@@ -240,7 +240,7 @@ fun TrainingScreen(
     BackHandler(enabled = uiState.isFreeAnalysisMode) {
         selectedSquare = null
         pendingPromotion = null
-        viewModel.onToggleFreeAnalysisMode()
+        viewModel.onToggleFreeAnalysis()
     }
 
     // Вычисляем легальные ходы выбранной фигуры (отдельно тихие ходы и взятия, включая взятие на проходе)
