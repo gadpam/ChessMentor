@@ -68,7 +68,8 @@ fun UploadGameScreen(
     val pendingChessComRetry = gameViewModel.pendingChessComRetry
     val chessComPartialSavedCount by gameViewModel.chessComPartialSavedCount
     val message by gameViewModel.message
-    val isLoading by gameViewModel.isLoading
+    val isLoading by gameViewModel.isImporting
+    val isAnalyzing by gameViewModel.isAnalyzing
 
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -257,6 +258,7 @@ fun UploadGameScreen(
                     selectedColor = selectedColor,
                     colorAutoDetected = colorAutoDetected,
                     isLoading = isLoading,
+                    isAnalyzing = isAnalyzing,
                     onCopy = { gameViewModel.uploadAndAnalyzeGame(allowDuplicate = true) },
                     onOpenExistingGame = onOpenExistingGame,
                     onNextBatchWindow = { gameViewModel.showNextBatchWindow() },
@@ -287,6 +289,7 @@ fun UploadGameScreen(
                 timeControl = timeControl,
                 usernameHint = usernameHint,
                 isLoading = isLoading,
+                isAnalyzing = isAnalyzing,
                 onPasteFromClipboard = {
                     val clipText = clipboardManager.getText()?.text?.trim().orEmpty()
                     if (clipText.isEmpty()) {
@@ -415,6 +418,7 @@ internal fun PgnLivePreviewCard(
     selectedColor: ChessColor,
     colorAutoDetected: Boolean,
     isLoading: Boolean,
+    isAnalyzing: Boolean = false,
     onCopy: () -> Unit,
     onOpenExistingGame: (Long) -> Unit,
     onNextBatchWindow: () -> Unit = {},
@@ -851,7 +855,7 @@ internal fun PgnLivePreviewCard(
                                     TextButton(onClick = { confirmCopy = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Отмена") }
                                     Button(
                                         onClick = { confirmCopy = false; onCopy() },
-                                        enabled = !isLoading,
+                                        enabled = !isLoading && !isAnalyzing,
                                         modifier = Modifier.heightIn(min = 48.dp)
                                     ) {
                                         Text("Создать и разобрать")
@@ -953,6 +957,7 @@ internal fun UploadForm(
     timeControl: String,
     usernameHint: String,
     isLoading: Boolean,
+    isAnalyzing: Boolean = false,
     onPasteFromClipboard: () -> Unit,
     onPickFile: () -> Unit,
     onClear: () -> Unit,
@@ -1244,7 +1249,7 @@ internal fun UploadForm(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
-                        enabled = !isLoading
+                        enabled = !isLoading && !isAnalyzing
                     ) {
                         Icon(
                             imageVector = Icons.Default.Analytics,
@@ -1268,7 +1273,7 @@ internal fun UploadForm(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 50.dp),
-                    enabled = !isLoading && validSingle
+                    enabled = !isLoading && !isAnalyzing && validSingle
                 ) {
                     if (isLoading) {
                         CircularProgressIndicator(

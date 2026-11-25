@@ -555,7 +555,7 @@ fun DashboardScreen(
     }
     val analysisProgress by gameViewModel.analysisProgress.collectAsState(initial = null)
     val requestedGameId by gameViewModel.libraryAnalysisRequestedGameId
-    val isBusyAnalyzing by gameViewModel.isLoading
+    val isBusyAnalyzing by gameViewModel.isAnalyzing
 
     LaunchedEffect(user.id, epochDay) {
         gameViewModel.loadUserData()

@@ -112,7 +112,8 @@ fun GamesListScreen(
 ) {
     val games = gameViewModel.userGames.toList()
     val message by gameViewModel.message
-    val isLoading by gameViewModel.isLoading
+    val isLoadingLibrary by gameViewModel.isLoadingLibrary
+    val isAnalyzing by gameViewModel.isAnalyzing
 
     val engineStatus by container.chessEngine.status.collectAsState()
     val analysisProgress by gameViewModel.analysisProgress.collectAsState(initial = null)
@@ -296,7 +297,7 @@ fun GamesListScreen(
             }
         }
 
-        if (isLoading && indexedGames.isEmpty()) {
+        if (isLoadingLibrary && indexedGames.isEmpty()) {
             item {
                 ListSkeleton(itemCount = 3)
             }
@@ -366,7 +367,7 @@ fun GamesListScreen(
                         info = item.info,
                         showDate = !chronological,
                         showNumber = (item.info.title to item.info.dateLabel) in duplicateKeys,
-                        isBusy = isLoading,
+                        isBusy = isAnalyzing,
                         onClick = { onGameClick(game) },
                         onAnalyze = { id, retry ->
                             gameViewModel.analyzeGameWithProgress(

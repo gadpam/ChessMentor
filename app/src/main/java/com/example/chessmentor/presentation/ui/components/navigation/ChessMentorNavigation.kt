@@ -781,20 +781,23 @@ private fun NavigationHost(
                     derivedStateOf { boardViewModel.getKeyMoments() }
                 }
 
-                summaryState.SaveableStateProvider("summary") {
-                    SummaryScreen(
-                        paddingValues = paddingValues,
-                        game = game,
-                        keyMoments = keyMoments,
-                        boardViewModel = boardViewModel,
-                        gameViewModel = gameViewModel,
-                        onReviewClick = {
-                            onScreenChange("game_view")
-                        },
-                        onPracticeGameMistakes = { gameId, focusMove ->
-                            onOpenGameMistakeTraining("summary", gameId, focusMove)
-                        }
-                    )
+                val summaryKey = "summary_${game.id ?: -1L}"
+                summaryState.SaveableStateProvider(summaryKey) {
+                    key(game.id) {
+                        SummaryScreen(
+                            paddingValues = paddingValues,
+                            game = game,
+                            keyMoments = keyMoments,
+                            boardViewModel = boardViewModel,
+                            gameViewModel = gameViewModel,
+                            onReviewClick = {
+                                onScreenChange("game_view")
+                            },
+                            onPracticeGameMistakes = { gameId, focusMove ->
+                                onOpenGameMistakeTraining("summary", gameId, focusMove)
+                            }
+                        )
+                    }
                 }
             } else {
                 LaunchedEffect(Unit) {

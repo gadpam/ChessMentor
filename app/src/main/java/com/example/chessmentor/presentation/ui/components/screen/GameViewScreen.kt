@@ -1,6 +1,7 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
 import android.util.Log
+import androidx.activity.compose.BackHandler
 import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalette
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -184,6 +185,13 @@ private fun GameViewScreenContent(
     val engineLine by boardViewModel.engineLineState
     val variationSteps = boardViewModel.variationSteps.toList()
     val isInVariation = variationSteps.isNotEmpty()
+
+    BackHandler(enabled = retryState != null || isInVariation) {
+        when {
+            retryState != null -> boardViewModel.exitRetryMode(advanceToNext = false)
+            isInVariation -> boardViewModel.exitVariation()
+        }
+    }
 
     var selectedSquare by remember { mutableStateOf<Square?>(null) }
     var pendingPromotion by remember { mutableStateOf<Pair<Square, Square>?>(null) }

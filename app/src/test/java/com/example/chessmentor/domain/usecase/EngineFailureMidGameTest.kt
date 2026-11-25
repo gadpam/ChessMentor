@@ -364,8 +364,64 @@ class EngineFailureMidGameTest {
 
         val result = useCase.execute(AnalyzeGameUseCase.Input(gameId = 9L, forceReanalyze = true))
         assertTrue(result is AnalyzeGameUseCase.Result.Error)
-        // Транзакционный откат сохранил прежние 1 ход и 1 ошибку вместо пустой таблицы
+        // Транзакционный откат сохранил прежние 1 ход, 1 ошибку и статус COMPLETED
+        assertEquals(AnalysisStatus.COMPLETED, currentGameState.analysisStatus)
+        assertEquals(88.0, currentGameState.accuracy)
         assertEquals(1, initialMoves.size)
         assertEquals(1, initialMistakes.size)
+    }
+
+    @Test
+    fun `engine init or mid-game failure during forceReanalyze preserves previous COMPLETED analysis`() = runBlocking {
+        val completedGame = Game(
+            id = 10L,
+            userId = 1L,
+            pgnData = GAME_PGN,
+            playerColor = ChessColor.WHITE,
+            playedAt = 1L,
+            analysisStatus = AnalysisStatus.COMPLETED,
+            accuracy = 91.2,
+            evaluationsJson = "[20, 15, 25]"
+        )
+
+        val unreadyEngine = object : ChessEngine {
+            override val status: StateFlow<EngineStatus> = MutableStateFlow(EngineStatus.Idle).asStateFlow()
+            override suspend fun init(): Boolean = false
+            override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int): AnalysisLine? = null
+            override suspend fun evaluate(fen: String, depthLimit: Int): Int = 0
+            override suspend fun getBestMove(fen: String, depthLimit: Int): String? = null
+            override suspend fun setOption(name: String, value: String) = Unit
+            override fun cancelInit() = Unit
+            override fun stop() = Unit
+            override fun destroy() = Unit
+        }
+
+        val repoForUnready = FakeGameRepository(storedGame = completedGame)
+        val unreadyUseCase = AnalyzeGameUseCase(
+            gameRepository = repoForUnready,
+            mistakeRepository = FakeMistakeRepository(),
+            analyzedMoveRepository = FakeAnalyzedMoveRepository(),
+            userRepository = FakeUserRepository(),
+            chessEngine = unreadyEngine,
+            engineSettingsRepository = FakeEngineSettingsRepository()
+        )
+        val initFailRes = unreadyUseCase.execute(AnalyzeGameUseCase.Input(gameId = 10L, forceReanalyze = true))
+        assertTrue(initFailRes is AnalyzeGameUseCase.Result.Error)
+        assertEquals(AnalysisStatus.COMPLETED, repoForUnready.lastUpdated?.analysisStatus)
+        assertEquals(91.2, repoForUnready.lastUpdated?.accuracy)
+
+        val midGameFailRepo = FakeGameRepository(storedGame = completedGame)
+        val midGameUseCase = AnalyzeGameUseCase(
+            gameRepository = midGameFailRepo,
+            mistakeRepository = FakeMistakeRepository(),
+            analyzedMoveRepository = FakeAnalyzedMoveRepository(),
+            userRepository = FakeUserRepository(),
+            chessEngine = FailingEngine(),
+            engineSettingsRepository = FakeEngineSettingsRepository()
+        )
+        val midFailRes = midGameUseCase.execute(AnalyzeGameUseCase.Input(gameId = 10L, forceReanalyze = true))
+        assertTrue(midFailRes is AnalyzeGameUseCase.Result.Error)
+        assertEquals(AnalysisStatus.COMPLETED, midGameFailRepo.lastUpdated?.analysisStatus)
+        assertEquals(91.2, midGameFailRepo.lastUpdated?.accuracy)
     }
 }

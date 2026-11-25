@@ -19,6 +19,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -70,6 +71,29 @@ fun SummaryScreen(
     gameViewModel: GameViewModel,
     onReviewClick: () -> Unit,
     onPracticeGameMistakes: ((gameId: Long, focusMoveNumber: Int?) -> Unit)? = null
+) {
+    key(game.id) {
+        SummaryScreenContent(
+            paddingValues = paddingValues,
+            game = game,
+            keyMoments = keyMoments,
+            boardViewModel = boardViewModel,
+            gameViewModel = gameViewModel,
+            onReviewClick = onReviewClick,
+            onPracticeGameMistakes = onPracticeGameMistakes
+        )
+    }
+}
+
+@Composable
+private fun SummaryScreenContent(
+    paddingValues: PaddingValues,
+    game: Game,
+    keyMoments: List<KeyMoment>,
+    boardViewModel: BoardViewModel,
+    gameViewModel: GameViewModel,
+    onReviewClick: () -> Unit,
+    onPracticeGameMistakes: ((gameId: Long, focusMoveNumber: Int?) -> Unit)?
 ) {
     val currentMoveIndex by boardViewModel.currentMoveIndex
 

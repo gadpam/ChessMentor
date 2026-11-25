@@ -67,4 +67,31 @@ class GraphMovePickerTest {
         ui.onNodeWithText("4. Nf3").assertExists()
         ui.onNodeWithText("4... Nf3").assertDoesNotExist()
     }
+
+    @Test fun switchingGameResetsPerGameSummarySaveableState() {
+        val moments = (0..7).map { KeyMoment(it, "Nf3", MoveQuality.MISTAKE, 0, -100, -100, it != 7) }
+        val activeGameId = mutableStateOf(1L)
+        ui.setContent {
+            val holder = rememberSaveableStateHolder()
+            val gid = activeGameId.value
+            holder.SaveableStateProvider("summary_$gid") {
+                key(gid) {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        KeyMomentsCard(moments, onMomentClick = {})
+                    }
+                }
+            }
+        }
+        ui.onNodeWithText("Ваши ошибки (7)").performScrollTo().performClick()
+        ui.onNodeWithText("Показать все моменты (7)").performScrollTo().performClick()
+        ui.onNodeWithText("4. Nf3").assertExists()
+
+        ui.runOnIdle { activeGameId.value = 2L }
+        ui.onNodeWithText("Все (8)").assertIsSelected()
+        ui.onNodeWithText("4. Nf3").assertDoesNotExist()
+
+        ui.runOnIdle { activeGameId.value = 1L }
+        ui.onNodeWithText("Ваши ошибки (7)").assertIsSelected()
+        ui.onNodeWithText("4. Nf3").assertExists()
+    }
 }

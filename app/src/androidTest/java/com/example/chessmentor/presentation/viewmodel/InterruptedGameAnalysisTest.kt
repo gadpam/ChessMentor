@@ -21,6 +21,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -75,6 +76,73 @@ class InterruptedGameAnalysisTest {
             allowRollback.complete(Unit)
             withContext(Dispatchers.Main) { first.clear(); second.clear() }
             container.gameRepository.deleteById(gid)
+            container.userRepository.deleteById(uid)
+        }
+    }
+
+    @Test fun separateLoadingFlagsKeepAnalysisAndImportIndependent() = runBlocking {
+        val container = AppContainer.getInstance(InstrumentationRegistry.getInstrumentation().targetContext)
+        val user = container.userRepository.save(User(nickname = "Flags", email = "flags${System.nanoTime()}@test.local", passwordHash = "test"))
+        val uid = requireNotNull(user.id)
+        val gid1 = requireNotNull(container.gameRepository.save(Game(userId = uid, pgnData = "1. e4 e5 *", playerColor = ChessColor.WHITE, playedAt = 1)).id)
+        var gid2: Long? = null
+        val entered = CompletableDeferred<Unit>()
+        val engine = object : ChessEngine by container.chessEngine {
+            override suspend fun init(): Boolean {
+                entered.complete(Unit)
+                awaitCancellation()
+            }
+        }
+        val analysis = AnalyzeGameUseCase(container.gameRepository, container.mistakeRepository,
+            container.analyzedMoveRepository, container.userRepository, engine, container.engineSettingsRepository)
+        val factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T = GameViewModel(container, analysis) as T
+        }
+        val store = ViewModelStore()
+        val vm = withContext(Dispatchers.Main) {
+            ViewModelProvider(store, factory)[GameViewModel::class.java].also {
+                it.setUser(user, persistSession = false)
+            }
+        }
+        try {
+            withTimeout(15_000L) {
+                while (!withContext(Dispatchers.Main) { vm.userGames.any { it.id == gid1 } }) delay(20)
+            }
+            withContext(Dispatchers.Main) { assertTrue(vm.analyzeGameWithProgress(gid1)) }
+            withTimeout(15_000L) { entered.await() }
+
+            withContext(Dispatchers.Main) {
+                assertTrue(vm.isAnalyzing.value)
+                assertFalse(vm.isImporting.value)
+                assertTrue(vm.isLoading.value)
+                vm.loadUserData()
+            }
+            withTimeout(15_000L) {
+                while (withContext(Dispatchers.Main) { vm.isLoadingLibrary.value }) delay(20)
+            }
+            // loadUserData completion must NOT clear in-flight analysis flag
+            withContext(Dispatchers.Main) {
+                assertTrue(vm.isAnalyzing.value)
+                assertTrue(vm.isLoading.value)
+                vm.onPgnInputChanged("1. d4 d5 *")
+                vm.saveGameWithoutAnalysis()
+            }
+            withTimeout(15_000L) {
+                while (withContext(Dispatchers.Main) { vm.userGames.size < 2 || vm.isImporting.value }) delay(20)
+            }
+            withContext(Dispatchers.Main) {
+                gid2 = vm.userGames.firstOrNull { it.id != gid1 }?.id
+                assertFalse(vm.isImporting.value)
+                assertTrue(vm.isAnalyzing.value)
+                vm.cancelAnalysis()
+                assertFalse(vm.isAnalyzing.value)
+                assertFalse(vm.isLoading.value)
+            }
+        } finally {
+            withContext(Dispatchers.Main) { store.clear() }
+            gid2?.let { container.gameRepository.deleteById(it) }
+            container.gameRepository.deleteById(gid1)
             container.userRepository.deleteById(uid)
         }
     }

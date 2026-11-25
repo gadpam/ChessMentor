@@ -1,5 +1,6 @@
 package com.example.chessmentor.presentation.ui.components.screen
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateColorAsState
@@ -234,6 +235,12 @@ fun TrainingScreen(
     LaunchedEffect(uiState.board.fen, uiState.isInputLocked) {
         selectedSquare = null
         pendingPromotion = null
+    }
+
+    BackHandler(enabled = uiState.isFreeAnalysisMode) {
+        selectedSquare = null
+        pendingPromotion = null
+        viewModel.onToggleFreeAnalysisMode()
     }
 
     // Вычисляем легальные ходы выбранной фигуры (отдельно тихие ходы и взятия, включая взятие на проходе)

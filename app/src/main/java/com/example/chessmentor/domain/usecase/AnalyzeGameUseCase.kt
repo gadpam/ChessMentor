@@ -172,8 +172,12 @@ class AnalyzeGameUseCase(
             }
 
             if (!engineReady) {
-                val failedGame = gameInProgress.failAnalysis()
-                gameRepository.update(failedGame)
+                val restoredGame = if (!clearedOldArtifacts && originalStatus == AnalysisStatus.COMPLETED) {
+                    gameInProgress.copy(analysisStatus = AnalysisStatus.COMPLETED)
+                } else {
+                    gameInProgress.failAnalysis()
+                }
+                gameRepository.update(restoredGame)
                 gameInProgress = null
                 emit(AnalysisProgress.Failed("Не удалось запустить шахматный движок (проверьте интернет для первой загрузки сети NNUE)"))
                 return@flow
@@ -305,8 +309,13 @@ class AnalyzeGameUseCase(
         } catch (e: Exception) {
             Log.e(TAG, "Analysis failed", e)
             gameInProgress?.let { inProgress ->
+                val updated = if (!clearedOldArtifacts && originalStatus == AnalysisStatus.COMPLETED) {
+                    inProgress.copy(analysisStatus = AnalysisStatus.COMPLETED)
+                } else {
+                    inProgress.failAnalysis()
+                }
                 withContext(NonCancellable) {
-                    runCatching { gameRepository.update(inProgress.failAnalysis()) }
+                    runCatching { gameRepository.update(updated) }
                 }
             }
             emit(AnalysisProgress.Failed("Ошибка анализа: ${e.message ?: "неизвестная ошибка"}"))
