@@ -418,14 +418,14 @@ internal fun PgnLivePreviewCard(
     selectedColor: ChessColor,
     colorAutoDetected: Boolean,
     isLoading: Boolean,
-    isAnalyzing: Boolean = false,
     onCopy: () -> Unit,
     onOpenExistingGame: (Long) -> Unit,
     onNextBatchWindow: () -> Unit = {},
     onResetBatchWindow: () -> Unit = {},
     onUpdateNotes: (Long) -> Unit = {},
     onAddDifferentGame: () -> Unit = {},
-    onFixFailedRecord: (String) -> Unit = {}
+    onFixFailedRecord: (String) -> Unit = {},
+    isAnalyzing: Boolean = false
 ) {
     // 1. Ошибка разбора одиночного PGN
     if (!preview.isBatch && preview.singleError != null) {
@@ -957,7 +957,6 @@ internal fun UploadForm(
     timeControl: String,
     usernameHint: String,
     isLoading: Boolean,
-    isAnalyzing: Boolean = false,
     onPasteFromClipboard: () -> Unit,
     onPickFile: () -> Unit,
     onClear: () -> Unit,
@@ -967,7 +966,8 @@ internal fun UploadForm(
     onUsernameHintChange: (String) -> Unit,
     onUploadAndAnalyze: (allowDuplicate: Boolean) -> Unit,
     onSaveToLibrary: (allowDuplicate: Boolean) -> Unit,
-    onImportBatch: (analyzeNewest: Boolean) -> Unit
+    onImportBatch: (analyzeNewest: Boolean) -> Unit,
+    isAnalyzing: Boolean = false
 ) {
     val isBatch = preview?.isBatch == true
     val validSingle = preview?.singleParsed != null

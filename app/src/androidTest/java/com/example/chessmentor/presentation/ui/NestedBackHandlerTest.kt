@@ -86,12 +86,10 @@ class NestedBackHandlerTest {
             gameViewModel.selectedGameEvaluations.clear()
             gameViewModel.selectedGameEvaluations.addAll(evaluations)
             boardViewModel.loadGame(
-                pgnData = game.pgnData,
-                gameId = 77L,
+                game = game,
                 gameMistakes = mistakes,
                 gameAnalyzedMoves = moves,
-                gameEvaluations = evaluations,
-                playerColor = ChessColor.WHITE
+                gameEvaluations = evaluations
             )
         }
 

@@ -246,4 +246,34 @@ class PgnPreviewTest {
         }
         ui.onNodeWithText("Проверьте запись PGN").assertIsDisplayed()
     }
+
+    @Test fun analyzingInBackgroundOnlyDisablesAnalyzeActionAndLeavesLibrarySaveEnabled() {
+        ui.setContent {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                UploadForm(
+                    pgnInput = vm.pgnInput.value,
+                    preview = vm.importPreview.value,
+                    selectedColor = vm.selectedColor.value,
+                    timeControl = vm.timeControl.value,
+                    usernameHint = vm.chessUsernameHint.value,
+                    isLoading = false,
+                    isAnalyzing = true,
+                    onPasteFromClipboard = {},
+                    onPickFile = {},
+                    onClear = vm::clearImportForm,
+                    onPgnChange = { vm.onPgnInputChanged(it) },
+                    onColorChange = vm::selectPlayerColorManually,
+                    onTimeControlChange = vm::setImportTimeControl,
+                    onUsernameHintChange = vm::onChessUsernameHintChanged,
+                    onUploadAndAnalyze = {},
+                    onSaveToLibrary = {},
+                    onImportBatch = {}
+                )
+            }
+        }
+        ui.runOnIdle { vm.onPgnInputChanged(first) }
+        ui.waitUntil(5000) { vm.importPreview.value?.singleParsed != null }
+        ui.onNodeWithText("Импортировать партию и разобрать").performScrollTo().assertIsNotEnabled()
+        ui.onNodeWithText("Сохранить в библиотеку без анализа").performScrollTo().assertIsEnabled()
+    }
 }
