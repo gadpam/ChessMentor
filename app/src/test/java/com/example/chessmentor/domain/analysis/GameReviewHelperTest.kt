@@ -548,7 +548,7 @@ class GameReviewHelperTest {
                 id = 2L, gameId = 5L, themeId = 16L, moveNumber = 18, color = ChessColor.BLACK,
                 evaluationLoss = 340, mistakeType = MistakeType.BLUNDER,
                 bestMove = "Kg7", userMove = "h6",
-                fenBefore = "6k1/5ppp/8/8/8/8/5PPP/3R2K1 b - - 0 18"
+                fenBefore = "6k1/5p1p/6p1/8/8/8/5PPP/3R2K1 b - - 0 18"
             )
             val defenseMove = AnalyzedMove(
                 gameId = 5L, moveIndex = 35, moveNumber = 18, color = ChessColor.BLACK,
@@ -595,7 +595,7 @@ class GameReviewHelperTest {
                 userId = 1L,
                 gameId = 5L,
                 moveNumber = 18,
-                fenBefore = "6k1/5ppp/8/8/8/8/5PPP/3R2K1 b - - 0 18",
+                fenBefore = "6k1/5p1p/6p1/8/8/8/5PPP/3R2K1 b - - 0 18",
                 expectedBestRaw = "g8g7",
                 hintLevel = 0,
                 answerRevealedBeforeRetry = false,
