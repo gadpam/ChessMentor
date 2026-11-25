@@ -8,8 +8,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
@@ -122,8 +123,9 @@ class NestedBackHandlerTest {
         }
 
         // 2. Exploratory variation consumes Back without triggering outer navigation
+        // After 2. Nf3 (index 2), Black is to move; 2... Bc5 differs from mainline 2... Nc6.
         ui.runOnIdle {
-            assertTrue(boardViewModel.playExploratoryMove(Move(Square.F1, Square.B5)))
+            assertTrue(boardViewModel.playExploratoryMove(Move(Square.F8, Square.C5)))
             assertTrue(boardViewModel.variationSteps.isNotEmpty())
         }
         ui.runOnIdle { pressBackAction?.invoke() }
@@ -166,7 +168,7 @@ class NestedBackHandlerTest {
             }
 
             ui.waitUntil(timeoutMillis = 15_000) {
-                ui.onAllNodesWithText("Помощь").fetchSemanticsNodes().isNotEmpty()
+                ui.onAllNodes(hasText("Помощь") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
             }
             ui.onNodeWithText("Помощь").performClick()
             ui.onNodeWithText("Показать всю линию").performClick()
