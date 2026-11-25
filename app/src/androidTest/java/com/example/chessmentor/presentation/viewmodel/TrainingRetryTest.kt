@@ -693,8 +693,8 @@ class TrainingRetryTest {
         val slowerMateEngine = object : ChessEngine by unavailableEngine {
             override suspend fun init() = true
             override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int): AnalysisLine {
-                // Лучший оставляет сопернику -М1 (-99900), альтернатива оставляет -М2 (-99800)
-                return if (fen.contains("1B5")) {
+                // Лучший (3. Bb5 -> .../1B2p3/...) оставляет сопернику -М1 (-99900), альтернатива (3. Bc4) оставляет -М2 (-99800)
+                return if (fen.contains("/1B2p3/")) {
                     AnalysisLine("a7a6", -(ChessEngine.MATE_VALUE - 100), -1, listOf("a7a6"))
                 } else {
                     AnalysisLine("a7a6", -(ChessEngine.MATE_VALUE - 200), -2, listOf("a7a6"))
