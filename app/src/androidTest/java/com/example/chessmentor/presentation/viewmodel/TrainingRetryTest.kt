@@ -792,7 +792,8 @@ class TrainingRetryTest {
             withContext(Dispatchers.Main) { plyVm.onMoveMade(Move(Square.D7, Square.D1)) }
             awaitPly { it.currentStepNumber == 2 && !it.isInputLocked }
 
-            // Play instant blunder immediately after opponent reply 2. Rxd1
+            // Wait past the 150ms accidental-tap guard while staying well under the ~2.75s impulsive ply threshold
+            delay(300)
             withContext(Dispatchers.Main) { plyVm.onMoveMade(Move(Square.H7, Square.H6)) }
             awaitPly { it.sessionStats.failed == 1 && !it.isAnimatingPunishment }
 
