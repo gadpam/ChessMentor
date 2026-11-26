@@ -282,7 +282,12 @@ object TrainingRatingCalculator {
     ): List<PatternMastery> {
         if (attempts.isEmpty() || exercisesById.isEmpty()) return emptyList()
 
-        val anchorMs = nowMs ?: (attempts.maxOfOrNull { it.attemptedAt } ?: 0L)
+        val maxAttemptTs = attempts.maxOfOrNull { it.attemptedAt } ?: 0L
+        val anchorMs = when {
+            nowMs == null -> maxAttemptTs
+            maxAttemptTs in 1L until 1_000_000_000_000L && nowMs >= 1_000_000_000_000L -> maxAttemptTs
+            else -> nowMs
+        }
 
         val groupedRaw = attempts.mapNotNull { attempt ->
             val exercise = exercisesById[attempt.exerciseId] ?: return@mapNotNull null
@@ -414,7 +419,7 @@ object TrainingRatingCalculator {
         val retentionFactor = if (daysSinceLast > STALE_GRACE_DAYS) {
             val staleDays = daysSinceLast - STALE_GRACE_DAYS
             val retentionHalfLife = if (masteredCount > 0) 90.0 else 45.0
-            0.5.pow(staleDays / retentionHalfLife).coerceAtLeast(0.45)
+            0.5.pow(staleDays / retentionHalfLife).coerceAtLeast(0.62)
         } else {
             1.0
         }

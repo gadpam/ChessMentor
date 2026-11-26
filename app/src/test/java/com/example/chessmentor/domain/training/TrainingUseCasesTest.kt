@@ -1068,7 +1068,21 @@ class TrainingUseCasesTest {
             Game(userId = uid, pgnData = "1. e4 e5 *", playerColor = ChessColor.WHITE, playedAt = 1_000L)
         )
 
-        // Два упражнения с разной сложностью: 38 (точный 75%-ZPD центр для 1600) и 55 (старый 50%-центр)
+        CuratedExerciseBank.ensureSeeded(exerciseRepo)
+        for (seeded in exerciseRepo.findAccessibleByUserId(uid)) {
+            exerciseRepo.saveAttempt(
+                ExerciseAttempt(
+                    userId = uid,
+                    exerciseId = seeded.id!!,
+                    solved = true,
+                    timeSpentSeconds = 5,
+                    movesMade = seeded.solutionMoves,
+                    attemptedAt = 10_000L
+                )
+            )
+        }
+
+        // Два упражнения с разной сложностью: 38 (точный 75%-ZPD центр для 1600) и 55 (за пределами окна 38 ± 14)
         val exZpd = exerciseRepo.saveExercise(
             Exercise(
                 fenPosition = "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
@@ -1091,8 +1105,9 @@ class TrainingUseCasesTest {
         )
 
         val selector = GetTrainingExerciseUseCase(userRepo, mistakeRepo, exerciseRepo)
-        val picked = selector.execute(GetTrainingExerciseUseCase.Input(userId = uid, mode = TrainingMode.All))
-            as GetTrainingExerciseUseCase.Result.Success
+        val picked = selector.execute(
+            GetTrainingExerciseUseCase.Input(userId = uid, mode = TrainingMode.All, nowMs = 20_000L)
+        ) as GetTrainingExerciseUseCase.Result.Success
         assertEquals(exZpd.id, picked.exercise.id)
 
         // Резервная генерация из ошибки без themeId=1..7 классифицирует вилку конём семантически (не MIXED/TACTIC)

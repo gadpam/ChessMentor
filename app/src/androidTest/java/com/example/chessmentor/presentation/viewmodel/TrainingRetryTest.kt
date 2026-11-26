@@ -804,7 +804,7 @@ class TrainingRetryTest {
             }
             val saved = repo.getAttemptsByUserId(uid).single()
             assertFalse(saved.solved)
-            assertTrue(AttemptMetadata.wasImpulsiveAttempt(saved))
+            assertTrue(AttemptMetadata.isImpulsive(saved))
         } finally {
             plyVm.viewModelScope.cancel()
             repo.deleteBySourceGameId(gid)
