@@ -22,7 +22,10 @@ import com.example.chessmentor.domain.training.PuzzleKind
 import com.example.chessmentor.domain.training.PuzzleQualityEvaluator
 import com.example.chessmentor.domain.util.ChessMoveUtils
 import com.github.bhlangonijr.chesslib.Board
+import com.github.bhlangonijr.chesslib.Piece
+import com.github.bhlangonijr.chesslib.PieceType
 import com.github.bhlangonijr.chesslib.Side
+import com.github.bhlangonijr.chesslib.Square
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -943,7 +946,9 @@ object GameReviewHelper {
         moveNumber: Int,
         isPlayerMistake: Boolean,
         evalWhiteAfterOpponentMistake: Int? = null,
-        playerColor: ChessColor? = null
+        playerColor: ChessColor? = null,
+        fenToPlay: String? = null,
+        expectedBestUci: String? = null
     ): RetrySkillProfile {
         val playerSign = when {
             playerColor != null -> if (playerColor == ChessColor.WHITE) 1 else -1
@@ -981,6 +986,12 @@ object GameReviewHelper {
             }
         }
 
+        val semanticPattern = classifySemanticRetryPattern(
+            fenToPlay = fenToPlay,
+            expectedBestUci = expectedBestUci,
+            isDefensive = isDefensive
+        )
+
         val rawPattern = when (mistake?.themeId) {
             1L -> TacticalPattern.FORK_KNIGHT
             2L -> TacticalPattern.PIN_RELATIVE
@@ -990,8 +1001,9 @@ object GameReviewHelper {
             6L -> TacticalPattern.REMOVING_DEFENDER
             7L -> TacticalPattern.BACK_RANK_MATE
             14L, 15L -> TacticalPattern.ENDGAME_TECHNIQUE
-            16L, 17L -> TacticalPattern.DEFENSIVE_MOVE
+            16L, 17L -> semanticPattern ?: TacticalPattern.DEFENSIVE_MOVE
             else -> when {
+                semanticPattern != null -> semanticPattern
                 isDefensive -> TacticalPattern.DEFENSIVE_MOVE
                 analyzedMove != null &&
                     ChessEngine.isMateScore(analyzedMove.evalBefore * playerSign) &&
@@ -1002,7 +1014,7 @@ object GameReviewHelper {
                     ChessEngine.isMateScore(evalWhiteAfterOpponentMistake * playerSign) &&
                     evalWhiteAfterOpponentMistake * playerSign > 0 ->
                     TacticalPattern.BACK_RANK_MATE
-                moveNumber >= 35 -> TacticalPattern.ENDGAME_TECHNIQUE
+                moveNumber >= 35 || isEndgameFen(fenToPlay) -> TacticalPattern.ENDGAME_TECHNIQUE
                 else -> TacticalPattern.CALCULATION
             }
         }
@@ -1026,6 +1038,79 @@ object GameReviewHelper {
             theme = theme,
             isDefensive = isDefensive
         )
+    }
+
+    private fun classifySemanticRetryPattern(
+        fenToPlay: String?,
+        expectedBestUci: String?,
+        isDefensive: Boolean
+    ): TacticalPattern? {
+        if (fenToPlay.isNullOrBlank() || expectedBestUci.isNullOrBlank()) return null
+        val board = runCatching { Board().apply { loadFromFen(fenToPlay) } }.getOrNull() ?: return null
+        val bestUci = ChessMoveUtils.sanOrUciToUci(expectedBestUci, fenToPlay) ?: return null
+        val bestMove = ChessMoveUtils.parseUciMove(board, bestUci) ?: return null
+        val movingPiece = board.getPiece(bestMove.from)
+
+        val after = Board().apply { loadFromFen(board.fen) }
+        if (after.doMove(bestMove)) {
+            if (after.isMated) {
+                return if (movingPiece.pieceType == PieceType.KNIGHT) {
+                    TacticalPattern.SMOTHERED_MATE
+                } else {
+                    TacticalPattern.BACK_RANK_MATE
+                }
+            }
+            if (isDefensive && after.isStaleMate) {
+                return TacticalPattern.STALEMATE_TRICK
+            }
+        }
+
+        if (isDefensive) {
+            return if (PuzzleQualityEvaluator.isCounterAttackingDefense(board, listOf(bestUci))) {
+                TacticalPattern.COUNTER_ATTACK
+            } else {
+                TacticalPattern.DEFENSIVE_MOVE
+            }
+        }
+
+        if (bestMove.promotion != Piece.NONE) {
+            return TacticalPattern.PAWN_BREAKTHROUGH
+        }
+
+        if (SemanticMistakeAnalyzer.isDoubleCheckMove(board, bestUci)) {
+            return TacticalPattern.DOUBLE_CHECK
+        }
+
+        val motif = SemanticMistakeAnalyzer.detectStaticMotif(board, bestUci) ?: return null
+        return when (motif) {
+            TacticalMotif.FORK -> when (movingPiece.pieceType) {
+                PieceType.KNIGHT -> TacticalPattern.FORK_KNIGHT
+                PieceType.BISHOP -> TacticalPattern.FORK_BISHOP
+                PieceType.ROOK -> TacticalPattern.FORK_ROOK
+                PieceType.QUEEN -> TacticalPattern.FORK_QUEEN
+                PieceType.PAWN -> TacticalPattern.FORK_PAWN
+                else -> TacticalPattern.FORK_KNIGHT
+            }
+            TacticalMotif.PIN -> if (SemanticMistakeAnalyzer.createsPinToKing(board, bestMove, movingPiece)) {
+                TacticalPattern.PIN_ABSOLUTE
+            } else {
+                TacticalPattern.PIN_RELATIVE
+            }
+            else -> TacticalPattern.fromMotif(motif)
+        }
+    }
+
+    private fun isEndgameFen(fen: String?): Boolean {
+        if (fen.isNullOrBlank()) return false
+        val board = runCatching { Board().apply { loadFromFen(fen) } }.getOrNull() ?: return false
+        var nonPawnMaterial = 0
+        for (sq in Square.values()) {
+            if (sq == Square.NONE) continue
+            val p = board.getPiece(sq)
+            if (p == Piece.NONE || p.pieceType == PieceType.KING || p.pieceType == PieceType.PAWN) continue
+            nonPawnMaterial += ChessMoveUtils.pieceValue(p.pieceType)
+        }
+        return nonPawnMaterial <= 2600
     }
 
     /**
@@ -1064,7 +1149,9 @@ object GameReviewHelper {
                 mistake = mistake,
                 analyzedMove = analyzedMove,
                 moveNumber = moveNumber,
-                isPlayerMistake = isPlayerMistake
+                isPlayerMistake = isPlayerMistake,
+                fenToPlay = fenBefore,
+                expectedBestUci = bestUci
             )
             val features = if (profile.isDefensive) {
                 listOf(ExerciseMetadata.defensiveGoalTag())
@@ -1135,7 +1222,9 @@ object GameReviewHelper {
         pattern.name.startsWith("PIN") || pattern == TacticalPattern.SKEWER -> TacticalTheme.PIN
         pattern.name.startsWith("DISCOVERED") || pattern == TacticalPattern.DOUBLE_CHECK ->
             TacticalTheme.DISCOVERED_ATTACK
-        pattern == TacticalPattern.HANGING_PIECE || pattern == TacticalPattern.TRAPPED_PIECE ->
+        pattern == TacticalPattern.HANGING_PIECE ||
+            pattern == TacticalPattern.TRAPPED_PIECE ||
+            pattern == TacticalPattern.QUEEN_TRAP ->
             TacticalTheme.MATERIAL_LOSS
         pattern == TacticalPattern.DEFENSIVE_MOVE ||
             pattern == TacticalPattern.COUNTER_ATTACK ||

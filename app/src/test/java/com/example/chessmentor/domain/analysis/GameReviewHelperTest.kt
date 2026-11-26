@@ -634,6 +634,60 @@ class GameReviewHelperTest {
         assertFalse(GameReviewHelper.areEngineScoresEquivalent(100, 60))
     }
 
+    @Test
+    fun resolveRetrySkillProfile_infersSemanticMotifFromFenWhenMistakeMetadataAbsent() {
+        val forkProfile = GameReviewHelper.resolveRetrySkillProfile(
+            mistake = null,
+            analyzedMove = null,
+            moveNumber = 18,
+            isPlayerMistake = false,
+            fenToPlay = "q3k3/ppp2ppp/8/3N4/8/8/PPP2PPP/6K1 w - - 0 1",
+            expectedBestUci = "d5c7"
+        )
+        assertEquals(TacticalPattern.FORK_KNIGHT, forkProfile.pattern)
+        assertEquals(TacticalTheme.FORK, forkProfile.theme)
+        assertFalse(forkProfile.isDefensive)
+
+        val pinProfile = GameReviewHelper.resolveRetrySkillProfile(
+            mistake = null,
+            analyzedMove = null,
+            moveNumber = 22,
+            isPlayerMistake = true,
+            fenToPlay = "4k3/4b3/8/8/8/8/8/3R2K1 w - - 0 1",
+            expectedBestUci = "d1e1"
+        )
+        assertEquals(TacticalPattern.PIN_ABSOLUTE, pinProfile.pattern)
+        assertEquals(TacticalTheme.PIN, pinProfile.theme)
+
+        val doubleCheckProfile = GameReviewHelper.resolveRetrySkillProfile(
+            mistake = null,
+            analyzedMove = null,
+            moveNumber = 25,
+            isPlayerMistake = true,
+            fenToPlay = "4k3/8/4N3/8/8/8/8/4R1K1 w - - 0 1",
+            expectedBestUci = "e6c7"
+        )
+        assertEquals(TacticalPattern.DOUBLE_CHECK, doubleCheckProfile.pattern)
+        assertEquals(TacticalTheme.DISCOVERED_ATTACK, doubleCheckProfile.theme)
+
+        val losingMove = AnalyzedMove(
+            gameId = 1L, moveIndex = 40, moveNumber = 21, color = ChessColor.WHITE,
+            quality = MoveQuality.BLUNDER, san = "Qb1", bestMove = "Qc7",
+            evalBefore = -500, evalAfter = -900, evalLoss = 400
+        )
+        val stalemateProfile = GameReviewHelper.resolveRetrySkillProfile(
+            mistake = null,
+            analyzedMove = losingMove,
+            moveNumber = 21,
+            isPlayerMistake = true,
+            fenToPlay = "k7/8/1K6/8/8/8/2Q5/8 w - - 0 1",
+            expectedBestUci = "c2c7"
+        )
+        assertTrue(stalemateProfile.isDefensive)
+        assertEquals(TacticalPattern.STALEMATE_TRICK, stalemateProfile.pattern)
+        assertEquals(TacticalTheme.KING_SAFETY, stalemateProfile.theme)
+    }
+
     private class InMemoryExerciseRepo : ExerciseRepository {
         val stored = mutableListOf<Exercise>()
         val attempts = mutableListOf<ExerciseAttempt>()

@@ -4,8 +4,10 @@ package com.example.chessmentor.domain.training
 import com.example.chessmentor.domain.entity.Exercise
 import com.example.chessmentor.domain.entity.ExerciseAttempt
 import com.example.chessmentor.domain.entity.TacticalPattern
+import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 /**
  * Уровень использованной подсказки при расчёте изменения рейтинга.
@@ -57,15 +59,19 @@ object TrainingRatingCalculator {
 
     const val MIN_RATING = 100
     const val MAX_RATING = 3500
+    const val DEFAULT_ZPD_TARGET_SUCCESS = 0.75
 
     /** Симметричные коэффициенты K (нулевой дрейф при 50% успеха на равных задачах). */
     private const val PROVISIONAL_K = 40.0   // Первые 10 подходов — быстрая калибровка (аналог RD в Glicko-2)
     private const val CALIBRATING_K = 28.0   // 10..29 подходов — плавная доводка до реальной силы
     private const val ESTABLISHED_K = 22.0   // 30+ подходов — стабильный рейтинг без скачков
 
-    /** Коэффициент экспоненциального веса давности попыток (свежие попытки важнее старых). */
-    private const val RECENCY_DECAY = 0.85
-    private const val MIN_RECENCY_WEIGHT = 0.20
+    /** Календарный период полураспада веса попыток и плавное ступенчатое затухание внутри одного дня. */
+    private const val DAY_MS_DOUBLE = 86_400_000.0
+    private const val CALENDAR_HALF_LIFE_DAYS = 21.0
+    private const val STALE_GRACE_DAYS = 14.0
+    private const val STEP_RECENCY_DECAY = 0.92
+    private const val MIN_RECENCY_WEIGHT = 0.15
 
     /**
      * Симметричный K-фактор в зависимости от накопленного числа рейтинговых подходов.
@@ -90,6 +96,20 @@ object TrainingRatingCalculator {
      */
     fun eloToDifficulty(elo: Int): Int {
         return ((elo - 800) / 16.0).roundToInt().coerceIn(10, 95)
+    }
+
+    /**
+     * Целевая сложность задачи в зоне ближайшего развития (ZPD) для игрока с рейтингом [playerElo].
+     * При [targetSuccessRate] = 0.75 целится в ~75% ожидаемого успеха по кривой Эло
+     * (оптимальная когнитивная нагрузка с устойчивым потоком решений без перегрузки).
+     */
+    fun zpdTargetDifficulty(
+        playerElo: Int,
+        targetSuccessRate: Double = DEFAULT_ZPD_TARGET_SUCCESS
+    ): Int {
+        val p = targetSuccessRate.coerceIn(0.15, 0.90)
+        val eloOffset = 400.0 * log10((1.0 - p) / p)
+        return eloToDifficulty((playerElo + eloOffset).roundToInt())
     }
 
     /**
@@ -178,38 +198,59 @@ object TrainingRatingCalculator {
     }
 
     /**
-     * Минимальное разумное время первичной оценки позиции (в мс) перед первым ходом.
+     * Минимальное разумное время оценки позиции (в мс) перед ходом:
+     * на первом ходу ([isFirstMoveOfPuzzle] = true) требуется полная оценка позиции,
+     * на последующих полуходах после ответа соперника — более короткая проверка тактических последствий.
      * В режиме «Расчёт» порог строже (требуется просчёт варианта), в режиме «Зоркость» — мягче.
      */
-    fun impulsiveThresholdMs(exercise: Exercise?, mode: TrainingMode? = null): Long {
-        if (exercise == null) return 4_000L
-        val diff = exercise.getEffectiveDifficulty().coerceIn(0, 100)
-        val multiMove = exercise.solutionMoves.size >= 3
-        val base = when {
-            diff < 30 -> 3_000L
-            diff < 65 -> 4_500L
-            else -> 6_000L
+    fun impulsiveThresholdMs(
+        exercise: Exercise?,
+        mode: TrainingMode? = null,
+        isFirstMoveOfPuzzle: Boolean = true
+    ): Long {
+        val firstMoveThreshold = if (exercise == null) {
+            4_000L
+        } else {
+            val diff = exercise.getEffectiveDifficulty().coerceIn(0, 100)
+            val multiMove = exercise.solutionMoves.size >= 3
+            val base = when {
+                diff < 30 -> 3_000L
+                diff < 65 -> 4_500L
+                else -> 6_000L
+            }
+            val modeAdj = when (mode) {
+                TrainingMode.DeepCalculation -> 2_000L
+                TrainingMode.PatternVision -> -1_000L
+                else -> 0L
+            }
+            (base + (if (multiMove) 500L else 0L) + modeAdj).coerceAtLeast(1_800L)
         }
-        val modeAdj = when (mode) {
-            TrainingMode.DeepCalculation -> 2_000L
-            TrainingMode.PatternVision -> -1_000L
-            else -> 0L
+        return if (isFirstMoveOfPuzzle) {
+            firstMoveThreshold
+        } else {
+            (firstMoveThreshold * 0.55).roundToLong().coerceIn(1_400L, 3_600L)
         }
-        return (base + (if (multiMove) 500L else 0L) + modeAdj).coerceAtLeast(1_800L)
     }
 
     /**
-     * Возвращает `true`, если игрок допустил ошибку первым же ходом без расчёта позиции.
+     * Возвращает `true`, если игрок допустил поспешную ошибку без расчёта:
+     * на первом ходу — по [currentPlyThinkMs] или [firstMoveThinkMs];
+     * на последующих ходах комбинации — по фактическому времени обдумывания этого полухода ([currentPlyThinkMs]).
      */
     fun isImpulsiveMistake(
         firstMoveThinkMs: Long?,
         exercise: Exercise?,
         isFirstMoveOfPuzzle: Boolean,
-        mode: TrainingMode? = null
+        mode: TrainingMode? = null,
+        currentPlyThinkMs: Long? = null
     ): Boolean {
-        if (!isFirstMoveOfPuzzle || firstMoveThinkMs == null) return false
-        if (firstMoveThinkMs < 150L) return false
-        return firstMoveThinkMs < impulsiveThresholdMs(exercise, mode)
+        val thinkMs = if (isFirstMoveOfPuzzle) {
+            currentPlyThinkMs ?: firstMoveThinkMs
+        } else {
+            currentPlyThinkMs
+        } ?: return false
+        if (thinkMs < 150L) return false
+        return thinkMs < impulsiveThresholdMs(exercise, mode, isFirstMoveOfPuzzle)
     }
 
     /**
@@ -228,17 +269,20 @@ object TrainingRatingCalculator {
      * - группирует попытки в реальные подходы ([SpacedRepetitionScheduler.groupIntoSittings]),
      *   отличая чистое решение с 1-й попытки (1.0), медленное (0.88), с подсказкой (0.45),
      *   со 2-й попытки (0.30) и провал (0.0);
-     * - применяет экспоненциальный вес давности ([RECENCY_DECAY]), чтобы недавний прогресс
-     *   реально поднимал оценку темы, а свежая серия ошибок сразу сигнализировала о спаде;
+     * - применяет календарное затухание давности (полураспад [CALENDAR_HALF_LIFE_DAYS] дн.)
+     *   и мягкое снижение уверенности при долгом простое без закрепления;
      * - учитывает сложность задачи относительно [playerElo] (провал на задаче +500 Эло
      *   штрафует тему слабее, чем зевок базовой задачи своего уровня).
      */
     fun computePatternMastery(
         exercisesById: Map<Long, Exercise>,
         attempts: List<ExerciseAttempt>,
-        playerElo: Int? = null
+        playerElo: Int? = null,
+        nowMs: Long? = null
     ): List<PatternMastery> {
         if (attempts.isEmpty() || exercisesById.isEmpty()) return emptyList()
+
+        val anchorMs = nowMs ?: (attempts.maxOfOrNull { it.attemptedAt } ?: 0L)
 
         val groupedRaw = attempts.mapNotNull { attempt ->
             val exercise = exercisesById[attempt.exerciseId] ?: return@mapNotNull null
@@ -270,16 +314,27 @@ object TrainingRatingCalculator {
                 SpacedRepetitionScheduler.computeCardState(exId, exAttempts, exercisesById[exId])?.isMastered == true
             }
 
+            val lastSittingAt = sittings.lastOrNull()?.finishedAt ?: anchorMs
+            val daysSinceLast = ((anchorMs - lastSittingAt).coerceAtLeast(0L)).toDouble() / DAY_MS_DOUBLE
+
             val weightedMastery = computeWeightedMasteryPercent(
                 sittings = sittings,
                 exercisesById = exercisesById,
                 playerElo = playerElo,
+                anchorMs = anchorMs,
+                daysSinceLast = daysSinceLast,
+                masteredCount = masteredCount,
                 fallbackPercent = rawAccuracy
             )
 
+            val isRecentlyPracticed = daysSinceLast <= 30.0 || masteredCount > 0
+            val hasCleanConsistency = cleanFirstTry >= 2 &&
+                firstTryAcc >= 65 &&
+                (unresolved == 0 || uniqueSolved > unresolved)
+
             val level = when {
                 weightedMastery < 55 || (unresolved >= 2 && weightedMastery < 68) -> MasteryLevel.WEAK
-                weightedMastery >= 76 && (cleanFirstTry >= 2 || (cleanFirstTry >= 1 && solved >= 2)) -> MasteryLevel.STRONG
+                weightedMastery >= 80 && hasCleanConsistency && isRecentlyPracticed -> MasteryLevel.STRONG
                 else -> MasteryLevel.LEARNING
             }
 
@@ -308,6 +363,9 @@ object TrainingRatingCalculator {
         sittings: List<ExerciseSitting>,
         exercisesById: Map<Long, Exercise>,
         playerElo: Int?,
+        anchorMs: Long,
+        daysSinceLast: Double,
+        masteredCount: Int,
         fallbackPercent: Int
     ): Int {
         if (sittings.isEmpty()) return fallbackPercent
@@ -318,7 +376,10 @@ object TrainingRatingCalculator {
 
         for ((idx, sitting) in sittings.withIndex()) {
             val ageSteps = lastIdx - idx
-            val recencyWeight = RECENCY_DECAY.pow(ageSteps.toDouble()).coerceAtLeast(MIN_RECENCY_WEIGHT)
+            val ageDays = ((anchorMs - sitting.finishedAt).coerceAtLeast(0L)).toDouble() / DAY_MS_DOUBLE
+            val calendarWeight = 0.5.pow(ageDays / CALENDAR_HALF_LIFE_DAYS)
+            val stepWeight = STEP_RECENCY_DECAY.pow(ageSteps.toDouble())
+            val recencyWeight = (calendarWeight * stepWeight).coerceAtLeast(MIN_RECENCY_WEIGHT)
 
             val baseScore = when (sitting.quality) {
                 AttemptQuality.CLEAN_FAST_SOLVE -> 1.00
@@ -349,6 +410,14 @@ object TrainingRatingCalculator {
         }
 
         if (totalWeight <= 1e-6) return fallbackPercent
-        return ((weightedScoreSum / totalWeight) * 100.0).roundToInt().coerceIn(0, 100)
+        val rawPercent = (weightedScoreSum / totalWeight) * 100.0
+        val retentionFactor = if (daysSinceLast > STALE_GRACE_DAYS) {
+            val staleDays = daysSinceLast - STALE_GRACE_DAYS
+            val retentionHalfLife = if (masteredCount > 0) 90.0 else 45.0
+            0.5.pow(staleDays / retentionHalfLife).coerceAtLeast(0.45)
+        } else {
+            1.0
+        }
+        return (rawPercent * retentionFactor).roundToInt().coerceIn(0, 100)
     }
 }

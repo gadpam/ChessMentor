@@ -491,7 +491,9 @@ class BoardViewModel : ViewModel() {
             moveNumber = setup.moveNumber,
             isPlayerMistake = setup.isPlayerMistake,
             evalWhiteAfterOpponentMistake = evalAfterOpponent,
-            playerColor = playerColor
+            playerColor = playerColor,
+            fenToPlay = setup.fenToPlay,
+            expectedBestUci = setup.expectedBestUci
         )
 
         retryState.value = RetryMistakeUiState(

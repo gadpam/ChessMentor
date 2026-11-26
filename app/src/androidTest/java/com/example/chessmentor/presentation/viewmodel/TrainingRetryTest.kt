@@ -727,4 +727,89 @@ class TrainingRetryTest {
             vm.viewModelScope.cancel()
         }
     }
+
+    @Test fun smartSession_tracksSkippedStepsAndResetsCountersOnRestart_andMultiPlyDetectsImpulsiveBlunder() = runBlocking {
+        val container = AppContainer.getInstance(InstrumentationRegistry.getInstrumentation().targetContext)
+        val user = container.userRepository.save(User(nickname = "SmartW10", email = "sw10_${System.nanoTime()}@test.local", passwordHash = "test"))
+        val uid = requireNotNull(user.id)
+        val game = container.gameRepository.save(Game(userId = uid, playerColor = ChessColor.BLACK, playedAt = 1L, pgnData = "1. e4 *"))
+        val gid = requireNotNull(game.id)
+        val repo = container.exerciseRepository
+
+        // 1. SmartSession tracking: skip step 1 -> step 2 reflects SKIPPED + CURRENT, restart clears counters
+        val sessionVm = TrainingViewModel(container)
+        suspend fun awaitSession(predicate: (TrainingUiState) -> Boolean) = withTimeout(15_000L) {
+            while (!withContext(Dispatchers.Main) { predicate(sessionVm.uiState.value) }) delay(15)
+        }
+        try {
+            withContext(Dispatchers.Main) { sessionVm.init(user, TrainingMode.SmartSession) }
+            awaitSession { it.hasActiveExercise && !it.isInputLocked && it.sessionStepNumber == 1 }
+            val step1Initial = withContext(Dispatchers.Main) { sessionVm.uiState.value }
+            assertEquals(0, step1Initial.sessionCleanCount)
+            assertEquals(0, step1Initial.sessionSkippedCount)
+            assertEquals(SmartSessionStepStatus.CURRENT, step1Initial.sessionStepStatuses.firstOrNull())
+
+            withContext(Dispatchers.Main) { sessionVm.onSkipExercise() }
+            awaitSession { it.hasActiveExercise && !it.isInputLocked && it.sessionStepNumber == 2 }
+            val step2State = withContext(Dispatchers.Main) { sessionVm.uiState.value }
+            assertEquals(0, step2State.sessionCleanCount)
+            assertEquals(1, step2State.sessionSkippedCount)
+            assertEquals(SmartSessionStepStatus.SKIPPED, step2State.sessionStepStatuses[0])
+            assertEquals(SmartSessionStepStatus.CURRENT, step2State.sessionStepStatuses[1])
+
+            withContext(Dispatchers.Main) { sessionVm.restartSmartSession() }
+            awaitSession { it.hasActiveExercise && !it.isInputLocked && it.sessionStepNumber == 1 }
+            val restarted = withContext(Dispatchers.Main) { sessionVm.uiState.value }
+            assertEquals(0, restarted.sessionCleanCount)
+            assertEquals(0, restarted.sessionFailedCount)
+            assertEquals(0, restarted.sessionSkippedCount)
+            assertEquals(SmartSessionStepStatus.CURRENT, restarted.sessionStepStatuses[0])
+        } finally {
+            sessionVm.viewModelScope.cancel()
+        }
+
+        // 2. Multi-ply impulsive blunder detection on ply 2 after deliberate ply 0
+        val puzzle = CuratedExerciseBank.puzzles.single { it.id == "back_rank_black_2" }
+        val blunderEngine = object : ChessEngine by container.chessEngine {
+            override suspend fun init() = true
+            override suspend fun getBestMoveWithLine(fen: String, depthLimit: Int): AnalysisLine {
+                return if (fen.contains(" w ")) {
+                    AnalysisLine("a3a4", 500, null, listOf("a3a4"))
+                } else {
+                    AnalysisLine("d8d1", ChessEngine.MATE_VALUE - 100, 1, listOf("d8d1"))
+                }
+            }
+        }
+        val plyVm = TrainingViewModel(container, blunderEngine)
+        suspend fun awaitPly(predicate: (TrainingUiState) -> Boolean) = withTimeout(15_000L) {
+            while (!withContext(Dispatchers.Main) { predicate(plyVm.uiState.value) }) delay(10)
+        }
+        try {
+            repo.saveExercise(puzzle.toExercise().copy(createdFrom = ExerciseSource.MISTAKE, sourceGameId = gid, sourceMoveNumber = 1))
+            withContext(Dispatchers.Main) { plyVm.init(user, TrainingMode.FromGame(gid, 1)) }
+            awaitPly { it.hasActiveExercise && !it.isInputLocked && it.currentStepNumber == 1 }
+
+            withContext(Dispatchers.Main) { plyVm.onMoveMade(Move(Square.D7, Square.D1)) }
+            awaitPly { it.currentStepNumber == 2 && !it.isInputLocked }
+
+            // Play instant blunder immediately after opponent reply 2. Rxd1
+            withContext(Dispatchers.Main) { plyVm.onMoveMade(Move(Square.H7, Square.H6)) }
+            awaitPly { it.sessionStats.failed == 1 && !it.isAnimatingPunishment }
+
+            val afterBlunder = withContext(Dispatchers.Main) { plyVm.uiState.value }
+            assertEquals(1, afterBlunder.sessionStats.impulsiveMistakes)
+
+            withTimeout(10_000L) {
+                while (repo.getAttemptsByUserId(uid).isEmpty()) delay(20)
+            }
+            val saved = repo.getAttemptsByUserId(uid).single()
+            assertFalse(saved.solved)
+            assertTrue(AttemptMetadata.wasImpulsiveAttempt(saved))
+        } finally {
+            plyVm.viewModelScope.cancel()
+            repo.deleteBySourceGameId(gid)
+            container.gameRepository.deleteById(gid)
+            container.userRepository.deleteById(uid)
+        }
+    }
 }

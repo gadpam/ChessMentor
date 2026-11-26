@@ -110,6 +110,10 @@ data class TrainingUiState(
     val sessionStepNumber: Int = 0,
     val sessionTotalSteps: Int = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
     val sessionPhase: SessionPhase? = null,
+    val sessionCleanCount: Int = 0,
+    val sessionFailedCount: Int = 0,
+    val sessionSkippedCount: Int = 0,
+    val sessionStepStatuses: List<SmartSessionStepStatus> = emptyList(),
     val sessionSummary: SessionSummary? = null,
 
     // Пост-разбор решения и свободный анализ со Stockfish
@@ -161,11 +165,22 @@ data class SessionStats(
     val netRatingDelta: Int = 0
 )
 
+enum class SmartSessionStepStatus {
+    PENDING,
+    CURRENT,
+    CLEAN,
+    SOLVED_WITH_ASSIST,
+    FAILED,
+    SKIPPED
+}
+
 enum class HintLevel { NONE, PIECE_HIGHLIGHT, FULL_SOLUTION }
 private data class PendingMoveCheck(
     val before: TrainingUiState,
     val move: Move,
     val previousThinkMs: Long?,
+    val previousPlyTurnStartedAt: Long,
+    val previousPlyThinkMs: Long?,
     val startedAt: Long
 )
 
@@ -210,8 +225,10 @@ class TrainingViewModel(
     private val recordedMoves = mutableListOf<String>()
     private var currentMoveIndex = 0
     private var startTime: Long = 0
+    private var plyTurnStartedAt: Long = 0
     private var pauseStartedAt: Long? = null
     private var firstMoveThinkTimeMs: Long? = null
+    private var currentPlyThinkTimeMs: Long? = null
     private var attemptMistakeCount: Int = 0
     private var attemptFailed = false
     private var failedAttemptSaved = false
@@ -244,6 +261,7 @@ class TrainingViewModel(
     private var smartSessionOutcomeRecorded: Boolean = false
     private val smartSessionSeenIds = mutableSetOf<Long>()
     private val smartSessionMissedPatterns = mutableListOf<String>()
+    private val smartSessionStepStatuses = mutableListOf<SmartSessionStepStatus>()
 
     private fun resetSmartSessionTrackers() {
         smartSessionStep = 0
@@ -257,6 +275,26 @@ class TrainingViewModel(
         smartSessionOutcomeRecorded = false
         smartSessionSeenIds.clear()
         smartSessionMissedPatterns.clear()
+        smartSessionStepStatuses.clear()
+    }
+
+    private fun initializeSmartSessionTrackers() {
+        resetSmartSessionTrackers()
+        smartSessionStep = 1
+        val total = TrainingSessionPlanner.DEFAULT_SESSION_SIZE
+        repeat(total) { idx ->
+            smartSessionStepStatuses.add(
+                if (idx == 0) SmartSessionStepStatus.CURRENT else SmartSessionStepStatus.PENDING
+            )
+        }
+    }
+
+    private fun setCurrentSmartSessionStepStatus(status: SmartSessionStepStatus) {
+        if (_uiState.value.mode !is TrainingMode.SmartSession) return
+        val idx = smartSessionStep - 1
+        if (idx in smartSessionStepStatuses.indices) {
+            smartSessionStepStatuses[idx] = status
+        }
     }
 
     private fun resetTransientUiState(state: TrainingUiState): TrainingUiState = state.copy(
@@ -348,8 +386,7 @@ class TrainingViewModel(
         currentExercise = null
         resetStateForNewExercise()
         interleavedQueue.clear()
-        resetSmartSessionTrackers()
-        smartSessionStep = 1
+        initializeSmartSessionTrackers()
         val firstPhase = TrainingSessionPlanner.phaseForStep(1)
 
         _uiState.value = resetTransientUiState(_uiState.value).copy(
@@ -362,6 +399,10 @@ class TrainingViewModel(
             sessionStepNumber = 1,
             sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
             sessionPhase = firstPhase,
+            sessionCleanCount = 0,
+            sessionFailedCount = 0,
+            sessionSkippedCount = 0,
+            sessionStepStatuses = smartSessionStepStatuses.toList(),
             feedbackMessage = "Подбираем задачу…"
         )
 
@@ -395,11 +436,11 @@ class TrainingViewModel(
         if (mode !is TrainingMode.All && mode !is TrainingMode.SmartSession) {
             interleavedQueue.clear()
         }
-        resetSmartSessionTrackers()
         val initialPhase = if (mode is TrainingMode.SmartSession) {
-            smartSessionStep = 1
+            initializeSmartSessionTrackers()
             TrainingSessionPlanner.phaseForStep(1)
         } else {
+            resetSmartSessionTrackers()
             null
         }
 
@@ -413,6 +454,10 @@ class TrainingViewModel(
             sessionStepNumber = smartSessionStep,
             sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
             sessionPhase = initialPhase,
+            sessionCleanCount = 0,
+            sessionFailedCount = 0,
+            sessionSkippedCount = 0,
+            sessionStepStatuses = smartSessionStepStatuses.toList(),
             feedbackMessage = "Подбираем задачу…"
         )
 
@@ -453,11 +498,11 @@ class TrainingViewModel(
         currentExercise = null
         resetStateForNewExercise()
 
-        resetSmartSessionTrackers()
         val initialPhase = if (mode is TrainingMode.SmartSession) {
-            smartSessionStep = 1
+            initializeSmartSessionTrackers()
             TrainingSessionPlanner.phaseForStep(1)
         } else {
+            resetSmartSessionTrackers()
             null
         }
 
@@ -471,6 +516,10 @@ class TrainingViewModel(
             sessionStepNumber = smartSessionStep,
             sessionTotalSteps = TrainingSessionPlanner.DEFAULT_SESSION_SIZE,
             sessionPhase = initialPhase,
+            sessionCleanCount = 0,
+            sessionFailedCount = 0,
+            sessionSkippedCount = 0,
+            sessionStepStatuses = smartSessionStepStatuses.toList(),
             feedbackMessage = "Подбираем задачу…"
         )
 
@@ -623,6 +672,7 @@ class TrainingViewModel(
         }
 
         val nextPhase = if (effectiveMode is TrainingMode.SmartSession) {
+            setCurrentSmartSessionStepStatus(SmartSessionStepStatus.CURRENT)
             TrainingSessionPlanner.phaseForStep(smartSessionStep)
         } else {
             null
@@ -637,6 +687,10 @@ class TrainingViewModel(
             sessionSummary = null,
             sessionStepNumber = if (effectiveMode is TrainingMode.SmartSession) smartSessionStep else 0,
             sessionPhase = nextPhase,
+            sessionCleanCount = if (effectiveMode is TrainingMode.SmartSession) smartSessionCleanCount else 0,
+            sessionFailedCount = if (effectiveMode is TrainingMode.SmartSession) smartSessionFailedCount else 0,
+            sessionSkippedCount = if (effectiveMode is TrainingMode.SmartSession) smartSessionSkippedCount else 0,
+            sessionStepStatuses = if (effectiveMode is TrainingMode.SmartSession) smartSessionStepStatuses.toList() else emptyList(),
             feedbackMessage = null
         )
 
@@ -650,7 +704,9 @@ class TrainingViewModel(
     private fun resumeClockAdjustment(nowMs: Long = System.currentTimeMillis()) {
         val pausedAt = pauseStartedAt ?: return
         pauseStartedAt = null
+        val pausedDelta = (nowMs - pausedAt).coerceAtLeast(0L)
         startTime = TrainingPauseClock.adjustStartAfterResume(startTime, pausedAt, nowMs)
+        plyTurnStartedAt += pausedDelta
     }
 
     private fun effectiveElapsedSeconds(nowMs: Long = System.currentTimeMillis()): Int {
@@ -703,6 +759,10 @@ class TrainingViewModel(
         if (attemptFailed || _uiState.value.isSolutionRevealed) {
             smartSessionFailedCount++
             smartSessionMissedPatterns.add(ex.tacticalPattern.displayName)
+            setCurrentSmartSessionStepStatus(SmartSessionStepStatus.FAILED)
+        } else if (!_uiState.value.isSolved) {
+            smartSessionSkippedCount++
+            setCurrentSmartSessionStepStatus(SmartSessionStepStatus.SKIPPED)
         }
     }
 
@@ -722,15 +782,26 @@ class TrainingViewModel(
 
         val stats = state.sessionStats
         val updatedStreak = if (maxHintUsed == HintUsage.FULL_SOLUTION) 0 else stats.currentStreak
-        if (state.mode is TrainingMode.SmartSession && !smartSessionOutcomeRecorded && !attemptFailed) {
+        if (state.mode is TrainingMode.SmartSession && !smartSessionOutcomeRecorded) {
             smartSessionOutcomeRecorded = true
-            smartSessionSkippedCount++
+            if (!attemptFailed) {
+                smartSessionSkippedCount++
+                setCurrentSmartSessionStepStatus(SmartSessionStepStatus.SKIPPED)
+            } else {
+                smartSessionTotalSeconds += effectiveElapsedSeconds().coerceIn(1, 600)
+                smartSessionFailedCount++
+                currentExercise?.tacticalPattern?.displayName?.let { smartSessionMissedPatterns.add(it) }
+                setCurrentSmartSessionStepStatus(SmartSessionStepStatus.FAILED)
+            }
         }
         _uiState.value = state.copy(
             sessionStats = stats.copy(
                 skipped = stats.skipped + 1,
                 currentStreak = updatedStreak
-            )
+            ),
+            sessionFailedCount = if (state.mode is TrainingMode.SmartSession) smartSessionFailedCount else state.sessionFailedCount,
+            sessionSkippedCount = if (state.mode is TrainingMode.SmartSession) smartSessionSkippedCount else state.sessionSkippedCount,
+            sessionStepStatuses = if (state.mode is TrainingMode.SmartSession) smartSessionStepStatuses.toList() else state.sessionStepStatuses
         )
 
         // Если пропускается задача дня — переходим в общую тренировку
@@ -851,6 +922,9 @@ class TrainingViewModel(
 
         val postReview = buildPostSolveReviewState()
         val fullSan = postReview.second.ifBlank { sanNotation }
+        if (state.mode is TrainingMode.SmartSession) {
+            setCurrentSmartSessionStepStatus(SmartSessionStepStatus.FAILED)
+        }
 
         _uiState.value = _uiState.value.copy(
             isSolutionRevealed = true,
@@ -862,6 +936,7 @@ class TrainingViewModel(
             reviewStepIndex = (postReview.first.size - 1).coerceAtLeast(0),
             solutionSanLine = fullSan,
             postSolveExplanation = postReview.third,
+            sessionStepStatuses = if (state.mode is TrainingMode.SmartSession) smartSessionStepStatuses.toList() else _uiState.value.sessionStepStatuses,
             feedbackMessage = finalMessage,
             nextReviewNote = card?.takeUnless { isCurrentDailyAlreadySolved }?.let(SpacedRepetitionScheduler::formatNextIntervalNote)
         )
@@ -1045,9 +1120,12 @@ class TrainingViewModel(
         failedAttemptSaved = false
         maxHintUsed = HintUsage.NONE
         isCurrentDailyAlreadySolved = false
-        startTime = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        startTime = now
+        plyTurnStartedAt = now
         pauseStartedAt = null
         firstMoveThinkTimeMs = null
+        currentPlyThinkTimeMs = null
         positionBeforePlayerMove = ""
         lastMoveBeforePlayerMove = null
         initialTriggerMoveUci = null
@@ -1191,7 +1269,9 @@ class TrainingViewModel(
                     else -> TrainingSoundEvent.MOVE
                 }
                 startTime = pauseStartedAt ?: System.currentTimeMillis()
+                plyTurnStartedAt = startTime
                 firstMoveThinkTimeMs = null
+                currentPlyThinkTimeMs = null
                 if (!pausedNow) {
                     soundCounter++
                 }
@@ -1208,7 +1288,9 @@ class TrainingViewModel(
             } else {
                 val pausedNow = _uiState.value.isPaused || pauseStartedAt != null
                 startTime = pauseStartedAt ?: System.currentTimeMillis()
+                plyTurnStartedAt = startTime
                 firstMoveThinkTimeMs = null
+                currentPlyThinkTimeMs = null
                 _uiState.value = baseReadyState.copy(
                     board = newBoard,
                     lastMove = initialPrevMove,
@@ -1221,7 +1303,9 @@ class TrainingViewModel(
         } else {
             val pausedNow = _uiState.value.isPaused || pauseStartedAt != null
             startTime = pauseStartedAt ?: System.currentTimeMillis()
+            plyTurnStartedAt = startTime
             firstMoveThinkTimeMs = null
+            currentPlyThinkTimeMs = null
             _uiState.value = baseReadyState.copy(
                 board = newBoard,
                 lastMove = initialPrevMove,
@@ -1331,10 +1415,14 @@ class TrainingViewModel(
             return
         }
 
+        val now = System.currentTimeMillis()
         val previousThinkMs = firstMoveThinkTimeMs
+        val previousPlyTurnStartedAt = plyTurnStartedAt
+        val previousPlyThinkMs = currentPlyThinkTimeMs
         if (firstMoveThinkTimeMs == null && currentMoveIndex == 0 && attemptMistakeCount == 0) {
-            firstMoveThinkTimeMs = (System.currentTimeMillis() - startTime).coerceAtLeast(0L)
+            firstMoveThinkTimeMs = (now - startTime).coerceAtLeast(0L)
         }
+        currentPlyThinkTimeMs = (now - plyTurnStartedAt).coerceAtLeast(0L)
 
         positionBeforePlayerMove = state.board.fen
         lastMoveBeforePlayerMove = state.lastMove
@@ -1370,7 +1458,16 @@ class TrainingViewModel(
 
         currentJob?.cancel()
         currentJob = viewModelScope.launch {
-            processUserMove(PendingMoveCheck(state, move, previousThinkMs, System.currentTimeMillis()))
+            processUserMove(
+                PendingMoveCheck(
+                    before = state,
+                    move = move,
+                    previousThinkMs = previousThinkMs,
+                    previousPlyTurnStartedAt = previousPlyTurnStartedAt,
+                    previousPlyThinkMs = previousPlyThinkMs,
+                    startedAt = now
+                )
+            )
         }
     }
 
@@ -1435,8 +1532,11 @@ class TrainingViewModel(
         val check = pendingCheck ?: return
         if (!_uiState.value.checkUnavailable || _uiState.value.isLoading) return
         pendingCheck = null
-        startTime += (System.currentTimeMillis() - check.startedAt).coerceAtLeast(0L)
+        val checkElapsed = (System.currentTimeMillis() - check.startedAt).coerceAtLeast(0L)
+        startTime += checkElapsed
+        plyTurnStartedAt = check.previousPlyTurnStartedAt + checkElapsed
         firstMoveThinkTimeMs = check.previousThinkMs
+        currentPlyThinkTimeMs = check.previousPlyThinkMs
         // Restore the pre-move board and its hint without replaying an old sound.
         _uiState.value = check.before.copy(soundEvent = null, soundEventId = soundCounter)
     }
@@ -1473,7 +1573,9 @@ class TrainingViewModel(
                 return
             }
             pendingCheck = null
-            startTime += (System.currentTimeMillis() - check.startedAt).coerceAtLeast(0L)
+            val checkElapsed = (System.currentTimeMillis() - check.startedAt).coerceAtLeast(0L)
+            startTime += checkElapsed
+            plyTurnStartedAt += checkElapsed
             recordedMoves.add(userUci)
             if (quality == TrainingMoveQuality.BEST || quality == TrainingMoveQuality.EXCELLENT) {
                 val remainingPlies = (targetSequence.size - currentMoveIndex - 1).coerceAtLeast(0)
@@ -1580,8 +1682,11 @@ class TrainingViewModel(
         }
         currentMoveIndex = previousMoveIndex
         pendingCheck = null
-        startTime += (System.currentTimeMillis() - check.startedAt).coerceAtLeast(0L)
+        val checkElapsed = (System.currentTimeMillis() - check.startedAt).coerceAtLeast(0L)
+        startTime += checkElapsed
+        plyTurnStartedAt = check.previousPlyTurnStartedAt + checkElapsed
         firstMoveThinkTimeMs = check.previousThinkMs
+        currentPlyThinkTimeMs = check.previousPlyThinkMs
         positionBeforePlayerMove = check.before.board.fen
         lastMoveBeforePlayerMove = check.before.lastMove
         val latest = _uiState.value
@@ -1646,6 +1751,8 @@ class TrainingViewModel(
             wasCapture = wasCapture,
             unlockInput = true
         )
+        plyTurnStartedAt = pauseStartedAt ?: System.currentTimeMillis()
+        currentPlyThinkTimeMs = null
         return true
     }
 
@@ -1658,15 +1765,17 @@ class TrainingViewModel(
         val exercise = currentExercise
         val user = currentUser
 
-        // Детектор импульсивного первого хода («игры руками» без расчёта ответа соперника)
-        val thinkMs = firstMoveThinkTimeMs
+        // Детектор импульсивного хода («игры руками» без расчёта ответа соперника на любом ходу)
+        val isFirstMoveOfPuzzle = currentMoveIndex == 0
+        val plyThinkMs = currentPlyThinkTimeMs ?: if (isFirstMoveOfPuzzle) firstMoveThinkTimeMs else null
         val activeMode = _uiState.value.mode
-        val wasImpulsiveFirstMove = isFirstMistakeOnExercise &&
+        val wasImpulsiveMistake = isFirstMistakeOnExercise &&
             TrainingRatingCalculator.isImpulsiveMistake(
-                firstMoveThinkMs = thinkMs,
+                firstMoveThinkMs = firstMoveThinkTimeMs,
                 exercise = exercise,
-                isFirstMoveOfPuzzle = currentMoveIndex == 0,
-                mode = activeMode
+                isFirstMoveOfPuzzle = isFirstMoveOfPuzzle,
+                mode = activeMode,
+                currentPlyThinkMs = plyThinkMs
             )
 
         attemptMistakeCount++
@@ -1674,8 +1783,8 @@ class TrainingViewModel(
 
         // Тренерская диагностика дисциплины расчёта
         lastMistakeCoachingNote = when {
-            wasImpulsiveFirstMove && thinkMs != null -> {
-                val secs = String.format(java.util.Locale.US, "%.1f", thinkMs / 1000.0)
+            wasImpulsiveMistake && plyThinkMs != null -> {
+                val secs = String.format(java.util.Locale.US, "%.1f", plyThinkMs / 1000.0)
                 "Поспешный ход ($secs с)! Сначала проверьте шахи, взятия и лучший ответ соперника."
             }
             attemptMistakeCount >= 2 -> {
@@ -1708,18 +1817,20 @@ class TrainingViewModel(
 
         if (activeMode is TrainingMode.SmartSession) {
             smartSessionNetElo += (appliedDelta ?: 0)
-            if (wasImpulsiveFirstMove) {
+            if (wasImpulsiveMistake) {
                 smartSessionImpulsiveCount++
             }
+            setCurrentSmartSessionStepStatus(SmartSessionStepStatus.FAILED)
         }
 
         val updatedNet = stats.netRatingDelta + (appliedDelta ?: 0)
-        val updatedImpulsive = if (wasImpulsiveFirstMove) stats.impulsiveMistakes + 1 else stats.impulsiveMistakes
+        val updatedImpulsive = if (wasImpulsiveMistake) stats.impulsiveMistakes + 1 else stats.impulsiveMistakes
         soundCounter++
         _uiState.value = _uiState.value.copy(
             isInputLocked = true,
             isAnimatingPunishment = true,
             lastRatingDelta = appliedDelta,
+            sessionStepStatuses = if (activeMode is TrainingMode.SmartSession) smartSessionStepStatuses.toList() else _uiState.value.sessionStepStatuses,
             sessionStats = stats.copy(
                 failed = stats.failed + 1,
                 impulsiveMistakes = updatedImpulsive,
@@ -1734,7 +1845,7 @@ class TrainingViewModel(
         if (shouldSaveFirstFailedAttempt || appliedDelta != null) {
             runCatching {
                 if (shouldSaveFirstFailedAttempt) {
-                    saveAttempt(solved = false, wasImpulsive = wasImpulsiveFirstMove)
+                    saveAttempt(solved = false, wasImpulsive = wasImpulsiveMistake)
                     completedRatedSittings++
                 }
                 if (appliedDelta != null) {
@@ -1966,6 +2077,8 @@ class TrainingViewModel(
             showBetterMoveHint = if (keepAnalysis) prev.showBetterMoveHint else false,
             feedbackMessage = if (stillPaused) "Пауза — позиция и подсказки сохранены" else prompt
         )
+        plyTurnStartedAt = pauseStartedAt ?: System.currentTimeMillis()
+        currentPlyThinkTimeMs = null
     }
 
     // ================================================================
@@ -2204,9 +2317,17 @@ class TrainingViewModel(
             }
             if (isCleanFirstTry) {
                 smartSessionCleanCount++
-            } else if (attemptFailed || usedFullHint) {
+                setCurrentSmartSessionStepStatus(SmartSessionStepStatus.CLEAN)
+            } else if (usedFullHint) {
                 smartSessionFailedCount++
                 exercise?.tacticalPattern?.displayName?.let { smartSessionMissedPatterns.add(it) }
+                setCurrentSmartSessionStepStatus(SmartSessionStepStatus.FAILED)
+            } else if (attemptFailed) {
+                smartSessionFailedCount++
+                exercise?.tacticalPattern?.displayName?.let { smartSessionMissedPatterns.add(it) }
+                setCurrentSmartSessionStepStatus(SmartSessionStepStatus.SOLVED_WITH_ASSIST)
+            } else {
+                setCurrentSmartSessionStepStatus(SmartSessionStepStatus.SOLVED_WITH_ASSIST)
             }
         }
 
@@ -2247,6 +2368,10 @@ class TrainingViewModel(
             reviewStepIndex = (postReview.first.size - 1).coerceAtLeast(0),
             solutionSanLine = postReview.second.ifBlank { null },
             postSolveExplanation = postReview.third,
+            sessionCleanCount = if (activeMode is TrainingMode.SmartSession) smartSessionCleanCount else _uiState.value.sessionCleanCount,
+            sessionFailedCount = if (activeMode is TrainingMode.SmartSession) smartSessionFailedCount else _uiState.value.sessionFailedCount,
+            sessionSkippedCount = if (activeMode is TrainingMode.SmartSession) smartSessionSkippedCount else _uiState.value.sessionSkippedCount,
+            sessionStepStatuses = if (activeMode is TrainingMode.SmartSession) smartSessionStepStatuses.toList() else _uiState.value.sessionStepStatuses,
             sessionStats = stats.copy(
                 solved = if (usedFullHint) stats.solved else stats.solved + 1,
                 failed = if (countFullHintAsFailInStats) stats.failed + 1 else stats.failed,

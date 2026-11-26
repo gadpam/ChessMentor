@@ -65,7 +65,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -117,6 +116,7 @@ import com.example.chessmentor.presentation.ui.components.theme.LocalChessPalett
 import com.example.chessmentor.presentation.viewmodel.ChessMentorViewModelFactory
 import com.example.chessmentor.presentation.viewmodel.HintLevel
 import com.example.chessmentor.presentation.viewmodel.SessionStats
+import com.example.chessmentor.presentation.viewmodel.SmartSessionStepStatus
 import com.example.chessmentor.presentation.viewmodel.TrainingSoundEvent
 import com.example.chessmentor.presentation.viewmodel.TrainingUiState
 import com.example.chessmentor.presentation.viewmodel.TrainingViewModel
@@ -766,20 +766,43 @@ internal fun ModePicker(
 }
 
 @Composable
-private fun SmartSessionProgressBar(uiState: TrainingUiState) {
+internal fun SmartSessionProgressBar(uiState: TrainingUiState) {
     val total = uiState.sessionTotalSteps.coerceAtLeast(1)
     val step = uiState.sessionStepNumber.coerceIn(1, total)
-    val completed = if (uiState.isSolved || uiState.isSolutionRevealed) step else (step - 1)
-    val progress = (completed.toFloat() / total.toFloat()).coerceIn(0.05f, 1f)
     val phaseText = uiState.sessionPhase?.let { phase ->
         if (uiState.isSolved || uiState.isSolutionRevealed) phase.displayName else phase.preSolveLabel
     } ?: "Тренировка"
+    val palette = LocalChessPalette.current
+
+    val statuses = if (uiState.sessionStepStatuses.size >= total) {
+        uiState.sessionStepStatuses.take(total)
+    } else {
+        List(total) { idx ->
+            when {
+                idx < step - 1 -> SmartSessionStepStatus.CLEAN
+                idx == step - 1 -> when {
+                    uiState.isSolved -> SmartSessionStepStatus.CLEAN
+                    uiState.isSolutionRevealed -> SmartSessionStepStatus.FAILED
+                    else -> SmartSessionStepStatus.CURRENT
+                }
+                else -> SmartSessionStepStatus.PENDING
+            }
+        }
+    }
+
+    val cleanCount = if (uiState.sessionStepStatuses.isNotEmpty()) {
+        uiState.sessionCleanCount
+    } else {
+        statuses.count { it == SmartSessionStepStatus.CLEAN }
+    }
+    val failedCount = uiState.sessionFailedCount
+    val skippedCount = uiState.sessionSkippedCount
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 2.dp, bottom = 2.dp, start = 2.dp, end = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -796,24 +819,49 @@ private fun SmartSessionProgressBar(uiState: TrainingUiState) {
                 modifier = Modifier.weight(1f)
             )
             Text(
-                text = "Чисто: ${uiState.sessionStats.cleanFirstTrySolved}",
+                text = buildString {
+                    append("Чисто: $cleanCount")
+                    if (failedCount > 0) append(" · Ошибок: $failedCount")
+                    if (skippedCount > 0) append(" · Проп.: $skippedCount")
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1
             )
         }
-        LinearProgressIndicator(
-            progress = { progress },
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp))
-        )
+                .height(5.dp)
+                .semantics {
+                    contentDescription = "Прогресс сессии: задача $step из $total, чисто $cleanCount"
+                },
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            statuses.forEach { status ->
+                val color = when (status) {
+                    SmartSessionStepStatus.CLEAN -> palette.ratingUp
+                    SmartSessionStepStatus.SOLVED_WITH_ASSIST -> palette.warning
+                    SmartSessionStepStatus.FAILED -> palette.ratingDown
+                    SmartSessionStepStatus.SKIPPED -> MaterialTheme.colorScheme.outlineVariant
+                    SmartSessionStepStatus.CURRENT -> MaterialTheme.colorScheme.primary
+                    SmartSessionStepStatus.PENDING -> MaterialTheme.colorScheme.surfaceVariant
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(color)
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun SessionSummaryCard(
+internal fun SessionSummaryCard(
     summary: SessionSummary,
     onRestartSession: () -> Unit,
     onSwitchToFreeTraining: () -> Unit,
@@ -851,12 +899,17 @@ private fun SessionSummaryCard(
                     textAlign = TextAlign.Center
                 )
                 val attemptedCount = (summary.totalExercises - summary.skippedCount).coerceAtLeast(0)
+                val subtitleText = when {
+                    attemptedCount == 0 -> "Все ${summary.totalExercises} задач пропущены без попыток"
+                    summary.skippedCount > 0 ->
+                        "Попыток: $attemptedCount из ${summary.totalExercises} · чисто: ${summary.cleanFirstTryCount}, с ошибками: ${summary.failedCount}, пропущено: ${summary.skippedCount}"
+                    summary.failedCount > 0 ->
+                        "Сессия из ${summary.totalExercises} задач: чисто ${summary.cleanFirstTryCount}, с ошибками ${summary.failedCount}"
+                    else ->
+                        "Сессия из ${summary.totalExercises} задач завершена: чисто ${summary.cleanFirstTryCount} из ${summary.totalExercises}"
+                }
                 Text(
-                    text = if (summary.skippedCount > 0) {
-                        "Сессия завершена: решено $attemptedCount из ${summary.totalExercises}, пропущено ${summary.skippedCount}"
-                    } else {
-                        "Сессия из ${summary.totalExercises} задач завершена"
-                    },
+                    text = subtitleText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -895,7 +948,7 @@ private fun SessionSummaryCard(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "Поспешных первых ходов: ${summary.impulsiveMistakeCount}",
+                            text = "Поспешных ходов: ${summary.impulsiveMistakeCount}",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onErrorContainer,

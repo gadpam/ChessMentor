@@ -397,4 +397,93 @@ class TrainingRatingCalculatorTest {
         val equalPosAm = hopelessAnalyzed.copy(evalBefore = 40, evalAfter = -310, evalLoss = 350)
         assertTrue(GenerateExercisesFromMistakesUseCase.isMistakeSuitableForExercise(goodBlunder, equalPosAm))
     }
+
+    @Test
+    fun exerciseEffectiveDifficulty_calibratesViaBayesianPriorAndClamps() {
+        val unshown = makeExercise(difficulty = 50)
+        assertEquals(50, unshown.getEffectiveDifficulty())
+
+        val tooEasy = makeExercise(difficulty = 50).copy(timesShown = 12, timesSolved = 12)
+        val calibratedEasy = tooEasy.getEffectiveDifficulty()
+        assertTrue("12/12 solve rate should pull difficulty down ($calibratedEasy)", calibratedEasy in 20..42)
+
+        val tooHard = makeExercise(difficulty = 30).copy(timesShown = 20, timesSolved = 2)
+        val calibratedHard = tooHard.getEffectiveDifficulty()
+        assertTrue("2/20 solve rate should push difficulty up ($calibratedHard)", calibratedHard in 45..60)
+
+        val legacyFallback = makeExercise(difficulty = 60).copy(timesShown = 10, timesSolved = 0, successRate = 90)
+        assertTrue(legacyFallback.getEffectiveDifficulty() < 60)
+
+        val singleFail = makeExercise(difficulty = 50).copy(timesShown = 1, timesSolved = 0)
+        assertTrue("Bayesian prior prevents wild jump on n=1 (${singleFail.getEffectiveDifficulty()})",
+            singleFail.getEffectiveDifficulty() in 50..58)
+    }
+
+    @Test
+    fun zpdTargetDifficulty_targetsHighSuccessRateWhilePreservingEloToDifficulty() {
+        assertEquals(50, TrainingRatingCalculator.eloToDifficulty(1600))
+        val zpd1600 = TrainingRatingCalculator.zpdTargetDifficulty(1600)
+        val zpd1650 = TrainingRatingCalculator.zpdTargetDifficulty(1650)
+        assertTrue("ZPD 75% target at 1600 Elo should be easier than 50 ($zpd1600)", zpd1600 in 35..41)
+        assertTrue("ZPD target increases with Elo ($zpd1600 vs $zpd1650)", zpd1650 > zpd1600)
+    }
+
+    @Test
+    fun isImpulsiveMistake_detectsRushedBlundersOnFollowUpPliesWhenPlyTimeProvided() {
+        val medium = makeExercise(difficulty = 45)
+        assertTrue(
+            TrainingRatingCalculator.isImpulsiveMistake(
+                firstMoveThinkMs = 8_000L,
+                exercise = medium,
+                isFirstMoveOfPuzzle = false,
+                currentPlyThinkMs = 1_200L
+            )
+        )
+        assertFalse(
+            TrainingRatingCalculator.isImpulsiveMistake(
+                firstMoveThinkMs = 8_000L,
+                exercise = medium,
+                isFirstMoveOfPuzzle = false,
+                currentPlyThinkMs = 6_000L
+            )
+        )
+    }
+
+    @Test
+    fun computePatternMastery_appliesCalendarHalfLifeStalenessAndStrongGates() {
+        val dayMs = 86_400_000L
+        val ex1 = makeExercise(id = 1L, difficulty = 50, pattern = TacticalPattern.FORK_KNIGHT)
+        val ex2 = makeExercise(id = 2L, difficulty = 50, pattern = TacticalPattern.FORK_KNIGHT)
+
+        // Единственное чистое решение недостаточно для STRONG — пока LEARNING
+        val singleClean = TrainingRatingCalculator.computePatternMastery(
+            exercisesById = mapOf(1L to ex1),
+            attempts = listOf(
+                ExerciseAttempt(userId = 1L, exerciseId = 1L, solved = true, timeSpentSeconds = 6, movesMade = listOf("d5c7"), attemptedAt = 10_000_000L)
+            ),
+            nowMs = 10_000_000L
+        ).single()
+        assertEquals(MasteryLevel.LEARNING, singleClean.level)
+
+        // Два чистых решения 100 дней назад деградируют из-за забывания при оценке на текущую дату nowMs
+        val tOld = 10_000_000L
+        val twoCleanOld = listOf(
+            ExerciseAttempt(userId = 1L, exerciseId = 1L, solved = true, timeSpentSeconds = 6, movesMade = listOf("d5c7"), attemptedAt = tOld),
+            ExerciseAttempt(userId = 1L, exerciseId = 2L, solved = true, timeSpentSeconds = 6, movesMade = listOf("d5c7"), attemptedAt = tOld + dayMs)
+        )
+        val freshMastery = TrainingRatingCalculator.computePatternMastery(
+            exercisesById = mapOf(1L to ex1, 2L to ex2),
+            attempts = twoCleanOld,
+            nowMs = tOld + 2 * dayMs
+        ).single()
+        val staleMastery = TrainingRatingCalculator.computePatternMastery(
+            exercisesById = mapOf(1L to ex1, 2L to ex2),
+            attempts = twoCleanOld,
+            nowMs = tOld + 120 * dayMs
+        ).single()
+        assertEquals(MasteryLevel.STRONG, freshMastery.level)
+        assertTrue("120d staleness (${staleMastery.masteryPercent}%) must decay below fresh (${freshMastery.masteryPercent}%)",
+            staleMastery.masteryPercent < freshMastery.masteryPercent)
+        assertEquals(MasteryLevel.LEARNING, staleMastery.level)
+    }
 }

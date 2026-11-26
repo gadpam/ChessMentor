@@ -247,160 +247,7 @@ class SemanticMistakeAnalyzer(
         board: Board,
         moveUci: String,
         materialLoss: MaterialLoss?
-    ): TacticalMotif? {
-        if (moveUci.length < 4) return null
-        val moverSide = board.sideToMove
-        val targetSide = moverSide.flip()
-
-        val move = ChessMoveUtils.parseUciMove(board, moveUci) ?: return null
-        val movingPiece = board.getPiece(move.from)
-        if (movingPiece == Piece.NONE) return null
-
-        val targetBefore = board.getPiece(move.to)
-
-        val boardAfter = Board().apply {
-            loadFromFen(board.fen)
-            if (!doMove(move)) return null
-        }
-
-        val movedPieceAfter = boardAfter.getPiece(move.to)
-        val givesCheck = boardAfter.isKingAttacked
-
-        // 1. Вскрытый шах / вскрытое нападение
-        if (isDiscoveredCheck(boardAfter, move.to, moverSide, targetSide)) {
-            return TacticalMotif.DISCOVERED_CHECK
-        }
-        if (isDiscoveredAttack(board, boardAfter, move.from, move.to, moverSide, targetSide)) {
-            return TacticalMotif.DISCOVERED_ATTACK
-        }
-
-        // 2. Вилка: ходившая фигура одновременно атакует >= 2 ценные цели
-        if (movedPieceAfter != Piece.NONE && isFork(boardAfter, move.to, movedPieceAfter, targetSide)) {
-            return TacticalMotif.FORK
-        }
-
-        // 3. Перегрузка / Отвлечение защитника (проверяем до линейного рентгена, чтобы жертва на линии вроде Qa8 под Rxa8/Re8# не принималась за связку)
-        detectOverloadingOrDeflection(board, boardAfter, move, moverSide, targetSide)?.let {
-            return it
-        }
-
-        // 4. Связка / сквозной удар для дальнобойных фигур
-        if (movedPieceAfter.pieceType in SLIDING_TYPES) {
-            val rayMotif = detectPinOrSkewer(boardAfter, move.to, moverSide, targetSide)
-            if (rayMotif != null) return rayMotif
-        }
-
-        // 5. Взятие незащищённой фигуры
-        if (targetBefore != Piece.NONE && targetBefore.pieceSide == targetSide) {
-            val defendersAfter = bitCount(boardAfter.squareAttackedBy(move.to, targetSide))
-            if (defendersAfter == 0 && ChessMoveUtils.pieceValue(targetBefore.pieceType) >= 300) {
-                return TacticalMotif.HANGING_PIECE
-            }
-            if (givesCheck && ChessMoveUtils.pieceValue(targetBefore.pieceType) >= 100) {
-                return TacticalMotif.REMOVING_DEFENDER
-            }
-        }
-
-        // 6. Ловля фигуры
-        if (materialLoss?.wasTrapped == true) {
-            return if (materialLoss.pieceType == PieceType.QUEEN) {
-                TacticalMotif.QUEEN_TRAP
-            } else {
-                TacticalMotif.TRAPPED_PIECE
-            }
-        }
-
-        return null
-    }
-
-    /**
-     * Различает перегрузку (одна фигура защищает >= 2 важных объектов одновременно)
-     * и отвлечение (вынужденный ответ защитника с его поля открывает взятие или мат).
-     */
-    private fun detectOverloadingOrDeflection(
-        boardBefore: Board,
-        boardAfter: Board,
-        move: Move,
-        moverSide: Side,
-        targetSide: Side
-    ): TacticalMotif? {
-        if (boardAfter.isMated) return null
-
-        val targetPieceBefore = boardBefore.getPiece(move.to)
-        val isCaptureOnTarget = targetPieceBefore != Piece.NONE && targetPieceBefore.pieceSide == targetSide
-
-        // Защитники, способные легально забрать нашу фигуру на move.to
-        val replyCaptures = runCatching { boardAfter.legalMoves() }
-            .getOrDefault(emptyList())
-            .filter { it.to == move.to }
-
-        for (reply in replyCaptures) {
-            val defenderSq = reply.from
-            val defenderPiece = boardAfter.getPiece(defenderSq)
-            if (defenderPiece == Piece.NONE || defenderPiece.pieceSide != targetSide) continue
-
-            val simAfterReply = Board().apply { loadFromFen(boardAfter.fen) }
-            if (!simAfterReply.doMove(reply)) continue
-
-            // Ищем второй важный объект стороны targetSide, который был защищён defenderSq,
-            // но после ответа defenderSq -> move.to остался под ударом или без защиты, либо возник мат в 1 ход.
-            val mateOpened = hasMateInOne(simAfterReply, moverSide)
-
-            var abandonedValuableSquare: Square? = null
-            for (sq in Square.values()) {
-                if (sq == Square.NONE || sq == move.to || sq == defenderSq) continue
-                val p = simAfterReply.getPiece(sq)
-                if (p == Piece.NONE || p.pieceSide != targetSide || p.pieceType == PieceType.KING) continue
-                val pieceVal = ChessMoveUtils.pieceValue(p.pieceType)
-                if (pieceVal < 300) continue
-
-                val attackedAfter = simAfterReply.squareAttackedBy(sq, moverSide)
-                if (attackedAfter == 0L) continue
-
-                val defendedBeforeMove = (boardBefore.squareAttackedBy(sq, targetSide) and defenderSq.bitboard) != 0L
-                if (!defendedBeforeMove) continue
-
-                val defendersNow = bitCount(simAfterReply.squareAttackedBy(sq, targetSide))
-                val attackersNow = bitCount(attackedAfter)
-                if (defendersNow == 0 || attackersNow > defendersNow) {
-                    abandonedValuableSquare = sq
-                    break
-                }
-            }
-
-            if (!mateOpened && abandonedValuableSquare == null) continue
-
-            // Если до хода move защитник уже держал одновременно и объект на move.to, и вторую цель -> перегрузка.
-            // Если move.to был пустым полем или жертвой под отвлекающий удар -> отвлечение.
-            if (isCaptureOnTarget && abandonedValuableSquare != null) {
-                val defendedTargetBefore = (boardBefore.squareAttackedBy(move.to, targetSide) and defenderSq.bitboard) != 0L
-                val otherProtectedValuables = Square.values().count { sq ->
-                    if (sq == Square.NONE || sq == defenderSq) return@count false
-                    val p = boardBefore.getPiece(sq)
-                    p != Piece.NONE && p.pieceSide == targetSide &&
-                        ChessMoveUtils.pieceValue(p.pieceType) >= 300 &&
-                        (boardBefore.squareAttackedBy(sq, targetSide) and defenderSq.bitboard) != 0L
-                }
-                if (defendedTargetBefore && otherProtectedValuables >= 2) {
-                    return TacticalMotif.OVERLOADING
-                }
-            }
-
-            return TacticalMotif.DEFLECTION
-        }
-
-        return null
-    }
-
-    private fun hasMateInOne(board: Board, attackerSide: Side): Boolean {
-        if (board.sideToMove != attackerSide) return false
-        val legal = runCatching { board.legalMoves() }.getOrDefault(emptyList())
-        for (m in legal) {
-            val sim = Board().apply { loadFromFen(board.fen) }
-            if (sim.doMove(m) && sim.isMated) return true
-        }
-        return false
-    }
+    ): TacticalMotif? = Companion.detectTacticalMotifForMove(board, moveUci, materialLoss)
 
     private fun detectMateMotif(
         startBoard: Board,
@@ -538,120 +385,6 @@ class SemanticMistakeAnalyzer(
         return null
     }
 
-    private fun isFork(
-        board: Board,
-        attackerSq: Square,
-        attacker: Piece,
-        targetSide: Side
-    ): Boolean {
-        val attackerVal = ChessMoveUtils.pieceValue(attacker.pieceType)
-        val targets = getPieceAttacks(board, attackerSq, attacker.pieceType, attacker.pieceSide)
-        var valuableTargets = 0
-
-        for (sq in targets) {
-            val target = board.getPiece(sq)
-            if (target == Piece.NONE || target.pieceSide != targetSide) continue
-            val targetVal = ChessMoveUtils.pieceValue(target.pieceType)
-            val isUndefended = board.squareAttackedBy(sq, targetSide) == 0L
-            val isValuable = target.pieceType == PieceType.KING ||
-                targetVal > attackerVal ||
-                (targetVal >= 300 && isUndefended)
-            if (isValuable) {
-                valuableTargets++
-            }
-        }
-
-        return valuableTargets >= 2
-    }
-
-    private fun detectPinOrSkewer(
-        board: Board,
-        attackerSq: Square,
-        attackerSide: Side,
-        targetSide: Side
-    ): TacticalMotif? {
-        val pieceType = board.getPiece(attackerSq).pieceType
-        val directions = when (pieceType) {
-            PieceType.BISHOP -> BISHOP_DIRS
-            PieceType.ROOK -> ROOK_DIRS
-            PieceType.QUEEN -> QUEEN_DIRS
-            else -> return null
-        }
-
-        for ((df, dr) in directions) {
-            var f = attackerSq.file.ordinal + df
-            var r = attackerSq.rank.ordinal + dr
-            var first: Piece? = null
-            var second: Piece? = null
-
-            while (f in 0..7 && r in 0..7) {
-                val p = board.getPiece(Square.squareAt(r * 8 + f))
-                if (p != Piece.NONE) {
-                    if (p.pieceSide == attackerSide) break
-                    if (first == null) {
-                        first = p
-                    } else {
-                        second = p
-                        break
-                    }
-                }
-                f += df
-                r += dr
-            }
-
-            if (first != null && second != null) {
-                val v1 = ChessMoveUtils.pieceValue(first.pieceType)
-                val v2 = ChessMoveUtils.pieceValue(second.pieceType)
-                if (v1 >= 300 && v2 > v1) {
-                    return TacticalMotif.PIN
-                }
-                if (v1 > v2 && v2 >= 300) {
-                    return TacticalMotif.SKEWER
-                }
-            }
-        }
-
-        return null
-    }
-
-    private fun isDiscoveredCheck(
-        boardAfter: Board,
-        movedTo: Square,
-        moverSide: Side,
-        targetSide: Side
-    ): Boolean {
-        if (!boardAfter.isKingAttacked) return false
-        val kingSq = boardAfter.getKingSquare(targetSide)
-        if (kingSq == null || kingSq == Square.NONE) return false
-        val checkersBitboard = boardAfter.squareAttackedBy(kingSq, moverSide)
-        // Есть хотя бы одна атакующая короля фигура НЕ на поле movedTo
-        return (checkersBitboard and movedTo.bitboard.inv()) != 0L
-    }
-
-    private fun isDiscoveredAttack(
-        boardBefore: Board,
-        boardAfter: Board,
-        movedFrom: Square,
-        movedTo: Square,
-        moverSide: Side,
-        targetSide: Side
-    ): Boolean {
-        val movedToMask = movedTo.bitboard.inv()
-        for (sq in Square.values()) {
-            if (sq == Square.NONE || sq == movedTo || sq == movedFrom) continue
-            val target = boardAfter.getPiece(sq)
-            if (target == Piece.NONE || target.pieceSide != targetSide) continue
-            if (ChessMoveUtils.pieceValue(target.pieceType) < 500) continue
-
-            val beforeAttackers = boardBefore.squareAttackedBy(sq, moverSide)
-            val afterOtherAttackers = boardAfter.squareAttackedBy(sq, moverSide) and movedToMask
-            if (beforeAttackers == 0L && afterOtherAttackers != 0L) {
-                return true
-            }
-        }
-        return false
-    }
-
     private fun givesCheckInLine(startBoard: Board, moves: List<String>): Boolean {
         val sim = Board().apply { loadFromFen(startBoard.fen) }
         for (uci in moves.take(3)) {
@@ -714,72 +447,6 @@ class SemanticMistakeAnalyzer(
         return score
     }
 
-    private fun getAdjacentSquares(sq: Square): List<Square> {
-        val result = mutableListOf<Square>()
-        for ((df, dr) in QUEEN_DIRS) {
-            val nf = sq.file.ordinal + df
-            val nr = sq.rank.ordinal + dr
-            if (nf in 0..7 && nr in 0..7) {
-                result.add(Square.squareAt(nr * 8 + nf))
-            }
-        }
-        return result
-    }
-
-    private fun getPieceAttacks(
-        board: Board,
-        from: Square,
-        type: PieceType,
-        side: Side
-    ): List<Square> {
-        val result = mutableListOf<Square>()
-        when (type) {
-            PieceType.KNIGHT -> {
-                for ((df, dr) in KNIGHT_DIRS) {
-                    val nf = from.file.ordinal + df
-                    val nr = from.rank.ordinal + dr
-                    if (nf in 0..7 && nr in 0..7) {
-                        result.add(Square.squareAt(nr * 8 + nf))
-                    }
-                }
-            }
-            PieceType.BISHOP -> addRayAttacks(board, from, BISHOP_DIRS, result)
-            PieceType.ROOK -> addRayAttacks(board, from, ROOK_DIRS, result)
-            PieceType.QUEEN -> addRayAttacks(board, from, QUEEN_DIRS, result)
-            PieceType.PAWN -> {
-                val dir = if (side == Side.WHITE) 1 else -1
-                val nr = from.rank.ordinal + dir
-                val f = from.file.ordinal
-                if (nr in 0..7) {
-                    if (f > 0) result.add(Square.squareAt(nr * 8 + f - 1))
-                    if (f < 7) result.add(Square.squareAt(nr * 8 + f + 1))
-                }
-            }
-            PieceType.KING -> result.addAll(getAdjacentSquares(from))
-            else -> {}
-        }
-        return result
-    }
-
-    private fun addRayAttacks(
-        board: Board,
-        from: Square,
-        dirs: List<Pair<Int, Int>>,
-        out: MutableList<Square>
-    ) {
-        for ((df, dr) in dirs) {
-            var nf = from.file.ordinal + df
-            var nr = from.rank.ordinal + dr
-            while (nf in 0..7 && nr in 0..7) {
-                val sq = Square.squareAt(nr * 8 + nf)
-                out.add(sq)
-                if (board.getPiece(sq) != Piece.NONE) break
-                nf += df
-                nr += dr
-            }
-        }
-    }
-
     private fun cappedCp(score: Int): Int {
         if (ChessEngine.isMateScore(score)) {
             return if (score > 0) 1500 else -1500
@@ -807,5 +474,392 @@ class SemanticMistakeAnalyzer(
             -2 to -1, -2 to 1, -1 to -2, -1 to 2,
             1 to -2, 1 to 2, 2 to -1, 2 to 1
         )
+
+        /**
+         * Статический определитель тактического мотива хода [moveUci] в позиции [board]
+         * (чистый chesslib без обращения к движку Stockfish).
+         */
+        fun detectStaticMotif(board: Board, moveUci: String): TacticalMotif? =
+            detectTacticalMotifForMove(board, moveUci, materialLoss = null)
+
+        fun isDoubleCheckMove(board: Board, moveUci: String): Boolean {
+            val move = ChessMoveUtils.parseUciMove(board, moveUci) ?: return false
+            val targetSide = board.sideToMove.flip()
+            val moverSide = board.sideToMove
+            val after = Board().apply {
+                loadFromFen(board.fen)
+                if (!doMove(move)) return false
+            }
+            if (!after.isKingAttacked) return false
+            val kingSq = after.getKingSquare(targetSide)
+            if (kingSq == null || kingSq == Square.NONE) return false
+            val checkers = after.squareAttackedBy(kingSq, moverSide)
+            return bitCount(checkers) >= 2
+        }
+
+        fun createsPinToKing(board: Board, move: Move, movingPiece: Piece): Boolean {
+            val pt = movingPiece.pieceType
+            if (pt != PieceType.BISHOP && pt != PieceType.ROOK && pt != PieceType.QUEEN) return false
+            val after = Board().apply { loadFromFen(board.fen) }
+            if (!after.doMove(move)) return false
+
+            val enemySide = movingPiece.pieceSide.flip()
+            val directions = buildList {
+                if (pt == PieceType.BISHOP || pt == PieceType.QUEEN) addAll(BISHOP_DIRS)
+                if (pt == PieceType.ROOK || pt == PieceType.QUEEN) addAll(ROOK_DIRS)
+            }
+            val startFile = move.to.file.ordinal
+            val startRank = move.to.rank.ordinal
+            for ((df, dr) in directions) {
+                var f = startFile + df
+                var r = startRank + dr
+                var seenEnemyPiece = false
+                while (f in 0..7 && r in 0..7) {
+                    val p = after.getPiece(Square.squareAt(r * 8 + f))
+                    if (p != Piece.NONE) {
+                        if (p.pieceSide != enemySide) break
+                        if (!seenEnemyPiece) {
+                            if (p.pieceType == PieceType.KING) break
+                            seenEnemyPiece = true
+                        } else {
+                            if (p.pieceType == PieceType.KING) return true
+                            break
+                        }
+                    }
+                    f += df
+                    r += dr
+                }
+            }
+            return false
+        }
+
+        private fun detectTacticalMotifForMove(
+            board: Board,
+            moveUci: String,
+            materialLoss: MaterialLoss?
+        ): TacticalMotif? {
+            if (moveUci.length < 4) return null
+            val moverSide = board.sideToMove
+            val targetSide = moverSide.flip()
+
+            val move = ChessMoveUtils.parseUciMove(board, moveUci) ?: return null
+            val movingPiece = board.getPiece(move.from)
+            if (movingPiece == Piece.NONE) return null
+
+            val targetBefore = board.getPiece(move.to)
+
+            val boardAfter = Board().apply {
+                loadFromFen(board.fen)
+                if (!doMove(move)) return null
+            }
+
+            val movedPieceAfter = boardAfter.getPiece(move.to)
+            val givesCheck = boardAfter.isKingAttacked
+
+            // 1. Вскрытый шах / вскрытое нападение
+            if (isDiscoveredCheck(boardAfter, move.to, moverSide, targetSide)) {
+                return TacticalMotif.DISCOVERED_CHECK
+            }
+            if (isDiscoveredAttack(board, boardAfter, move.from, move.to, moverSide, targetSide)) {
+                return TacticalMotif.DISCOVERED_ATTACK
+            }
+
+            // 2. Вилка: ходившая фигура одновременно атакует >= 2 ценные цели
+            if (movedPieceAfter != Piece.NONE && isFork(boardAfter, move.to, movedPieceAfter, targetSide)) {
+                return TacticalMotif.FORK
+            }
+
+            // 3. Перегрузка / Отвлечение защитника (проверяем до линейного рентгена, чтобы жертва на линии вроде Qa8 под Rxa8/Re8# не принималась за связку)
+            detectOverloadingOrDeflection(board, boardAfter, move, moverSide, targetSide)?.let {
+                return it
+            }
+
+            // 4. Связка / сквозной удар для дальнобойных фигур
+            if (movedPieceAfter.pieceType in SLIDING_TYPES) {
+                val rayMotif = detectPinOrSkewer(boardAfter, move.to, moverSide, targetSide)
+                if (rayMotif != null) return rayMotif
+            }
+
+            // 5. Взятие незащищённой фигуры
+            if (targetBefore != Piece.NONE && targetBefore.pieceSide == targetSide) {
+                val defendersAfter = bitCount(boardAfter.squareAttackedBy(move.to, targetSide))
+                if (defendersAfter == 0 && ChessMoveUtils.pieceValue(targetBefore.pieceType) >= 300) {
+                    return TacticalMotif.HANGING_PIECE
+                }
+                if (givesCheck && ChessMoveUtils.pieceValue(targetBefore.pieceType) >= 100) {
+                    return TacticalMotif.REMOVING_DEFENDER
+                }
+            }
+
+            // 6. Ловля фигуры
+            if (materialLoss?.wasTrapped == true) {
+                return if (materialLoss.pieceType == PieceType.QUEEN) {
+                    TacticalMotif.QUEEN_TRAP
+                } else {
+                    TacticalMotif.TRAPPED_PIECE
+                }
+            }
+
+            return null
+        }
+
+        private fun detectOverloadingOrDeflection(
+            boardBefore: Board,
+            boardAfter: Board,
+            move: Move,
+            moverSide: Side,
+            targetSide: Side
+        ): TacticalMotif? {
+            if (boardAfter.isMated) return null
+
+            val targetPieceBefore = boardBefore.getPiece(move.to)
+            val isCaptureOnTarget = targetPieceBefore != Piece.NONE && targetPieceBefore.pieceSide == targetSide
+
+            val replyCaptures = runCatching { boardAfter.legalMoves() }
+                .getOrDefault(emptyList())
+                .filter { it.to == move.to }
+
+            for (reply in replyCaptures) {
+                val defenderSq = reply.from
+                val defenderPiece = boardAfter.getPiece(defenderSq)
+                if (defenderPiece == Piece.NONE || defenderPiece.pieceSide != targetSide) continue
+
+                val simAfterReply = Board().apply { loadFromFen(boardAfter.fen) }
+                if (!simAfterReply.doMove(reply)) continue
+
+                val mateOpened = hasMateInOne(simAfterReply, moverSide)
+
+                var abandonedValuableSquare: Square? = null
+                for (sq in Square.values()) {
+                    if (sq == Square.NONE || sq == move.to || sq == defenderSq) continue
+                    val p = simAfterReply.getPiece(sq)
+                    if (p == Piece.NONE || p.pieceSide != targetSide || p.pieceType == PieceType.KING) continue
+                    val pieceVal = ChessMoveUtils.pieceValue(p.pieceType)
+                    if (pieceVal < 300) continue
+
+                    val attackedAfter = simAfterReply.squareAttackedBy(sq, moverSide)
+                    if (attackedAfter == 0L) continue
+
+                    val defendedBeforeMove = (boardBefore.squareAttackedBy(sq, targetSide) and defenderSq.bitboard) != 0L
+                    if (!defendedBeforeMove) continue
+
+                    val defendersNow = bitCount(simAfterReply.squareAttackedBy(sq, targetSide))
+                    val attackersNow = bitCount(attackedAfter)
+                    if (defendersNow == 0 || attackersNow > defendersNow) {
+                        abandonedValuableSquare = sq
+                        break
+                    }
+                }
+
+                if (!mateOpened && abandonedValuableSquare == null) continue
+
+                if (isCaptureOnTarget && abandonedValuableSquare != null) {
+                    val defendedTargetBefore = (boardBefore.squareAttackedBy(move.to, targetSide) and defenderSq.bitboard) != 0L
+                    val otherProtectedValuables = Square.values().count { sq ->
+                        if (sq == Square.NONE || sq == defenderSq) return@count false
+                        val p = boardBefore.getPiece(sq)
+                        p != Piece.NONE && p.pieceSide == targetSide &&
+                            ChessMoveUtils.pieceValue(p.pieceType) >= 300 &&
+                            (boardBefore.squareAttackedBy(sq, targetSide) and defenderSq.bitboard) != 0L
+                    }
+                    if (defendedTargetBefore && otherProtectedValuables >= 2) {
+                        return TacticalMotif.OVERLOADING
+                    }
+                }
+
+                return TacticalMotif.DEFLECTION
+            }
+
+            return null
+        }
+
+        private fun hasMateInOne(board: Board, attackerSide: Side): Boolean {
+            if (board.sideToMove != attackerSide) return false
+            val legal = runCatching { board.legalMoves() }.getOrDefault(emptyList())
+            for (m in legal) {
+                val sim = Board().apply { loadFromFen(board.fen) }
+                if (sim.doMove(m) && sim.isMated) return true
+            }
+            return false
+        }
+
+        private fun isFork(
+            board: Board,
+            attackerSq: Square,
+            attacker: Piece,
+            targetSide: Side
+        ): Boolean {
+            val attackerVal = ChessMoveUtils.pieceValue(attacker.pieceType)
+            val targets = getPieceAttacks(board, attackerSq, attacker.pieceType, attacker.pieceSide)
+            var valuableTargets = 0
+
+            for (sq in targets) {
+                val target = board.getPiece(sq)
+                if (target == Piece.NONE || target.pieceSide != targetSide) continue
+                val targetVal = ChessMoveUtils.pieceValue(target.pieceType)
+                val isUndefended = board.squareAttackedBy(sq, targetSide) == 0L
+                val isValuable = target.pieceType == PieceType.KING ||
+                    targetVal > attackerVal ||
+                    (targetVal >= 300 && isUndefended)
+                if (isValuable) {
+                    valuableTargets++
+                }
+            }
+
+            return valuableTargets >= 2
+        }
+
+        private fun detectPinOrSkewer(
+            board: Board,
+            attackerSq: Square,
+            attackerSide: Side,
+            @Suppress("UNUSED_PARAMETER") targetSide: Side
+        ): TacticalMotif? {
+            val pieceType = board.getPiece(attackerSq).pieceType
+            val directions = when (pieceType) {
+                PieceType.BISHOP -> BISHOP_DIRS
+                PieceType.ROOK -> ROOK_DIRS
+                PieceType.QUEEN -> QUEEN_DIRS
+                else -> return null
+            }
+
+            for ((df, dr) in directions) {
+                var f = attackerSq.file.ordinal + df
+                var r = attackerSq.rank.ordinal + dr
+                var first: Piece? = null
+                var second: Piece? = null
+
+                while (f in 0..7 && r in 0..7) {
+                    val p = board.getPiece(Square.squareAt(r * 8 + f))
+                    if (p != Piece.NONE) {
+                        if (p.pieceSide == attackerSide) break
+                        if (first == null) {
+                            first = p
+                        } else {
+                            second = p
+                            break
+                        }
+                    }
+                    f += df
+                    r += dr
+                }
+
+                if (first != null && second != null) {
+                    val v1 = ChessMoveUtils.pieceValue(first.pieceType)
+                    val v2 = ChessMoveUtils.pieceValue(second.pieceType)
+                    if (v1 >= 300 && v2 > v1) {
+                        return TacticalMotif.PIN
+                    }
+                    if (v1 > v2 && v2 >= 300) {
+                        return TacticalMotif.SKEWER
+                    }
+                }
+            }
+
+            return null
+        }
+
+        private fun isDiscoveredCheck(
+            boardAfter: Board,
+            movedTo: Square,
+            moverSide: Side,
+            targetSide: Side
+        ): Boolean {
+            if (!boardAfter.isKingAttacked) return false
+            val kingSq = boardAfter.getKingSquare(targetSide)
+            if (kingSq == null || kingSq == Square.NONE) return false
+            val checkersBitboard = boardAfter.squareAttackedBy(kingSq, moverSide)
+            return (checkersBitboard and movedTo.bitboard.inv()) != 0L
+        }
+
+        private fun isDiscoveredAttack(
+            boardBefore: Board,
+            boardAfter: Board,
+            movedFrom: Square,
+            movedTo: Square,
+            moverSide: Side,
+            targetSide: Side
+        ): Boolean {
+            val movedToMask = movedTo.bitboard.inv()
+            for (sq in Square.values()) {
+                if (sq == Square.NONE || sq == movedTo || sq == movedFrom) continue
+                val target = boardAfter.getPiece(sq)
+                if (target == Piece.NONE || target.pieceSide != targetSide) continue
+                if (ChessMoveUtils.pieceValue(target.pieceType) < 500) continue
+
+                val beforeAttackers = boardBefore.squareAttackedBy(sq, moverSide)
+                val afterOtherAttackers = boardAfter.squareAttackedBy(sq, moverSide) and movedToMask
+                if (beforeAttackers == 0L && afterOtherAttackers != 0L) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        private fun getAdjacentSquares(sq: Square): List<Square> {
+            val result = mutableListOf<Square>()
+            for ((df, dr) in QUEEN_DIRS) {
+                val nf = sq.file.ordinal + df
+                val nr = sq.rank.ordinal + dr
+                if (nf in 0..7 && nr in 0..7) {
+                    result.add(Square.squareAt(nr * 8 + nf))
+                }
+            }
+            return result
+        }
+
+        private fun getPieceAttacks(
+            board: Board,
+            from: Square,
+            type: PieceType,
+            side: Side
+        ): List<Square> {
+            val result = mutableListOf<Square>()
+            when (type) {
+                PieceType.KNIGHT -> {
+                    for ((df, dr) in KNIGHT_DIRS) {
+                        val nf = from.file.ordinal + df
+                        val nr = from.rank.ordinal + dr
+                        if (nf in 0..7 && nr in 0..7) {
+                            result.add(Square.squareAt(nr * 8 + nf))
+                        }
+                    }
+                }
+                PieceType.BISHOP -> addRayAttacks(board, from, BISHOP_DIRS, result)
+                PieceType.ROOK -> addRayAttacks(board, from, ROOK_DIRS, result)
+                PieceType.QUEEN -> addRayAttacks(board, from, QUEEN_DIRS, result)
+                PieceType.PAWN -> {
+                    val dir = if (side == Side.WHITE) 1 else -1
+                    val nr = from.rank.ordinal + dir
+                    val f = from.file.ordinal
+                    if (nr in 0..7) {
+                        if (f > 0) result.add(Square.squareAt(nr * 8 + f - 1))
+                        if (f < 7) result.add(Square.squareAt(nr * 8 + f + 1))
+                    }
+                }
+                PieceType.KING -> result.addAll(getAdjacentSquares(from))
+                else -> {}
+            }
+            return result
+        }
+
+        private fun addRayAttacks(
+            board: Board,
+            from: Square,
+            dirs: List<Pair<Int, Int>>,
+            out: MutableList<Square>
+        ) {
+            for ((df, dr) in dirs) {
+                var nf = from.file.ordinal + df
+                var nr = from.rank.ordinal + dr
+                while (nf in 0..7 && nr in 0..7) {
+                    val sq = Square.squareAt(nr * 8 + nf)
+                    out.add(sq)
+                    if (board.getPiece(sq) != Piece.NONE) break
+                    nf += df
+                    nr += dr
+                }
+            }
+        }
     }
 }

@@ -2,8 +2,14 @@
 package com.example.chessmentor.domain.usecase
 
 import android.util.Log
+import com.example.chessmentor.data.engine.ChessEngine
+import com.example.chessmentor.domain.analysis.SemanticMistakeAnalyzer
+import com.example.chessmentor.domain.analysis.TacticalMotif
+import com.example.chessmentor.domain.clustering.ExerciseClusterer
 import com.example.chessmentor.domain.entity.Exercise
 import com.example.chessmentor.domain.entity.ExerciseSource
+import com.example.chessmentor.domain.entity.Mistake
+import com.example.chessmentor.domain.entity.MistakeType
 import com.example.chessmentor.domain.entity.TacticalPattern
 import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.entity.User
@@ -13,6 +19,8 @@ import com.example.chessmentor.domain.repository.UserRepository
 import com.example.chessmentor.domain.training.CuratedExerciseBank
 import com.example.chessmentor.domain.training.ExerciseMetadata
 import com.example.chessmentor.domain.training.MasteryLevel
+import com.example.chessmentor.domain.training.PuzzleKind
+import com.example.chessmentor.domain.training.PuzzleQualityEvaluator
 import com.example.chessmentor.domain.training.ReviewCardState
 import com.example.chessmentor.domain.training.SessionPhase
 import com.example.chessmentor.domain.training.SpacedRepetitionScheduler
@@ -20,6 +28,9 @@ import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.domain.training.TrainingRatingCalculator
 import com.example.chessmentor.domain.training.TrainingSessionPlanner
 import com.example.chessmentor.domain.util.ChessMoveUtils
+import com.github.bhlangonijr.chesslib.Board
+import com.github.bhlangonijr.chesslib.Piece
+import com.github.bhlangonijr.chesslib.PieceType
 import kotlin.math.abs
 import kotlin.random.Random
 
@@ -41,7 +52,7 @@ class GetTrainingExerciseUseCase(
 ) {
     companion object {
         private const val TAG = "GetTrainingExercise"
-        private const val ZPD_HALF_WINDOW = 18
+        private const val ZPD_HALF_WINDOW = 14
     }
 
     data class Input(
@@ -128,7 +139,7 @@ class GetTrainingExerciseUseCase(
                 avoidPattern = input.avoidPattern,
                 nowMs = input.nowMs,
                 snapshot = snapshot,
-                difficultyOffset = -10
+                difficultyOffset = -8
             )
             TrainingMode.DeepCalculation -> selectDeepCalculationExercise(
                 user = user,
@@ -136,7 +147,7 @@ class GetTrainingExerciseUseCase(
                 avoidPattern = input.avoidPattern,
                 nowMs = input.nowMs,
                 snapshot = snapshot,
-                difficultyOffset = 10
+                difficultyOffset = 12
             )
             TrainingMode.MyMistakes -> selectUserMistakeExercise(user, userId, input.excludeExerciseId, input.avoidPattern, input.nowMs, snapshot)
             is TrainingMode.FromGame -> selectGameMistakeExercise(
@@ -223,7 +234,7 @@ class GetTrainingExerciseUseCase(
         snapshot: LearningSnapshot
     ): Result {
         val isOwn: (Exercise) -> Boolean = { it.sourceGameId != null }
-        val targetDiff = TrainingRatingCalculator.eloToDifficulty(user.rating)
+        val targetDiff = TrainingRatingCalculator.zpdTargetDifficulty(user.rating)
 
         // 1. Подошедшие к повторению задачи из своих партий (ошибки, 2-я попытка, с подсказкой, плановый SM-2)
         SpacedRepetitionScheduler.rankDueExercises(
@@ -250,7 +261,7 @@ class GetTrainingExerciseUseCase(
         }
 
         // 3. Резерв: создать из ещё не обработанной ошибки партии
-        createFallbackExerciseFromMistake(user, userId)?.let { fallback ->
+        createFallbackExerciseFromMistake(userId)?.let { fallback ->
             return buildNewSuccess(fallback, snapshot)
         }
 
@@ -276,7 +287,7 @@ class GetTrainingExerciseUseCase(
         nowMs: Long,
         snapshot: LearningSnapshot
     ): Result {
-        val targetDiff = TrainingRatingCalculator.eloToDifficulty(user.rating)
+        val targetDiff = TrainingRatingCalculator.zpdTargetDifficulty(user.rating)
 
         // 1. Все карточки, у которых наступил срок повторения (в первую очередь коробки 0..1)
         SpacedRepetitionScheduler.rankDueExercises(
@@ -389,7 +400,8 @@ class GetTrainingExerciseUseCase(
                 excludeId = excludeId,
                 avoidPattern = avoidPattern,
                 nowMs = nowMs,
-                snapshot = snapshot
+                snapshot = snapshot,
+                difficultyOffset = phase.difficultyOffset
             )
             SessionPhase.CORE_INTERLEAVED -> selectAdaptiveExercise(
                 user = user,
@@ -427,7 +439,7 @@ class GetTrainingExerciseUseCase(
         snapshot: LearningSnapshot,
         difficultyOffset: Int
     ): Result {
-        val targetDiff = (TrainingRatingCalculator.eloToDifficulty(user.rating) + difficultyOffset)
+        val targetDiff = (TrainingRatingCalculator.zpdTargetDifficulty(user.rating) + difficultyOffset)
             .coerceIn(10, 80)
         val maxVisionDiff = (targetDiff + 18).coerceAtMost(85)
         val visionFilter: (Exercise) -> Boolean = { ex ->
@@ -497,7 +509,7 @@ class GetTrainingExerciseUseCase(
         snapshot: LearningSnapshot,
         difficultyOffset: Int
     ): Result {
-        val targetDiff = (TrainingRatingCalculator.eloToDifficulty(user.rating) + difficultyOffset)
+        val targetDiff = (TrainingRatingCalculator.zpdTargetDifficulty(user.rating) + difficultyOffset)
             .coerceIn(30, 95)
         val deepFilter: (Exercise) -> Boolean = { ex -> ex.solutionMoves.size >= 5 }
         val multiMoveFilter: (Exercise) -> Boolean = { ex -> ex.solutionMoves.size >= 3 }
@@ -638,12 +650,14 @@ class GetTrainingExerciseUseCase(
         excludeId: Long,
         avoidPattern: String?,
         nowMs: Long,
-        snapshot: LearningSnapshot
+        snapshot: LearningSnapshot,
+        difficultyOffset: Int = 0
     ): Result {
         val defenseFilter: (Exercise) -> Boolean = { ex ->
             ExerciseMetadata.isDefensiveGoal(ex) || ex.theme == TacticalTheme.KING_SAFETY
         }
-        val targetDiff = TrainingRatingCalculator.eloToDifficulty(user.rating)
+        val targetDiff = (TrainingRatingCalculator.zpdTargetDifficulty(user.rating) + difficultyOffset)
+            .coerceIn(10, 95)
 
         SpacedRepetitionScheduler.rankDueExercises(
             accessibleExercises = snapshot.accessible,
@@ -691,7 +705,7 @@ class GetTrainingExerciseUseCase(
         excludeId: Long,
         snapshot: LearningSnapshot
     ): Result {
-        val targetDiff = TrainingRatingCalculator.eloToDifficulty(user.rating)
+        val targetDiff = TrainingRatingCalculator.zpdTargetDifficulty(user.rating)
         val unseenPool = snapshot.accessible.filter { ex ->
             val id = ex.id ?: return@filter false
             id != excludeId &&
@@ -769,7 +783,7 @@ class GetTrainingExerciseUseCase(
         snapshot: LearningSnapshot
     ): Result {
         val themeFilter: (Exercise) -> Boolean = { it.theme == theme }
-        val targetDiff = TrainingRatingCalculator.eloToDifficulty(user.rating)
+        val targetDiff = TrainingRatingCalculator.zpdTargetDifficulty(user.rating)
 
         // 1. Подошедшие к повтору задачи выбранной темы
         SpacedRepetitionScheduler.rankDueExercises(
@@ -818,7 +832,7 @@ class GetTrainingExerciseUseCase(
         nowMs: Long,
         snapshot: LearningSnapshot
     ): Result {
-        val targetDiff = TrainingRatingCalculator.eloToDifficulty(user.rating)
+        val targetDiff = TrainingRatingCalculator.zpdTargetDifficulty(user.rating)
 
         // 1. Отложенное чередование мотива (Interleaved Practice): только среди новых или подошедших по сроку
         if (!preferredPattern.isNullOrBlank()) {
@@ -875,7 +889,7 @@ class GetTrainingExerciseUseCase(
         }
 
         // 4. Резерв: если есть ещё не сконвертированные ошибки партий
-        createFallbackExerciseFromMistake(user, userId)?.let { fallback ->
+        createFallbackExerciseFromMistake(userId)?.let { fallback ->
             return buildNewSuccess(fallback, snapshot)
         }
 
@@ -966,26 +980,63 @@ class GetTrainingExerciseUseCase(
         completedRatedSittings = snapshot.completedRatedSittings
     )
 
-    private suspend fun createFallbackExerciseFromMistake(user: User, userId: Long): Exercise? {
+    private suspend fun createFallbackExerciseFromMistake(userId: Long): Exercise? {
         val candidateMistakes = mistakeRepository.findByUserId(userId).asReversed()
         for (mistake in candidateMistakes) {
-            if (!GenerateExercisesFromMistakesUseCase.isMistakeSuitableForExercise(mistake, null)) {
+            val puzzleKind = PuzzleQualityEvaluator.classifyMistake(mistake, null)
+            if (puzzleKind == PuzzleKind.REJECTED) {
                 continue
             }
             val fen = mistake.fenBefore?.trim().takeIf { !it.isNullOrEmpty() } ?: continue
             if (exerciseRepository.findUserExerciseByFen(userId, fen) != null) continue
+            val board = runCatching { Board().apply { loadFromFen(fen) } }.getOrNull() ?: continue
             val solutionUci = ChessMoveUtils.sanOrUciToUci(mistake.bestMove, fen) ?: continue
+            val firstMove = ChessMoveUtils.parseUciMove(board, solutionUci) ?: continue
+            val solutionMoves = listOf(solutionUci)
 
-            val targetDiff = TrainingRatingCalculator.eloToDifficulty(user.rating)
+            val isDefensive = puzzleKind == PuzzleKind.DEFENSIVE_RESOURCE || mistake.themeId in setOf(16L, 17L)
+            val pattern = classifyFallbackPattern(board, firstMove, solutionMoves, mistake, isDefensive)
+            val theme = if (isDefensive &&
+                pattern != TacticalPattern.BACK_RANK_MATE &&
+                pattern != TacticalPattern.SMOTHERED_MATE
+            ) {
+                TacticalTheme.KING_SAFETY
+            } else {
+                themeForPattern(pattern)
+            }
+
+            val difficulty = ExerciseClusterer.calculateDifficulty(
+                board = board,
+                pattern = pattern,
+                solutionMoves = solutionMoves,
+                materialGain = mistake.evaluationLoss.coerceAtMost(1200)
+            )
+            val clusterId = ExerciseClusterer.generateClusterId(
+                board = board,
+                pattern = pattern,
+                solutionMove = solutionUci,
+                difficultyRating = difficulty
+            )
+            val baseFeatures = ExerciseClusterer.extractFeatures(
+                board = board,
+                pattern = pattern,
+                solutionMove = solutionUci
+            )
+            val features = if (isDefensive) {
+                baseFeatures + ExerciseMetadata.defensiveGoalTag()
+            } else {
+                baseFeatures
+            }
+
             val newExercise = Exercise(
                 fenPosition = fen,
-                solutionMoves = listOf(solutionUci),
-                tacticalPattern = TacticalPattern.MIXED,
-                patternClusterId = "MIXED_MEDIUM",
-                difficultyRating = targetDiff,
-                patternFeatures = emptyList(),
-                theme = TacticalTheme.TACTIC,
-                rating = TrainingRatingCalculator.difficultyToElo(targetDiff),
+                solutionMoves = solutionMoves,
+                tacticalPattern = pattern,
+                patternClusterId = clusterId,
+                difficultyRating = difficulty,
+                patternFeatures = features,
+                theme = theme,
+                rating = TrainingRatingCalculator.difficultyToElo(difficulty),
                 createdFrom = ExerciseSource.MISTAKE,
                 sourceGameId = mistake.gameId,
                 sourceMoveNumber = mistake.moveNumber
@@ -993,5 +1044,118 @@ class GetTrainingExerciseUseCase(
             return exerciseRepository.saveExercise(newExercise)
         }
         return null
+    }
+
+    private fun classifyFallbackPattern(
+        board: Board,
+        firstMove: com.github.bhlangonijr.chesslib.move.Move,
+        solutionMoves: List<String>,
+        mistake: Mistake,
+        isDefensive: Boolean
+    ): TacticalPattern {
+        val after = Board().apply { loadFromFen(board.fen) }
+        val movingPiece = board.getPiece(firstMove.from)
+        if (after.doMove(firstMove)) {
+            if (after.isMated) {
+                return if (movingPiece.pieceType == PieceType.KNIGHT) {
+                    TacticalPattern.SMOTHERED_MATE
+                } else {
+                    TacticalPattern.BACK_RANK_MATE
+                }
+            }
+            if (isDefensive && after.isStaleMate) {
+                return TacticalPattern.STALEMATE_TRICK
+            }
+        }
+
+        if (isDefensive) {
+            return if (PuzzleQualityEvaluator.isCounterAttackingDefense(board, solutionMoves)) {
+                TacticalPattern.COUNTER_ATTACK
+            } else {
+                TacticalPattern.DEFENSIVE_MOVE
+            }
+        }
+
+        if (firstMove.promotion != Piece.NONE) {
+            return TacticalPattern.PAWN_BREAKTHROUGH
+        }
+
+        val uci = ChessMoveUtils.moveToUci(firstMove)
+        if (SemanticMistakeAnalyzer.isDoubleCheckMove(board, uci)) {
+            return TacticalPattern.DOUBLE_CHECK
+        }
+
+        val motif = SemanticMistakeAnalyzer.detectStaticMotif(board, uci)
+        if (motif != null) {
+            if (motif == TacticalMotif.FORK) {
+                return when (movingPiece.pieceType) {
+                    PieceType.KNIGHT -> TacticalPattern.FORK_KNIGHT
+                    PieceType.BISHOP -> TacticalPattern.FORK_BISHOP
+                    PieceType.ROOK -> TacticalPattern.FORK_ROOK
+                    PieceType.QUEEN -> TacticalPattern.FORK_QUEEN
+                    PieceType.PAWN -> TacticalPattern.FORK_PAWN
+                    else -> TacticalPattern.FORK_KNIGHT
+                }
+            }
+            if (motif == TacticalMotif.PIN && SemanticMistakeAnalyzer.createsPinToKing(board, firstMove, movingPiece)) {
+                return TacticalPattern.PIN_ABSOLUTE
+            }
+            return TacticalPattern.fromMotif(motif)
+        }
+
+        return when (mistake.themeId) {
+            1L -> TacticalPattern.FORK_KNIGHT
+            2L -> TacticalPattern.PIN_RELATIVE
+            3L -> TacticalPattern.SKEWER
+            4L -> TacticalPattern.DISCOVERED_ATTACK
+            5L -> TacticalPattern.DOUBLE_CHECK
+            6L -> TacticalPattern.REMOVING_DEFENDER
+            7L -> TacticalPattern.BACK_RANK_MATE
+            14L, 15L -> TacticalPattern.ENDGAME_TECHNIQUE
+            16L, 17L -> TacticalPattern.DEFENSIVE_MOVE
+            else -> when {
+                ChessEngine.isMateScore(mistake.evaluationLoss) || mistake.evaluationLoss > 50_000 ->
+                    TacticalPattern.BACK_RANK_MATE
+                board.isKingAttacked -> TacticalPattern.DEFENSIVE_MOVE
+                mistake.moveNumber >= 38 -> TacticalPattern.ENDGAME_TECHNIQUE
+                mistake.mistakeType == MistakeType.BLUNDER -> TacticalPattern.CALCULATION
+                mistake.mistakeType == MistakeType.INACCURACY -> TacticalPattern.POSITIONAL
+                else -> TacticalPattern.MIXED
+            }
+        }
+    }
+
+    private fun themeForPattern(pattern: TacticalPattern): TacticalTheme = when (pattern) {
+        TacticalPattern.FORK_KNIGHT,
+        TacticalPattern.FORK_BISHOP,
+        TacticalPattern.FORK_ROOK,
+        TacticalPattern.FORK_QUEEN,
+        TacticalPattern.FORK_PAWN,
+        TacticalPattern.DECOY -> TacticalTheme.FORK
+
+        TacticalPattern.PIN_ABSOLUTE,
+        TacticalPattern.PIN_RELATIVE,
+        TacticalPattern.SKEWER -> TacticalTheme.PIN
+
+        TacticalPattern.DISCOVERED_ATTACK,
+        TacticalPattern.DISCOVERED_CHECK,
+        TacticalPattern.DOUBLE_CHECK -> TacticalTheme.DISCOVERED_ATTACK
+
+        TacticalPattern.BACK_RANK_MATE,
+        TacticalPattern.SMOTHERED_MATE,
+        TacticalPattern.ANASTASIA_MATE,
+        TacticalPattern.ARABIAN_MATE,
+        TacticalPattern.BODEN_MATE -> TacticalTheme.MATE
+
+        TacticalPattern.HANGING_PIECE,
+        TacticalPattern.TRAPPED_PIECE,
+        TacticalPattern.QUEEN_TRAP -> TacticalTheme.MATERIAL_LOSS
+
+        TacticalPattern.DEFENSIVE_MOVE,
+        TacticalPattern.COUNTER_ATTACK,
+        TacticalPattern.STALEMATE_TRICK,
+        TacticalPattern.PERPETUAL_CHECK -> TacticalTheme.KING_SAFETY
+
+        else -> TacticalTheme.TACTIC
     }
 }

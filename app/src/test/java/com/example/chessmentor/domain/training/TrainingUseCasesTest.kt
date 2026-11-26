@@ -1054,4 +1054,64 @@ class TrainingUseCasesTest {
         )
         assertTrue(defExhausted is GetTrainingExerciseUseCase.Result.NoSuitableExercises)
     }
+
+    @Test
+    fun zpdSelection_prefers75PercentTargetAndClassifiesFallbackMistakeSemantically() = runBlocking {
+        val userRepo = FakeUserRepo()
+        val gameRepo = FakeGameRepo()
+        val mistakeRepo = FakeMistakeRepo(gameRepo)
+        val exerciseRepo = FakeExerciseRepo(gameRepo)
+
+        val user = userRepo.save(User(nickname = "ZpdPlayer", email = "zpd@test.local", passwordHash = "h", rating = 1600))
+        val uid = user.id!!
+        val game = gameRepo.save(
+            Game(userId = uid, pgnData = "1. e4 e5 *", playerColor = ChessColor.WHITE, playedAt = 1_000L)
+        )
+
+        // Два упражнения с разной сложностью: 38 (точный 75%-ZPD центр для 1600) и 55 (старый 50%-центр)
+        val exZpd = exerciseRepo.saveExercise(
+            Exercise(
+                fenPosition = "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+                solutionMoves = listOf("d1d8"),
+                tacticalPattern = TacticalPattern.BACK_RANK_MATE,
+                patternClusterId = "BACK_RANK_MATE_MEDIUM",
+                difficultyRating = 38,
+                theme = TacticalTheme.MATE
+            )
+        )
+        exerciseRepo.saveExercise(
+            Exercise(
+                fenPosition = "6k1/5ppp/8/8/8/8/5PPP/2R3K1 w - - 0 1",
+                solutionMoves = listOf("c1c8"),
+                tacticalPattern = TacticalPattern.BACK_RANK_MATE,
+                patternClusterId = "BACK_RANK_MATE_MEDIUM",
+                difficultyRating = 55,
+                theme = TacticalTheme.MATE
+            )
+        )
+
+        val selector = GetTrainingExerciseUseCase(userRepo, mistakeRepo, exerciseRepo)
+        val picked = selector.execute(GetTrainingExerciseUseCase.Input(userId = uid, mode = TrainingMode.All))
+            as GetTrainingExerciseUseCase.Result.Success
+        assertEquals(exZpd.id, picked.exercise.id)
+
+        // Резервная генерация из ошибки без themeId=1..7 классифицирует вилку конём семантически (не MIXED/TACTIC)
+        mistakeRepo.save(
+            Mistake(
+                gameId = game.id!!,
+                themeId = 99L,
+                moveNumber = 18,
+                color = ChessColor.WHITE,
+                evaluationLoss = 450,
+                mistakeType = MistakeType.BLUNDER,
+                bestMove = "Nc7+",
+                userMove = "Nf4",
+                fenBefore = "q3k3/ppp2ppp/8/3N4/8/8/PPP2PPP/6K1 w - - 0 1"
+            )
+        )
+        val mistakePicked = selector.execute(GetTrainingExerciseUseCase.Input(userId = uid, mode = TrainingMode.MyMistakes))
+            as GetTrainingExerciseUseCase.Result.Success
+        assertEquals(TacticalPattern.FORK_KNIGHT, mistakePicked.exercise.tacticalPattern)
+        assertEquals(TacticalTheme.FORK, mistakePicked.exercise.theme)
+    }
 }

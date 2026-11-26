@@ -5,9 +5,15 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
+import com.example.chessmentor.domain.training.SessionSummary
+import com.example.chessmentor.domain.training.TrainingMode
 import com.example.chessmentor.presentation.ui.components.screen.BottomControlPanel
+import com.example.chessmentor.presentation.ui.components.screen.SessionSummaryCard
+import com.example.chessmentor.presentation.ui.components.screen.SmartSessionProgressBar
 import com.example.chessmentor.presentation.ui.components.screen.SolutionResultInlineCard
 import com.example.chessmentor.presentation.ui.components.screen.UnifiedFeedbackPanel
+import com.example.chessmentor.presentation.viewmodel.SessionStats
+import com.example.chessmentor.presentation.viewmodel.SmartSessionStepStatus
 import com.example.chessmentor.presentation.viewmodel.TrainingUiState
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -99,5 +105,63 @@ class TrainingFeedbackTest {
         ui.onNodeWithText("Пропустить").assertDoesNotExist()
         ui.onNodeWithText("Продолжить задачу").assertIsDisplayed().performClick()
         assertTrue(resumed)
+    }
+
+    @Test fun smartSessionProgressBar_displaysSessionScopedCountsNotGlobalCleanCount() {
+        ui.setContent {
+            SmartSessionProgressBar(
+                TrainingUiState(
+                    mode = TrainingMode.SmartSession,
+                    sessionStepNumber = 5,
+                    sessionTotalSteps = 10,
+                    sessionCleanCount = 2,
+                    sessionFailedCount = 1,
+                    sessionSkippedCount = 1,
+                    sessionStepStatuses = listOf(
+                        SmartSessionStepStatus.CLEAN,
+                        SmartSessionStepStatus.CLEAN,
+                        SmartSessionStepStatus.FAILED,
+                        SmartSessionStepStatus.SKIPPED,
+                        SmartSessionStepStatus.CURRENT,
+                        SmartSessionStepStatus.PENDING,
+                        SmartSessionStepStatus.PENDING,
+                        SmartSessionStepStatus.PENDING,
+                        SmartSessionStepStatus.PENDING,
+                        SmartSessionStepStatus.PENDING
+                    ),
+                    sessionStats = SessionStats(cleanFirstTrySolved = 99)
+                )
+            )
+        }
+        ui.onNodeWithText("Задача 5 из 10", substring = true).assertIsDisplayed()
+        ui.onNodeWithText("Чисто: 2 · Ошибок: 1 · Проп.: 1").assertIsDisplayed()
+        ui.onNodeWithText("Чисто: 99", substring = true).assertDoesNotExist()
+    }
+
+    @Test fun sessionSummaryCard_reportsCleanFailedAndSkippedDistinctlyWithoutCallingFailuresSolved() {
+        ui.setContent {
+            SessionSummaryCard(
+                summary = SessionSummary(
+                    totalExercises = 10,
+                    cleanFirstTryCount = 2,
+                    solvedCount = 2,
+                    failedCount = 5,
+                    skippedCount = 3,
+                    impulsiveMistakeCount = 1,
+                    firstTryAccuracyPercent = 29,
+                    averageTimeSeconds = 18,
+                    netRatingDelta = -10,
+                    missedPatternNames = listOf("Вилка конём"),
+                    headline = "Сложная сессия — точки роста найдены",
+                    coachTakeaway = "Пропущенные без хода позиции (3) не засчитаны как ошибки и не отмечены слабыми темами."
+                ),
+                onRestartSession = {},
+                onSwitchToFreeTraining = {},
+                onPracticeWeakPatterns = {}
+            )
+        }
+        ui.onNodeWithText("решено 7", substring = true).assertDoesNotExist()
+        ui.onNodeWithText("Попыток: 7 из 10 · чисто: 2, с ошибками: 5, пропущено: 3").assertIsDisplayed()
+        ui.onNodeWithText("Поспешных ходов: 1").assertIsDisplayed()
     }
 }

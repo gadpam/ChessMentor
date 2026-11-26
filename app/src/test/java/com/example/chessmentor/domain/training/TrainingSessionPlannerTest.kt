@@ -139,4 +139,38 @@ class TrainingSessionPlannerTest {
         assertEquals(0, allSkipped.firstTryAccuracyPercent)
         assertEquals("Все позиции пропущены", allSkipped.headline)
     }
+
+    @Test
+    fun buildSessionSummary_capsHeadlineWhenMajoritySkippedAndChecksPhaseOffsets() {
+        val majoritySkipped = TrainingSessionPlanner.buildSessionSummary(
+            totalExercises = 10,
+            cleanFirstTryCount = 4,
+            solvedTotalCount = 4,
+            failedOrRevealedCount = 0,
+            impulsiveMistakeCount = 0,
+            netRatingDelta = 20,
+            totalTimeSeconds = 40,
+            missedPatternNames = emptyList(),
+            skippedCount = 6
+        )
+        assertEquals(100, majoritySkipped.firstTryAccuracyPercent)
+        assertEquals("Частичная сессия (4 из 10)", majoritySkipped.headline)
+
+        val earlyAborted = TrainingSessionPlanner.buildSessionSummary(
+            totalExercises = 10,
+            cleanFirstTryCount = 2,
+            solvedTotalCount = 2,
+            failedOrRevealedCount = 0,
+            impulsiveMistakeCount = 0,
+            netRatingDelta = 10,
+            totalTimeSeconds = 12,
+            missedPatternNames = emptyList(),
+            skippedCount = 8
+        )
+        assertEquals("Сессия завершена досрочно", earlyAborted.headline)
+        assertFalse(earlyAborted.coachTakeaway.contains("режим «Расчёт»"))
+
+        assertEquals(-10, SessionPhase.WARMUP.difficultyOffset)
+        assertEquals(12, SessionPhase.DEEP_CALCULATION.difficultyOffset)
+    }
 }

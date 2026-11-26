@@ -6,6 +6,8 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverters
 import com.example.chessmentor.data.local.TypeConverters as MyConverters
+import kotlin.math.ln
+import kotlin.math.roundToInt
 
 @Entity(
     tableName = "exercises",
@@ -67,12 +69,24 @@ data class Exercise(
     val successRate: Int = 0
 ) {
     fun getEffectiveDifficulty(): Int {
-        if (timesShown < 3) return difficultyRating
+        val nominal = difficultyRating.coerceIn(0, 100)
+        if (timesShown <= 0) return nominal
 
-        return when {
-            successRate > 80 -> (difficultyRating * 0.8).toInt()
-            successRate < 30 -> (difficultyRating * 1.2).toInt()
-            else -> difficultyRating
+        val observedSolved = if (timesSolved > 0 || successRate == 0) {
+            timesSolved.coerceIn(0, timesShown)
+        } else {
+            ((successRate / 100.0) * timesShown).roundToInt().coerceIn(0, timesShown)
         }
+
+        // Байесовская калибровка по Бета-биномиальной модели:
+        // априор Beta(4.8, 3.2) со средним p0 = 0.60 и весом 8 попыток плавно сдвигает
+        // номинальную сложность по логит-шкале Эло (16 Эло = 1 пункт сложности).
+        val priorMean = 0.60
+        val priorWeight = 8.0
+        val alpha0 = priorMean * priorWeight
+        val postMean = (observedSolved + alpha0) / (timesShown + priorWeight)
+        val logitShift = ln(postMean / (1.0 - postMean)) - ln(priorMean / (1.0 - priorMean))
+        val deltaDiff = (-(25.0 / ln(10.0)) * logitShift).roundToInt().coerceIn(-30, 30)
+        return (nominal + deltaDiff).coerceIn(0, 100)
     }
 }
