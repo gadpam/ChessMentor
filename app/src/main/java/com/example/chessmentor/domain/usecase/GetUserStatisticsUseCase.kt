@@ -386,7 +386,7 @@ class GetUserStatisticsUseCase(
             exercisesById = exercisesById,
             attempts = scopedAttempts,
             playerElo = playerElo,
-            nowMs = input.nowMs
+            nowMs = nowMs
         )
         val weakPatterns = mastery
             .filter { it.level == MasteryLevel.WEAK || (it.level == MasteryLevel.LEARNING && it.masteryPercent < 68) }

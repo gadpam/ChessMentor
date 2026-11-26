@@ -144,8 +144,8 @@ class TrainingFeedbackTest {
                 summary = SessionSummary(
                     totalExercises = 10,
                     cleanFirstTryCount = 2,
-                    solvedCount = 2,
-                    failedCount = 5,
+                    solvedTotalCount = 2,
+                    failedOrRevealedCount = 5,
                     skippedCount = 3,
                     impulsiveMistakeCount = 1,
                     firstTryAccuracyPercent = 29,

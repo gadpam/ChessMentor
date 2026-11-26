@@ -841,9 +841,9 @@ internal fun SmartSessionProgressBar(uiState: TrainingUiState) {
         ) {
             statuses.forEach { status ->
                 val color = when (status) {
-                    SmartSessionStepStatus.CLEAN -> palette.ratingUp
-                    SmartSessionStepStatus.SOLVED_WITH_ASSIST -> palette.warning
-                    SmartSessionStepStatus.FAILED -> palette.ratingDown
+                    SmartSessionStepStatus.CLEAN -> palette.positive
+                    SmartSessionStepStatus.SOLVED_WITH_ASSIST -> palette.caution
+                    SmartSessionStepStatus.FAILED -> palette.negative
                     SmartSessionStepStatus.SKIPPED -> MaterialTheme.colorScheme.outlineVariant
                     SmartSessionStepStatus.CURRENT -> MaterialTheme.colorScheme.primary
                     SmartSessionStepStatus.PENDING -> MaterialTheme.colorScheme.surfaceVariant
@@ -902,9 +902,9 @@ internal fun SessionSummaryCard(
                 val subtitleText = when {
                     attemptedCount == 0 -> "Все ${summary.totalExercises} задач пропущены без попыток"
                     summary.skippedCount > 0 ->
-                        "Попыток: $attemptedCount из ${summary.totalExercises} · чисто: ${summary.cleanFirstTryCount}, с ошибками: ${summary.failedCount}, пропущено: ${summary.skippedCount}"
-                    summary.failedCount > 0 ->
-                        "Сессия из ${summary.totalExercises} задач: чисто ${summary.cleanFirstTryCount}, с ошибками ${summary.failedCount}"
+                        "Попыток: $attemptedCount из ${summary.totalExercises} · чисто: ${summary.cleanFirstTryCount}, с ошибками: ${summary.failedOrRevealedCount}, пропущено: ${summary.skippedCount}"
+                    summary.failedOrRevealedCount > 0 ->
+                        "Сессия из ${summary.totalExercises} задач: чисто ${summary.cleanFirstTryCount}, с ошибками ${summary.failedOrRevealedCount}"
                     else ->
                         "Сессия из ${summary.totalExercises} задач завершена: чисто ${summary.cleanFirstTryCount} из ${summary.totalExercises}"
                 }
